@@ -167,6 +167,19 @@ void crDeform(inout vec3 p, inout vec3 n) {
     p.x += 0.02 * sin(ph * 0.4) * (p.y + 0.4);
     if (isMedian) p.x += aG.w * 0.035 * sin(ph * 14.0 - aG.z * 10.0);
     if (isPaired) p.y += aG.w * 0.02 * sin(ph * 12.0);
+  } else if (mode > 10.5) {
+    // siphonophore: the long stem undulates slowly in 3D (lateral + vertical travelling waves, uniform along the
+    // colony); the feeding tentacles trail back, sway out of phase and hook at the tips
+    float arg = ph - K * tt, arg2 = ph * 0.73 - K * 0.8 * tt + 1.3;
+    p.x += A * sin(arg) + bend * (tt - 0.5) * (tt - 0.5);
+    p.y += A * 0.55 * sin(arg2);
+    n.z -= n.x * A * K * cos(arg) + n.y * A * 0.44 * K * cos(arg2);
+    if (isArm) {
+      float d = aG.w, idx = aG.z;
+      p.x += d * (0.25 * sin(ph * 2.1 + idx * 1.93 - d * 40.0) + 0.1 * sin(idx * 2.7));
+      p.z -= d * (0.3 + 0.18 * sin(ph * 1.3 + idx * 1.1));
+      p.y += d * d * 3.0 * (0.5 + 0.5 * sin(ph * 1.7 + idx * 0.77));
+    }
   } else {
     // walkers (crabs, lobsters, isopods, sea pigs; local +y up): legs step in a metachronal wave
     // (left / right in antiphase), the body bobs with the stride, antennae and papillae sway
@@ -505,6 +518,28 @@ const FRAG_SHEEN = /* glsl */`
   env += uSunColor * uSunScatter * (0.6 * up * up * up + 0.45 * pow(max(dot(rd, uSunDir), 0.0), 8.0)) * exp(-uLightSigma * dB) * sk;
   vec3 irid = 0.88 + 0.12 * cos(6.2831853 * (nv * 1.4 + vec3(0.0, 0.33, 0.67)));
   reflectedLight.indirectSpecular += env * irid * crSheen * (0.3 + 0.7 * fr) * 1.5;
+  if (uLamp > 0.001) {
+    // ROV lamps: white bellies and silver flanks (albedo ~0.85, several times the reef's) facing the lamps clipped to
+    // glowing white blobs. Under the lamps an animal's direct light gets a soft knee on bright albedo only (darker and
+    // colourful skin keeps its response), less wet-skin glare, and a soft shoulder on the sum (hue kept; the
+    // emissive glow of photophores is untouched)
+    float crA = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+    if (crA > 0.3) reflectedLight.directDiffuse *= mix(1.0, (0.3 + (crA - 0.3) / (1.0 + (crA - 0.3) * 8.0)) / crA, uLamp);
+    reflectedLight.directSpecular *= 1.0 / (1.0 + 1.5 * uLamp);
+    // the lamps sit beside the lens: silvery flanks turned toward the camera mirror them back (hatchetfish, lanternfish,
+    // jacks in the night beams) - bodies read as more than their photophore dots
+    float crD = length(vViewPosition);
+    reflectedLight.directSpecular += vec3(1.0, 0.94, 0.85) * uLamp * 14.0 * exp(-uSigma * crD) / (1.0 + 0.04 * crD * crD)
+      * (crD * crD / (crD * crD + 5.0)) * crSheen * pow(nv, 12.0) * 0.12;
+    // the shoulder tops out a little below white on screen: its ceiling follows the post exposure (main.js:
+    // 1 + 1.4 glow + 0.4 (1 - sun)), which runs high in the dark zones where nothing else is lit
+    float crL = dot(reflectedLight.directDiffuse + reflectedLight.directSpecular, vec3(0.2126, 0.7152, 0.0722));
+    float crMax = 0.55 / (1.0 + 1.4 * uGlow + 0.4 * (1.0 - min(uSunScatter, 1.0))), crKnee = crMax * 0.4;
+    if (crL > crKnee) {
+      float crK = mix(1.0, (crKnee + (crL - crKnee) / (1.0 + (crL - crKnee) / (crMax - crKnee))) / crL, uLamp);
+      reflectedLight.directDiffuse *= crK; reflectedLight.directSpecular *= crK;
+    }
+  }
 }
 `;
 
@@ -524,7 +559,12 @@ function patchShader(shader, jelly) {
     }
   `;
   const emis = finT + (jelly
-    ? `totalEmissiveRadiance += crGlow;
+    ? `{ // daylight scattered through the thin bell: rims glow against the water (keeps translucent bells readable in murk)
+         float fr0 = 1.0 - abs(dot(normalize(vViewPosition), normal));
+         float dBj = max(0.0, uSurfaceY - vWPos.y);
+         crGlow += diffuseColor.rgb * uSunColor * uSunScatter * exp(-uLightSigma * dBj) * skyVis(vWPos) * (0.1 + 0.55 * fr0 * fr0);
+       }
+       totalEmissiveRadiance += crGlow;
        {
          float fres = 1.0 - abs(dot(normalize(vViewPosition), normal));
          float baseA = vPat2.z;

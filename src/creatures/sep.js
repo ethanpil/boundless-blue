@@ -12,21 +12,40 @@ import { PART } from './build.js';
 const YAXIS = new Set(['jelly', 'dumbo', 'cassiopea', 'octopus', 'seahorse']);
 // local support directions for the terrain check: nose, tail, top, bottom, tail-top, tail-bottom, left, right
 const SUP_DIRS = [[0, 0, 1], [0, 0, -1], [0, 1, 0], [0, -1, 0], [0, 0.7, -0.7], [0, -0.7, -0.7], [1, 0, 0], [-1, 0, 0]];
+// candidate directions for extra support points: the 26 axis / edge / corner directions of a cube
+const DIR26 = [];
+for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+  if (dx || dy || dz) { const l = Math.hypot(dx, dy, dz); DIR26.push(dx / l, dy / l, dz / l); }
+}
+const SUP_MAX = 16;
+// extra terrain clearance of a jelly bell (Encounter.tPad): its pulsing rim is soft and only coarsely sampled
+export const JELLY_PAD = 0.1;
 
 // Shape of a species from its built geometry (unit body length): capsule centre offset c along the axis,
-// half segment h, radius r; and 8 extreme points (local x, y, z) used to keep every extremity out of rock.
+// half segment h, radius r; and the extreme points (local x, y, z) used to keep every extremity out of rock:
+// the 8 above, plus the extremes of those of the 26 cube directions that the hull of the points so far misses by
+// more than `tol` (whale flukes behind the flippers, crab legs, big bells). A miss of g body lengths eats g * size
+// out of the terrain clearance (0.03 m + 0.035 body lengths + a jelly's pad, along the surface normal), so it is
+// held to half of that for the largest individuals; most fish and jellies keep the 8 points.
 export function bodyShape(sp, g) {
   const pos = g.pos, ga = g.g, nv = pos.length / 3, ya = YAXIS.has(sp.plan);
   const soft = sp.plan === 'jelly' || sp.plan === 'siphon'; // trailing tentacles may brush things
   let amin = 1e9, amax = -1e9, rb = 0, rf = 0;
-  const best = new Float32Array(8).fill(-1e9), sup = new Float32Array(24);
+  const best = new Float32Array(8).fill(-1e9), sup8 = new Float32Array(24), ext = new Float32Array(26 * 4);
+  for (let j = 0; j < 26; j++) ext[j * 4] = -1e9;
   for (let v = 0; v < nv; v++) {
     const part = ga[v * 4], x = pos[v * 3], y = pos[v * 3 + 1], z = pos[v * 3 + 2];
     if (part === PART.GLOW) continue;
     const arm = part === PART.ARM;
-    if (!(arm && soft)) for (let k = 0; k < 8; k++) {
-      const d = SUP_DIRS[k], s = x * d[0] + y * d[1] + z * d[2];
-      if (s > best[k]) { best[k] = s; sup[k * 3] = x; sup[k * 3 + 1] = y; sup[k * 3 + 2] = z; }
+    if (!(arm && soft)) {
+      for (let k = 0; k < 8; k++) {
+        const d = SUP_DIRS[k], s = x * d[0] + y * d[1] + z * d[2];
+        if (s > best[k]) { best[k] = s; sup8[k * 3] = x; sup8[k * 3 + 1] = y; sup8[k * 3 + 2] = z; }
+      }
+      for (let j = 0; j < 26; j++) {
+        const s = x * DIR26[j * 3] + y * DIR26[j * 3 + 1] + z * DIR26[j * 3 + 2];
+        if (s > ext[j * 4]) { ext[j * 4] = s; ext[j * 4 + 1] = x; ext[j * 4 + 2] = y; ext[j * 4 + 3] = z; }
+      }
     }
     if (arm && sp.plan !== 'octopus' && sp.plan !== 'cassiopea') continue; // tentacles, squid arms
     if (part === PART.TOOTH || part === PART.BEAK || part === PART.EYE) continue; // bills, tusks, claws
@@ -39,17 +58,35 @@ export function bodyShape(sp, g) {
   if (sp.plan === 'octopus') r *= 0.8;          // arms drape and curl
   if (sp.plan === 'jelly') r = Math.max(r, 0.5); // the bell rim
   const half = Math.max(0, (amax - amin) * 0.5);
-  return { ya, c: (amin + amax) * 0.5, h: Math.max(0, half - r), r, sup };
+  const smax = (sp.size && sp.size[1]) || 1, pad = sp.plan === 'jelly' ? JELLY_PAD : 0;
+  const tol = 0.5 * (0.035 + (0.03 + pad) / smax), pts = Array.from(sup8);
+  while (pts.length < SUP_MAX * 3) {
+    let worst = tol, wj = -1;
+    for (let j = 0; j < 26; j++) {
+      const dx = DIR26[j * 3], dy = DIR26[j * 3 + 1], dz = DIR26[j * 3 + 2];
+      let hh = -1e9;
+      for (let k = 0; k < pts.length; k += 3) { const s = pts[k] * dx + pts[k + 1] * dy + pts[k + 2] * dz; if (s > hh) hh = s; }
+      if (ext[j * 4] - hh > worst) { worst = ext[j * 4] - hh; wj = j; }
+    }
+    if (wj < 0) break;
+    pts.push(ext[wj * 4 + 1], ext[wj * 4 + 2], ext[wj * 4 + 3]);
+  }
+  return { ya, c: (amin + amax) * 0.5, h: Math.max(0, half - r), r, sup: Float32Array.from(pts) };
 }
 
 const SLOW = new Set(['drift', 'hover', 'rest', 'walk', 'octo']);
 const STATIC = new Set(['colony', 'peek', 'bed']);
 const ON_FLOOR = (e, i) => e.kind === 'walk' || e.kind === 'bed' || ((e.kind === 'rest' || e.kind === 'octo') && e.MODE[i] === 0);
 const slowOf = (e) => e.speed < 0.35 && SLOW.has(e.kind);
-// resolve cadence (frames) and the matching safety margin added to the gap: drifting jellies every 5th frame
-// (huge schools / mills every 2nd frame: neighbours there swim together, their relative drift is tiny)
+// resolve cadence (in 60 fps frames) and the matching safety margin added to the gap: drifting jellies every 5th
+// frame (huge schools / mills every 2nd frame: neighbours there swim together, their relative drift is tiny)
 const every = (e) => (STATIC.has(e.kind) ? 5 : !slowOf(e) ? (e.n > 80 ? 2 : 1) : e.kind === 'drift' ? 5 : 3);
 const marginOf = (k) => (k >= 5 ? 0.06 : k >= 3 ? 0.04 : k >= 2 ? 0.02 : 0);
+// The cadence is kept in time, not frames (groups simulated at a third of the rate, or a slow frame rate, would
+// otherwise go many frames without a resolve), and slow groups' margins cover their members' closing speed over
+// the real interval (pulsing jellies surge to ~2.5x their cruising speed, scuttling crabs to 2.5x).
+const periodOf = (k) => (k - 0.5) / 60;
+const marginFor = (e, k, dt) => (k < 3 ? marginOf(k) : Math.min(0.15, Math.max(marginOf(k), (e.speed * 3 + 0.03) * Math.max(periodOf(k), dt))));
 
 export class Separation {
   constructor(sys) {
@@ -113,17 +150,20 @@ export class Separation {
     const mi = a.M[i], mj = b.M[j];
     if (mi === 0 && mj === 0) return;
     this.stats.pairs++;
-    // animals on the floor slide sideways only: drop the vertical part of the push direction
+    // animals on the floor slide sideways only (a swimmer above one still moves straight away from it): their
+    // share goes along the horizontal part of the push direction, lengthened to make up for the lost vertical part
     const fi = a.FL[i] === 1, fj = b.FL[j] === 1;
+    let hx = ux, hz = uz, hk = 1;
     if (fi || fj) {
       const hl = Math.sqrt(ux * ux + uz * uz);
-      if (hl < 0.2) { const k = (i + j) & 1; ux = k ? 0.8 : -0.8; uz = 0.6; } else { ux /= hl; uz /= hl; }
-      uy = fi && fj ? 0 : uy * 0.5;
+      if (hl < 0.2) { const k = (i + j) & 1; hx = k ? 0.8 : -0.8; hz = 0.6; hk = fi && fj ? 1 : 0.5; } else { hx = ux / hl; hz = uz / hl; hk = 1 / Math.max(hl, 0.5); }
     }
     const ov = need - d + 0.004, wi = mi === 0 ? 0 : mj === 0 ? 1 : mj / (mi + mj), wj = mj === 0 ? 0 : 1 - wi;
     const SA = a.D, SB = b.D;
-    SA[i3] -= ux * ov * wi; SA[i3 + 1] -= (fi ? 0 : uy) * ov * wi; SA[i3 + 2] -= uz * ov * wi;
-    SB[j3] += ux * ov * wj; SB[j3 + 1] += (fj ? 0 : uy) * ov * wj; SB[j3 + 2] += uz * ov * wj;
+    if (fi) { const p = ov * wi * hk; SA[i3] -= hx * p; SA[i3 + 2] -= hz * p; }
+    else { SA[i3] -= ux * ov * wi; SA[i3 + 1] -= uy * ov * wi; SA[i3 + 2] -= uz * ov * wi; }
+    if (fj) { const p = ov * wj * hk; SB[j3] += hx * p; SB[j3 + 2] += hz * p; }
+    else { SB[j3] += ux * ov * wj; SB[j3 + 1] += uy * ov * wj; SB[j3 + 2] += uz * ov * wj; }
     a.hit = 1; b.hit = 1;
   }
 
@@ -187,8 +227,8 @@ export class Separation {
     }
   }
 
-  // One pass over every group (call after all encounters updated this frame).
-  run(c) {
+  // One pass over every group (call after all encounters updated this frame; dt = this frame's step).
+  run(c, dt = 1 / 60) {
     const t0 = performance.now(), list = this.sys.enc;
     const fr = ++this.frame;
     this.stats.pairs = 0;
@@ -198,29 +238,30 @@ export class Separation {
       if (e.done || e.kind === 'attach' || !e.SC) continue;
       // capsules only change when the group moved (simulated this frame, or pushed by the last pass)
       if (e.stepped || e.sepMoved || !e.SV || (STATIC.has(e.kind) && (fr + e.uid) % 5 === 0)) { this._fill(e); e.sepMoved = false; } else e.SV.hit = 0;
+      // slow drifters / hoverers (jelly swarms, sea horses, resting rays) resolve every few frames' worth of time;
+      // their gap carries a margin so the drift in between can never close it
+      const k = every(e);
+      e.sepDue = e.stepped && !STATIC.has(e.kind) && e.age - e.sepT >= periodOf(k) - 1e-6;
+      e.sepMg = marginFor(e, k, dt);
       act.push(e);
     }
-    // slow drifters / hoverers (jelly swarms, sea horses, resting rays) resolve every few frames; their gap
-    // carries a margin so the drift in between can never close it
     for (const e of act) {
-      const k = every(e);
-      if (!e.stepped || STATIC.has(e.kind) || (fr + e.uid) % k !== 0) continue;
-      this.margin = marginOf(k);
+      if (!e.sepDue) continue;
+      this.margin = e.sepMg;
       this._within(e);
     }
     for (let p = 0; p < act.length; p++) {
-      const a = act[p], va = a.SV, ka = every(a);
+      const a = act[p], va = a.SV;
       for (let q = p + 1; q < act.length; q++) {
         const b = act[q];
-        if (!a.stepped && !b.stepped) continue;
-        const kb = every(b), k = Math.min(ka, kb); // the faster of the two sets the pace
-        if (k > 1 && (fr + a.uid + b.uid) % k !== 0) continue;
+        if (!a.sepDue && !b.sepDue) continue; // the faster of the two sets the pace
         const vb = b.SV, dz = b.anchorZ - a.anchorZ;
         if (va.x0 > vb.x1 || vb.x0 > va.x1 || va.y0 > vb.y1 || vb.y0 > va.y1 || va.z0 > vb.z1 + dz || vb.z0 + dz > va.z1) continue;
-        this.margin = marginOf(Math.max(ka, kb));
+        this.margin = Math.max(a.sepMg, b.sepMg);
         this._across(a, b);
       }
     }
+    for (const e of act) if (e.sepDue) e.sepT = e.age;
     let pushes = 0;
     for (const e of act) if (e.SV.hit) pushes += e._applySep(c);
     // a second relaxation round inside the groups that moved (pushes from several neighbours partly cancel)
@@ -228,7 +269,7 @@ export class Separation {
     again.length = 0;
     for (const e of act) if (e.SV.hit && !STATIC.has(e.kind)) { this._fill(e); e.sepMoved = false; again.push(e); } // pushed by a neighbour group too
     for (let round = 0; round < 2 && again.length; round++) {
-      for (const e of again) { this.margin = marginOf(every(e)); this._withinSome(e, e.SMV, e.nMoved); }
+      for (const e of again) { this.margin = e.sepMg; this._withinSome(e, e.SMV, e.nMoved); }
       this.margin = 0;
       let k = 0;
       for (const e of again) if (e.SV.hit) { pushes += e._applySep(c); if (round === 0) { this._fill(e); e.sepMoved = false; again[k++] = e; } }

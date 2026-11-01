@@ -251,7 +251,7 @@ export class Creatures {
       }
       if (e.visible) { vis++; visTris += e.tris + (e.nearCount ? e.nearEntry.tris * e.nearCount : 0); }
     }
-    if (dt > 0) this.sep.run(c); // personal space: no two animals inside each other
+    if (dt > 0) this.sep.run(c, dt); // personal space: no two animals inside each other
     this._ambientFx(dt, c);
     this.fx.update(dt, c.s);
     if (!this._idleQueued && typeof requestIdleCallback === 'function') { this._idleQueued = true; requestIdleCallback(this._idleCb, { timeout: 1500 }); }

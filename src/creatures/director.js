@@ -74,10 +74,12 @@ export const TABLES = {
     ['sculpin', 4, 40], ['blenny', 4, 40], ['silverside', 4, 40], ['opaleye', 3, 60], ['garibaldi', 2, 80], ['octopus', 1, 150],
     ['proc:tidepool', 3, 25],
   ] },
-  abyss: { cover: 3, target: 9, lat: 80, list: [
-    ['lanternfish', 5, 50], ['hatchetfish', 4, 60], ['anglerfish', 2.5, 90], ['viperfish', 2.5, 90], ['dragonfish', 2, 100],
-    ['atolla', 3, 70], ['combJelly', 3, 70], ['helmetJelly', 2.5, 80], ['pelagia', 2, 80], ['siphonophore', 1.5, 160],
-    ['vampireSquid', 1.5, 140], ['giantSquid', 0.35, 700], ['glowSquid', 2.5, 80], ['spermWhale', 0.3, 700], ['proc:abyss', 2, 40],
+  // lamp-lit midnight zone: groups pass close to the camera (the lamps reach ~10 m), so the lateral range is narrow
+  abyss: { cover: 3.5, target: 11, lat: 30, list: [
+    // short cooldowns: the prime spawn uses most of this small cast at once, and the zone must not empty out after it
+    ['lanternfish', 5, 25], ['hatchetfish', 4, 30], ['anglerfish', 2.5, 45], ['viperfish', 2.5, 45], ['dragonfish', 2, 50],
+    ['atolla', 3, 35], ['combJelly', 3, 35], ['helmetJelly', 2.5, 40], ['pelagia', 2, 40], ['siphonophore', 1.5, 100],
+    ['vampireSquid', 1.5, 80], ['giantSquid', 0.35, 700], ['glowSquid', 2.5, 40], ['spermWhale', 0.3, 700], ['proc:abyss', 2, 20],
   ] },
   softcoral: { cover: 3, target: 16, lat: 40, night: NIGHT_REEF, dusk: DUSK, list: [
     ['anthias', 7, 20], ['purpleAnthias', 6, 20], ['glassfish', 4, 40], ['lionfish', 2.5, 70], ['napoleon', 1.2, 160], ['bannerfish', 3, 50],
@@ -163,6 +165,8 @@ const HUNTERS = { pelagic: ['yellowfin', 'sailfish', 'commonDolphin'], kelp: ['s
   champagne: ['jack', 'bluefinTrevally'], anemone: ['bluefinTrevally'], sunkenforest: ['barracuda', 'jack'] };
 // zones open enough for a passing blue whale
 const WHALE_ZONES = new Set(['pelagic', 'seamount', 'wall', 'bluehole', 'sargassum']);
+// lamp-lit deep zones: no shallow-water species once they dominate the blend
+const DEEP_ZONES = new Set(['abyss', 'deepplain', 'vents']);
 const CLOSE_SKIP = new Set(['strike', 'play', 'lunge', 'circle', 'curious', 'majestic', 'swirl']);
 // species a set piece will need (prebuilt in idle time when such a POI is coming up)
 const POI_SPECIES = { 'cleaning-station': ['manta', 'cleanerWrasse'], 'whale-fall': ['hagfish', 'rattail', 'deepCrab', 'sleeperShark'],
@@ -325,7 +329,7 @@ export class Director {
         if (r() < 0.4) this.spawnAt('juvBarracuda', p, { route: 'hold', vs: 0 });
         return true;
       case 'statue': case 'giant': case 'arch': // a school milling around the landmark
-        if (r() < 0.55) return !!this.spawnAt(r() < 0.6 ? 'jack' : 'snapper', p, { kind: 'mill', route: 'hold', vs: 0, zone: 'mid', h0: p.y - sh.pathY(p.s) });
+        if (r() < 0.55) return !!this.spawnAt(r() < 0.6 ? 'jack' : 'snapper', p, { kind: 'mill', route: 'hold', vs: 0, zone: 'mid', h0: p.y - sh.pathY(p.s), ringMin: this.extentAt(p, 14) + 1.2 });
         return false;
       case 'treasure':
         return !!this.spawnAt(r() < 0.5 ? 'moray' : 'spotMoray', p, { kind: 'peek' });
@@ -655,13 +659,15 @@ export class Director {
       if (nMin > instBudget) return;
       const novelty = 1 + Math.min(2, (this.clock - (this.seen.get(ck) ?? -1e4)) / 400);
       const rd = (sp.size[0] + sp.size[1]) * 0.5 * (sp.beh.n[1] >= 20 ? 75 : 24) * (sp.plan === 'jelly' ? 0.6 : sp.plan === 'siphon' ? 0.12 : 1);
-      if (lead && (rd < 7 || ['shoal', 'hover', 'drift', 'colony', 'peek', 'octo', 'mill', 'rest'].includes(sp.beh.kind) && !(sp.beh.kind === 'shoal' && rd >= 7))) return;
+      if (lead && (rd < 7 || sp.beh.loose || ['shoal', 'hover', 'drift', 'colony', 'peek', 'octo', 'mill', 'rest'].includes(sp.beh.kind) && !(sp.beh.kind === 'shoal' && rd >= 7))) return;
       const ww = w * bw * novelty * (near ? (rd >= 8 ? 3 : 0.4) : 1) * (cooling ? 0.3 : 1);
       cands.push({ sp, ck, ww, cd }); tot += ww;
     };
     const night = sys.U ? sys.U.uNight.value : 0, dusk = clamp(1 - Math.abs(night * 2 - 1) * 1.4, 0, 1);
+    let deepW = 0; for (const e of ws) if (DEEP_ZONES.has(e.key)) deepW += e.w;
     for (const e of ws) {
       const T = TABLES[e.key]; if (!T) continue;
+      if (deepW >= 0.5 && !DEEP_ZONES.has(e.key)) continue; // no reef / coastal fish over the abyss once it dominates the blend
       for (const [k, w, cd] of T.list) { const wd = w * dielW(k, night); if (wd > 0.01) addCand(k, wd, T.list.length < 10 ? cd * 0.5 : cd, e.w, T.list.length < 10); }
       if (night > 0.05 && T.night) for (const [k, w, cd] of T.night) addCand(k, w * night, cd, e.w, false);
       if (dusk > 0.05 && T.dusk) for (const [k, w, cd] of T.dusk) addCand(k, w * dusk, cd, e.w, false);
@@ -675,7 +681,8 @@ export class Director {
     if (!enc) return null;
     this.mixWith(enc, pick.sp, plan, c, ws, region);
     this.hitchhikers(enc);
-    this.cool.set(pick.ck, this.clock + pick.cd * (0.7 + 0.6 * rng()));
+    // (the prime spawn fills the view with most of a table at once: shorter cooldowns, or small casts leave it empty after)
+    this.cool.set(pick.ck, this.clock + pick.cd * (0.7 + 0.6 * rng()) * (prime ? 0.35 : 1));
     this.seen.set(pick.ck, this.clock);
     if (pick.sp.hl) this.hlTimer = 70 + rng() * 90;
     return enc;
@@ -685,7 +692,7 @@ export class Director {
   // e.g. jacks with rainbow runners, sardines with anchovies, reef shoals of 2-4 species.
   mixWith(enc, sp, plan, c, ws, region) {
     const sys = this.sys, rng = this.rng, kind = enc.kind;
-    if (!['school', 'shoal', 'bait', 'mill'].includes(kind) || plan.route === 'swirl' || sys.enc.length > sys.maxEnc - 4 || rng() > 0.45) return;
+    if (!['school', 'shoal', 'bait', 'mill'].includes(kind) || sp.beh.loose || plan.route === 'swirl' || sys.enc.length > sys.maxEnc - 4 || rng() > 0.45) return;
     const PAIR = { jack: ['rainbowRunner'], rainbowRunner: ['jack'], sardine: ['anchovy'], anchovy: ['sardine'], silverside: ['anchovy'],
       snapper: ['sweetlips', 'proc'], bluetang: ['yellowtang', 'proc'], yellowtang: ['bluetang'], chromis: ['anthias', 'proc'], anthias: ['chromis', 'proc'],
       sergeant: ['proc', 'chromis'], blacksmith: ['senorita'], senorita: ['blacksmith', 'proc'], goatfish: ['proc'], butterfly: ['proc', 'bluetang'] };
@@ -719,8 +726,10 @@ export class Director {
     let lat = 0; for (const e of ws) lat += (TABLES[e.key]?.lat ?? 40) * e.w;
     const fogD = sys.fogD;
     const rr = (a) => a[0] + (a[1] - a[0]) * rng();
-    // spawn distance: fog edge normally; closer (with a dithered fade-in) when coverage is short
-    const D = prime ? rr([10, fogD * 0.75]) : near ? rr([fogD * 0.45, fogD * 0.7]) : fogD * rr([0.75, 0.95]);
+    // spawn distance: fog edge normally; closer (with a dithered fade-in) when coverage is short; at the start of a
+    // lamp-lit deep dive, inside the lamps' reach (nothing else is visible there)
+    let deepW = 0; for (const e of ws) if (DEEP_ZONES.has(e.key)) deepW += e.w;
+    const D = prime ? rr(deepW > 0.5 ? [5, 30] : [10, fogD * 0.75]) : near ? rr([fogD * 0.45, fogD * 0.7]) : fogD * rr([0.75, 0.95]);
     let n = Math.round(beh.n[0] + (beh.n[1] - beh.n[0]) * rng());
     // group sizes from singletons / stragglers to occasional huge aggregations
     if (beh.n[1] > 3 && beh.kind !== 'colony') {
@@ -751,7 +760,7 @@ export class Director {
     }
     if (sp.key === 'humpback' && !lead && rng() < 0.35) { plan.calf = true; plan.n = n = 2; plan.kind = 'pod'; plan.spacing = 0.45; plan.interest = 1; }
     if (sp.key === 'spinyLobster' && rng() < 0.3) { plan.walk = 'queue'; plan.n = n = 5 + Math.floor(rng() * 8); } // migrating in single file
-    if (kind === 'shoal' && !plan.sleepy && sz * (n >= 20 ? 75 : 24) >= 7 && (lead || rng() < 0.55)) { kind = 'school'; plan.kind = 'school'; }
+    if (kind === 'shoal' && !plan.sleepy && !beh.loose && sz * (n >= 20 ? 75 : 24) >= 7 && (lead || rng() < 0.55)) { kind = 'school'; plan.kind = 'school'; }
     const eye = () => rr([-1, 0.6]);        // camera height (relative to the path)
     if (kind === 'shoal' || kind === 'hover' || kind === 'colony' || kind === 'peek' || kind === 'octo' || kind === 'rest' || kind === 'walk' || kind === 'bed') {
       // bottom life right under / beside the path: reef fish picking at the bottom, rays on the sand, octopus
@@ -761,6 +770,9 @@ export class Director {
     } else if (kind === 'drift') {
       plan.l0 = latLim(side * rr([0, 6]));
       plan.h0 = rr([-2, 2]);
+      if (beh.recycle && ws.some((x) => x.key === beh.recycle && x.w > 0.4)) { // a swarm that surrounds the camera (see Encounter._recycle)
+        plan.recycle = beh.recycle; plan.s0 = c.s + rr([2, 16]); plan.l0 = rr([-5, 5]); plan.fadeIn = true;
+      }
     } else {
       const readDist = sz * (n >= 20 ? 75 : 24);
       const routes = {};

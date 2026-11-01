@@ -693,15 +693,17 @@ export const SPECIES = {
     det: 0,
     body: { depth: 0.2, width: 0.55, tm: 0.3, nose: 0.55, tail: 1.4 },
     fins: { dorsal: [{ t0: 0.4, t1: 0.52, h: 0.05 }], anal: [{ t0: 0.58, t1: 0.7, h: 0.04 }], caudal: { shape: 'forked', size: 0.2 } },
-    col: C(0x1a2a40, 0x6a7a8a, 0x8ae0ff, 0x2a3a50, 0, 0x5ad0ff), pat: [13, 14, 0.014], glowMode: 1, glow: 1.0, sheen: 0.6, eye: { r: 0.06 },
-    beh: { ...SCHOOL, n: [120, 260], speed: [0.4, 0.8] }, size: [0.08, 0.14],
+    // blue-green belly lights; a loose layer rather than a tight school (the deep scattering layer)
+    col: C(0x2a3a50, 0x8a9aa8, 0x8af0d8, 0x3a4a60, 0, 0x5af0c0), pat: [13, 14, 0.014], glowMode: 1, glow: 1.0, sheen: 0.8, eye: { r: 0.06 },
+    beh: { ...SCHOOL, n: [40, 110], speed: [0.3, 0.7], spacing: 1.8 }, size: [0.09, 0.15],
   }),
   hatchetfish: fish({
     det: 0,
     body: { depth: 0.55, width: 0.2, tm: 0.28, nose: 0.6, tail: 1.6, ped: 0.08, belly: 0.4 },
     fins: { caudal: { shape: 'forked', size: 0.18 } },
-    col: C(0x3a4a5a, 0xd8e0e8, 0x8ae0ff, 0x8a9aa8, 0, 0x6ad8ff), pat: [13, 10, 0.02], glowMode: 1, glow: 1.2, sheen: 1.0, eye: { r: 0.07, v: 0.45 },
-    beh: { ...SCHOOL, n: [30, 90], speed: [0.2, 0.5] }, size: [0.06, 0.1],
+    // mirror-silver flanks that flash in the lamps; deep-blue belly lights
+    col: C(0x4a5a6a, 0xe8eef4, 0x8ab8ff, 0xa8b4c0, 0, 0x5a8cff), pat: [13, 10, 0.02], glowMode: 1, glow: 1.0, sheen: 1.0, eye: { r: 0.07, v: 0.45 },
+    beh: { ...SCHOOL, n: [12, 40], speed: [0.15, 0.4], spacing: 1.6 }, size: [0.07, 0.11],
   }),
   viperfish: fish({
     det: 1,
@@ -714,7 +716,8 @@ export const SPECIES = {
   dragonfish: merge(EEL, {
     body: { depth: 0.07, tm: 0.12, nose: 0.55 }, fins: { dorsal: [{ t0: 0.8, t1: 0.92, h: 0.04 }], anal: [{ t0: 0.8, t1: 0.92, h: 0.04 }], caudal: { shape: 'forked', size: 0.06 } },
     extra: { barbel: { len: 0.25, glow: 0.01 }, teeth: { t: 0.035, n: 8, len: 0.03, r: 0.003 } },
-    col: C(0x050608, 0x0a0c10, 0, 0x08090c, 0, 0xff6a3a), sheen: 0.3, glow: 1.0, eye: { r: 0.01 },
+    // velvet black with a dark red sheen in the lamps; a red lure on the chin barbel
+    col: C(0x1a080c, 0x240c10, 0, 0x14060a, 0, 0xff3a2a), sheen: 0.7, glow: 1.0, eye: { r: 0.01 },
     mot: { amp: 0.05, waves: 1.0 }, beh: { ...HOVER, n: [1, 1], zone: 'mid', speed: [0.1, 0.3] }, size: [0.35, 0.5],
   }),
   rattail: fish({
@@ -761,7 +764,7 @@ export const SPECIES = {
     plan: 'siphon', det: 1,
     col: C(0xc8d8f0, 0xc8d8f0, 0xffffff, 0xd0e0ff, 0, 0x60c8ff), pat: [0, 1, 0], pat2: [0, 1, 0], cs: [-2, 0],
     finEdge: 0, finRays: 0, iris: 0, glowMode: 2, glow: 0.4, sheen: 0.4, rough: 0.2, translucent: true,
-    mot: { mode: 0, amp: 0.012, waves: 2.2, c0: 0.6, beat: 0, idle: 0.15 },
+    mot: { mode: 11, amp: 0.11, waves: 0.8, c0: 0, beat: 0, idle: 0.1 }, // slow 3D undulation of the whole stem (shader mode 11)
     beh: { ...DRIFT, n: [1, 2], spread: 10 }, size: [6, 14],
   },
   vampireSquid: fish({
@@ -900,7 +903,7 @@ Object.assign(SPECIES, {
       [0, 0.022, 0.04, 0.05, 0.05, 0.045, 0.036, 0.042, 0.038, 0],
       [0, 0.022, 0.04, 0.05, 0.052, 0.047, 0.038, 0.046, 0.042, 0]),
     squid: { fin: { t0: 0.02, t1: 0.3, h: 0.08, shape: 'round', sweep: 0.2 }, eyeT: 0.58, eyeR: 0.024, armLen: 0.26, armR: 0.008, spread: 0.35, glowTips: true },
-    col: C(0x5a1828, 0x8a3048, 0x7ad8ff, 0x6a2030, 0, 0x5ac8ff), pat: [13, 16, 0.02], pat2: [30, 10, 1], cs: [-0.4, 0.2], glowMode: 1, glow: 1.4, iris: 1.0, sheen: 0.3,
+    col: C(0x5a1828, 0x8a3048, 0x8affc0, 0x6a2030, 0, 0x6affb0), pat: [13, 16, 0.02], pat2: [30, 10, 1], cs: [-0.4, 0.2], glowMode: 1, glow: 1.4, iris: 1.0, sheen: 0.3,
     mot: { mode: 5, amp: 0.6, beat: 0.5, idle: 0.5 },
     beh: { kind: 'school', n: [5, 14], speed: [0.4, 1.0], zone: 'mid', routes: { lead: 2, hold: 2, cross: 1 } }, size: [0.35, 0.6],
   }),
@@ -946,6 +949,7 @@ S.icefish.hemi = 'S';
 S.toothfish.hemi = 'S';
 S.arcticCod.hemi = 'N';
 S.greenlandShark.hemi = 'N';
+S.harbourSeal.hemi = 'N'; // set after the merges: seaLion / leopardSeal / weddellSeal are derived from it
 S.dugong = merge(S.manatee, {
   fins: { caudal: { shape: 'fluke', horiz: true, size: 0.15, thick: 0.1 } },
   col: C(0x8a807a, 0xa89a90, 0x6a625c, 0x8a807a), size: [2.4, 3],
@@ -1252,8 +1256,9 @@ Object.assign(SPECIES, {
   // ---- jellyfish lake ----
   goldenJelly: jelly({
     det: 0, jelly: { h: 0.42, th: 1.6, nT: 0, nO: 8, ol: 0.5, ow: 0.05, twist: 0.6, lappets: 16, scallop: 0.04, cheap: true, club: 0.07 },
-    col: C(0xb87818, 0xc08424, 0xf2e2c0, 0xa86e1c, 0, 0xffc060), pat: [3, 14, 0.18], glowMode: 2, glow: 0.12, sheen: 0.55,
-    mot: { amp: 0.16, idle: 0.9 }, beh: { ...DRIFT, n: [120, 260], spread: 14, speed: [0.06, 0.16] }, size: [0.08, 0.22], swarm: 7, interest: 0.5,
+    col: C(0xd8982c, 0xe0a434, 0xeccc7c, 0xc8902c, 0, 0xffc060), pat: [3, 14, 0.12], glowMode: 2, glow: 0.12, sheen: 0.7,
+    // recycle: in the lake the swarms keep surrounding the camera (Encounter._recycle) instead of being passed
+    mot: { amp: 0.16, idle: 0.9 }, beh: { ...DRIFT, n: [150, 240], spread: 14, speed: [0.06, 0.16], recycle: 'jellylake' }, size: [0.15, 0.25], swarm: 3, interest: 0.5,
   }),
   cardinalfish: fish({
     body: { depth: 0.42, width: 0.38, tm: 0.33, nose: 0.5, tail: 1.4, ped: 0.13 },
@@ -1347,18 +1352,23 @@ export function proceduralFish(kind, seed) {
     pat: [pt, scale, prm], pat2: r.chance(0.25) ? [8, r.range(0.1, 0.14), 0.025] : [0, 1, 0],
     cs: [r.range(-0.4, 0.2), r.range(0.05, 0.3)], finEdge: r.chance(0.3) ? r.range(0.4, 1) : 0,
     sheen: reef ? r.range(0.1, 0.35) : r.range(0.2, 0.8),
-    det: n > 12 ? 0 : 1,
-    beh: { ...SHOAL, n: [Math.max(1, n - 4), n + 4], alt: [0.4, 3] },
+    det: n > 12 && !abyss ? 0 : 1,
+    // deep-sea fish don't school: singles or a loose few, far apart, hanging still in the lamp light
+    beh: abyss ? { ...SHOAL, n: [1, 3], alt: [0.6, 4], spread: 9, speed: [0.06, 0.2], loose: true } : { ...SHOAL, n: [Math.max(1, n - 4), n + 4], alt: [0.4, 3] },
     size: [0.1 + 0.15 * r(), 0.2 + 0.25 * r()],
     glowMode: abyss && r.chance(0.6) ? 1 : 0, glow: abyss ? 1 : 0,
   });
 }
 // photophores for abyssal procedural fish replace pattern 2
+const GLOWS = [0x5ad0ff, 0x4a8aff, 0x5af0c0, 0x4a8aff, 0x7aff8a, 0xffd24a, 0xff4a2a, 0xa87aff];
 export function speciesOf(key) {
   if (key.startsWith('proc:')) {
     const [, kind, seed] = key.split(':');
     const sp = proceduralFish(kind, parseInt(seed, 10));
-    if (sp.glowMode === 1) { sp.pat = [13, 12, 0.016]; sp.col = { ...sp.col, a: 0x5ad0ff }; }
+    if (sp.glowMode === 1) { // photophores in a per-species colour: mostly blue / blue-green, sometimes green, yellow, red or violet
+      const g = GLOWS[parseInt(seed, 10) % GLOWS.length];
+      sp.pat = [13, 12, 0.016]; sp.col = { ...sp.col, p: g, a: g };
+    }
     return sp;
   }
   const sp = SPECIES[key];

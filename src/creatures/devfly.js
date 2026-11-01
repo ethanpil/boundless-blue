@@ -2,6 +2,10 @@
 // page's rAF is throttled. Usage: const { fly } = await import('/src/creatures/devfly.js'); fly(s0, seconds, yaw, pitch)
 import * as THREE from 'three';
 
+// Yield to the page between test steps. A MessageChannel task, not setTimeout(0): Chrome throttles chained
+// timers in a hidden page to about one per minute, which stalled long audits in a background tab.
+const yieldUI = () => new Promise((r) => { const ch = new MessageChannel(); ch.port1.onmessage = () => r(); ch.port2.postMessage(0); });
+
 // Approximation of main.js updateEnvironment (dev only) so captures are lit like the app.
 function env(s) {
   const o = window.__ocean, U = o.U, B = o.BIOMES || null;
@@ -121,7 +125,7 @@ export async function diagnose(secs = 120, maxLogs = 6) {
 
 // Obstacle test: optionally add synthetic pillars / boulders along the path, run `secs` with
 // __ocean.advance and report the worst body penetration over every creature instance.
-export async function obstacleTest(secs = 120, synthetic = true) {
+export async function obstacleTest(secs = 120, synthetic = true, detail = false) {
   await new Promise((r) => setTimeout(r, 1500));
   const o = window.__ocean, c = o.creatures, reg = o.obstacles, sh = o.shape;
   const { mulberry32 } = await import('../noise.js');
@@ -136,7 +140,7 @@ export async function obstacleTest(secs = 120, synthetic = true) {
     }
   };
   let worst = 0, worstKey = '', samples = 0, deep = 0;
-  const q = [];
+  const q = [], log = [];
   for (let t = 0; t < secs; t += 0.5) {
     if (synthetic) gen(c.ctx.s + 260);
     o.advance(0.5);
@@ -149,13 +153,19 @@ export async function obstacleTest(secs = 120, synthetic = true) {
         samples++;
         const d = e._clear(i, e.P[i * 3], e.P[i * 3 + 1], e.P[i * 3 + 2], 3, q) + 0.05 + 0.03 * e.SZ[i]; // vs body radius, without the margin
         if (d < worst) { worst = d; worstKey = e.sp.key + '/' + e.kind; }
-        if (d < -0.05) deep++;
+        if (d < -0.05) {
+          deep++;
+          if (detail && log.length < 400) log.push({ t, key: e.sp.key + '/' + e.kind, uid: e.uid, i, route: e.route, ev: e.event ? e.event.type : '', pen: +d.toFixed(2),
+            x: +x.toFixed(1), y: +e.P[i * 3 + 1].toFixed(2), s: +s.toFixed(1), clr: +e.CLR[i].toFixed(2), nObs: e.obs.length, sz: +e.SZ[i].toFixed(2) });
+        }
       }
     }
-    await new Promise((r) => setTimeout(r, 0));
+    await yieldUI();
   }
   if (synthetic) for (const a of added) reg.remove(a);
-  return { registered: reg.count, synthetic: added.length, samples, worstPenetration: +worst.toFixed(3), worstKey, over5cm: deep, avgMs: c.stats.ms.toFixed(2) };
+  const res = { registered: reg.count, synthetic: added.length, samples, worstPenetration: +worst.toFixed(3), worstKey, over5cm: deep, avgMs: c.stats.ms.toFixed(2) };
+  if (detail) res.log = log.sort((a, b) => a.pen - b.pen).slice(0, 30);
+  return res;
 }
 
 // ---------- spacing & terrain audits ----------
@@ -241,7 +251,7 @@ export async function spacingTest(secs = 60) {
         if (a === b && ea.n >= 8 && (ea.kind === 'school' || ea.kind === 'bait' || ea.kind === 'mill' || ea.kind === 'shoal') && nearest < 1e8) nn.push(nearest / ea.SZ[i]);
       }
     }
-    await new Promise((r) => setTimeout(r, 0));
+    await yieldUI();
   }
   nn.sort((x, y) => x - y);
   const q = (f) => (nn.length ? +nn[Math.floor(nn.length * f)].toFixed(2) : null);
@@ -251,19 +261,22 @@ export async function spacingTest(secs = 60) {
 
 // Terrain penetration of body extremities: 26 extreme points of each species' geometry, transformed by the
 // instance matrix, against the rendered floor / ceiling (and the sea surface) every 0.5 s.
+// Every kind is checked against ceilings (cave roofs, ice); animals that sit on or in the floor by design
+// (resting, walking, beds, garden eels, morays in their holes, remoras) are exempt from the floor check.
 const SWIM = new Set(['school', 'bait', 'mill', 'solo', 'pod', 'shoal', 'hover', 'drift']);
-export async function terrainTest(secs = 60) {
+export async function terrainTest(secs = 60, detail = false) {
   await new Promise((r) => setTimeout(r, 1500));
   const o = window.__ocean, c = o.creatures, sh = o.shape;
   let worstC = 0, worstCKey = '', worstF = 0, worstFKey = '', overC = 0, overF = 0, agents = 0, surf = 0;
+  const log = [], byKind = {}; // detail: the worst violations with their group state (route, zone, event)
   for (let t = 0; t < secs; t += 0.5) {
     o.advance(0.5);
     const zone = o.seq.weights(c.ctx.s)[0].key;
     for (const e of c.enc) {
-      if (e.done || !(SWIM.has(e.kind) || e.kind === 'rest' || e.kind === 'octo')) continue;
-      const S = await shapeOf(e.sp), pts = S.pts, floorBound = e.kind === 'rest' || e.kind === 'octo';
+      if (e.done) continue;
+      const S = await shapeOf(e.sp), pts = S.pts, mixed = e.kind === 'rest' || e.kind === 'octo';
       for (let i = 0; i < e.n; i++) {
-        if (floorBound && e.MODE[i] === 0) continue; // lying on the sand by design
+        const floorBound = mixed ? e.MODE[i] === 0 : !SWIM.has(e.kind); // lying on the sand / in a burrow by design
         const m = instM(e, i); if (!m) continue;
         const M = m[0], b = m[1];
         agents++;
@@ -279,16 +292,25 @@ export async function terrainTest(secs = 60) {
           if (y > ps) ps = y;
         }
         const key = `${e.sp.key}/${e.kind} ${zone}`;
+        const bk = byKind[e.kind] || (byKind[e.kind] = { n: 0, ceil: 0, floor: 0 });
+        bk.n++; if (pc > bk.ceil) bk.ceil = +pc.toFixed(3); if (!floorBound && pf > bk.floor) bk.floor = +pf.toFixed(3);
         if (pc > worstC) { worstC = pc; worstCKey = key; }
         if (pc > 0.05) overC++;
         if (!floorBound) { if (pf > worstF) { worstF = pf; worstFKey = key; } if (pf > 0.05) overF++; }
         if (ps > 0.05 && !e.sp.beh.skim && e.sp.mot.mode !== 1) surf++;
+        if (detail && (pc > 0.05 || (!floorBound && pf > 0.05)) && log.length < 400) {
+          const x = e.P[i * 3], s = -(e.P[i * 3 + 2] + e.anchorZ);
+          log.push({ t, key, uid: e.uid, i, route: e.route, zone: e.zone, ev: e.event ? e.event.type : '', floor: +pf.toFixed(2), ceil: +pc.toFixed(2),
+            y: +e.P[i * 3 + 1].toFixed(2), fl: +sh.floorAt(x, s).toFixed(2), ce: +sh.ceilingAt(x, s).toFixed(2), terrainOn: e.terrainOn, open: e.openWater, tcl: +e.TCL[i].toFixed(2) });
+        }
       }
     }
-    await new Promise((r) => setTimeout(r, 0));
+    await yieldUI();
   }
-  return { agentSamples: agents, worstCeiling: +worstC.toFixed(3), worstCeilingKey: worstCKey, ceilOver5cm: overC,
-    worstFloorWall: +worstF.toFixed(3), worstFloorKey: worstFKey, floorOver5cm: overF, aboveSurface: surf, crMs: c.stats.ms.toFixed(2) };
+  const res = { agentSamples: agents, worstCeiling: +worstC.toFixed(3), worstCeilingKey: worstCKey, ceilOver5cm: overC,
+    worstFloorWall: +worstF.toFixed(3), worstFloorKey: worstFKey, floorOver5cm: overF, aboveSurface: surf, byKind, crMs: c.stats.ms.toFixed(2) };
+  if (detail) res.log = log.sort((a, b) => Math.max(b.floor, b.ceil) - Math.max(a.floor, a.ceil)).slice(0, 30);
+  return res;
 }
 
 // On-screen life: per 0.25 s sample, animals readable in the frame (>= 8 px and >= 25 px at 1280x720), distinct
@@ -323,7 +345,7 @@ export async function presenceTest(secs = 120) {
       }
     }
     samples++; read8 += n8; read25 += n25; species += sp.size; if (!n8) empty++;
-    if (samples % 20 === 0) await new Promise((r) => setTimeout(r, 0));
+    if (samples % 20 === 0) await yieldUI();
   }
   const ds = [...close.values()].sort((a, b) => a - b);
   const mins = secs / 60;

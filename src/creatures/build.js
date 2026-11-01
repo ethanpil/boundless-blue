@@ -593,10 +593,16 @@ export function buildSiphonophore(sp) {
     const t = 0.08 + 0.9 * (i / 39);
     sphere(gb, 0, -0.006, 0.5 - t, 0.0045, 2, 4, PART.GLOW, [0, -1, 0]);
   }
-  for (let i = 0; i < 26; i++) { // dangling feeding tentacles
-    const t = 0.1 + 0.88 * (i / 25), pts2 = [], w = [];
-    for (let k = 0; k <= 5; k++) { pts2.push([0, -k * 0.012, 0.5 - t + k * 0.002]); w.push(0.0012); }
-    ribbon(gb, pts2, w, (k) => [PART.ARM, 0, i, k * 0.012]);
+  const rng = mulberry32(17);
+  for (let i = 0; i < 26; i++) { // feeding tentacles of uneven length, trailing back and hooked at the tips (the shader sways them)
+    const t = 0.1 + 0.88 * ((i + (rng() - 0.5) * 0.7) / 25), L = 0.035 + 0.09 * rng() * rng() + 0.02 * rng(), side = (rng() - 0.5) * 0.012;
+    const pts2 = [], w = [], ns = 7;
+    for (let k = 0; k <= ns; k++) {
+      const f = k / ns;
+      pts2.push([side * f + Math.sin(f * 2.4 + i) * 0.004 * f, -f * L * (1 - 0.25 * f * f), 0.5 - t - f * L * 0.3]);
+      w.push(0.0013 * (1 - 0.5 * f));
+    }
+    ribbon(gb, pts2, w, (k) => [PART.ARM, 0, i, (k / ns) * L]);
   }
   return gb.finish();
 }

@@ -38,6 +38,9 @@ void main() {
   int k = int(vKind + 0.5);
   vec3 rgb; float a; // premultiplied colour; alpha = how much of what is behind gets covered
   vec3 sky = waterColor(vec3(0.0, 1.0, 0.0));
+  // bubbles are silvery mirrors of the light around them: white-ish by day, dim at night (a little lamp glint near the lens)
+  float lit = clamp(uSunScatter * exp(-uLightSigma.g * max(0.0, uSurfaceY - vWPos.y)) + 0.3 * uLamp * exp(-0.15 * length(vWPos - cameraPosition)), 0.0, 1.0);
+  vec3 silver = mix(sky, vec3(0.85, 0.9, 0.95) * lit, 0.6);
   if (k == 0) {         // soft glow (bioluminescence)
     rgb = vCol.rgb * exp(-r * r * 5.0) * vCol.a; a = 0.0;
   } else if (k == 1) {  // ink: soft, lumpy, darkening
@@ -47,11 +50,11 @@ void main() {
     float rim = smoothstep(0.6, 0.92, r) * (1.0 - smoothstep(0.92, 1.0, r));
     vec2 h = vUv - vec2(-0.35, 0.4);
     float sp = exp(-dot(h, h) * 30.0);
-    rgb = (sky * 1.2 + vec3(0.2)) * (rim * 0.55 + sp * 0.9) * vCol.a; a = rim * 0.15 * vCol.a;
+    rgb = silver * (rim * 0.55 + sp * 0.9) * vCol.a; a = rim * 0.15 * vCol.a;
   } else if (k == 3) {  // bubble ring (torus seen through its quad)
     float d = abs(r - 0.72), tube = 1.0 - smoothstep(0.07, 0.19, d);
     float hl = (1.0 - smoothstep(0.0, 0.07, d)) * (0.55 + 0.45 * vUv.y);
-    rgb = (sky * 0.9 + vec3(0.18)) * (tube * 0.4 + hl * 0.7) * vCol.a; a = tube * 0.1 * vCol.a;
+    rgb = silver * 0.9 * (tube * 0.4 + hl * 0.7) * vCol.a; a = tube * 0.1 * vCol.a;
   } else {              // eye-shine glint
     rgb = vCol.rgb * (exp(-r * r * 40.0) + 0.25 * exp(-r * r * 6.0)) * vCol.a; a = 0.0;
   }
