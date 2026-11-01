@@ -136,7 +136,7 @@ function specs() {
     star: { tpl: T.star, scale: [0.1, 0.2], follow: 0.95, sink: 0, tint: tintFrom([[0.85, 0.3, 0.06], [0.5, 0.2, 0.55], [0.75, 0.12, 0.1]]) },
     anem: { tpl: T.anem, scale: [0.6, 1.1], follow: 0.7, sway: true, tint: tintFrom([[0.9, 0.45, 0.45], [0.6, 0.7, 0.55], [0.85, 0.75, 0.6]]) },
     sponge: { tpl: T.tubeSp, scale: [0.5, 1.0], follow: 0.5, tint: tintFrom([[0.7, 0.45, 0.15], [0.55, 0.25, 0.4]]) },
-    bendRock: { tpl: [...T.mound, ...T.pinnacle], scale: [1.4, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.2, sink: 0.25, tint: tintFrom([[0.42, 0.38, 0.34], [0.38, 0.36, 0.33]]) },
+    bendRock: { tpl: T.bigRocks || [...T.mound, ...T.pinnacle], scale: [1.4, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.2, sink: 0.25, tint: tintFrom([[0.42, 0.38, 0.34], [0.38, 0.36, 0.33]]) },
     pebbles: { tpl: T.pebbles, scale: [0.8, 1.6], follow: 1, sink: 0.02, tint: tintFrom([[0.6, 0.58, 0.55], [0.55, 0.5, 0.45]], 0.1) },
     algae: { tpl: T.algae, scale: [0.6, 1.5], follow: 1, sink: 0.01, tint: tintFrom([[0.9, 0.45, 0.5], [0.7, 0.55, 0.3], [0.55, 0.6, 0.3]], 0.12) },
     lump: { tpl: T.spongeLump, scale: [0.8, 1.6], follow: 0.7, tint: tintFrom([[0.85, 0.55, 0.2], [0.8, 0.3, 0.3], [0.7, 0.65, 0.4]]) },

@@ -101,7 +101,9 @@ const S = {};
 function specs() {
   if (S.rock) return S;
   Object.assign(S, {
-    rock: { tpl: [...T.rocks, ...T.caveBlock], scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
+    // live reference: rock_gen.js refreshes T.rocks per segment; blocks are a separate, rarer entry
+    rock: { tpl: T.rocks, scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
+    block: { tpl: T.caveBlock, scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
     pebbles: { tpl: T.pebbles, scale: [0.8, 1.7], follow: 1, sink: 0.02, tint: tintFrom([[0.85, 0.8, 0.7], [0.75, 0.72, 0.66]], 0.08) },
     grit: { tpl: T.rubble, scale: [0.8, 1.5], follow: 1, sink: 0.02, tint: tintFrom([[0.8, 0.77, 0.7]], 0.08) },
     flow: { tpl: T.flowstone, scale: [0.7, 1.6], follow: 0.7, sink: 0.1, tint: tintFrom([[1, 1, 1], [1.05, 0.95, 0.85]], 0.12) },
@@ -315,7 +317,7 @@ export function makeCaveLayout(env) {
       if (!p || rng() > ctx.weightOf(p.s, 'cave')) return;
       const roof = cs.at(p.x, p.s) < ctx.surfaceY - 0.4;
       const wM = roof ? 0.5 * comm.mites : 0, wF = (roof ? 0.18 : 0.3) * comm.flow, r = rng() * (wM + wF + 0.32);
-      const spec = r < wM ? sp.mite : r < wM + wF ? (comm.cream ? sp.flowCream : sp.flow) : sp.rock;
+      const spec = r < wM ? sp.mite : r < wM + wF ? (comm.cream ? sp.flowCream : sp.flow) : (rng() < 0.25 ? sp.block : sp.rock);
       putFloor(ctx, fs, mid, spec, p.x, p.s, rng);
     }));
     return { batches: [st, mid, near], extra, more };

@@ -3,6 +3,7 @@
 // so per-instance tints provide the hue. aFx semantics: see materials.js.
 import { Builder, TAU, fbm3, vn3, sat, sstep, lerp } from './core.js';
 import { mulberry32 } from '../noise.js';
+import { rockJob, drain } from './rock_recipes.js';
 
 const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
@@ -435,7 +436,13 @@ const ROCK_TYPES = {
   undercut: { col: [1.2, 1.14, 1.0], name: 'Undercut limestone' },
 };
 export const ROCK_TYPE_KEYS = Object.keys(ROCK_TYPES);
-export function rockLib(seed, type, { detail = 3, growth = 0.7 } = {}) {
+// Newer generated recipes (rock_recipes.js), also reachable through rockLib / rockSet by these type names;
+// extra options pass through (litho: 'granite' | 'basalt' | 'sandstone' | ..., kind, big, vent).
+const RECIPE_TYPES = { boulder2: 'boulder', cracked: 'cracked', columnar: 'columnar', eroded: 'eroded', pillow: 'pillow', conglomerate: 'conglomerate', pile: 'pile' };
+export const ROCK_RECIPE_KEYS = Object.keys(RECIPE_TYPES);
+export function rockLib(seed, type, opts = {}) {
+  if (!ROCK_TYPES[type] && RECIPE_TYPES[type]) return drain(rockJob({ ...opts, r: RECIPE_TYPES[type] }, (seed * 7919 + type.length) >>> 0));
+  const { detail = 3, growth = 0.7 } = opts;
   const b = new Builder(), rng = mulberry32(seed * 7919 + type.length);
   const T0 = ROCK_TYPES[type], ox = rng() * 20;
   const sx = 0.8 + rng() * 0.5, sz = 0.7 + rng() * 0.5;

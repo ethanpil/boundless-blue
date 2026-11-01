@@ -82,7 +82,7 @@ function specs() {
     cushion: { tpl: T.cushion, scale: [0.18, 0.26], follow: 0.95, sink: 0, tint: tintFrom([[0.9, 0.35, 0.08], [0.85, 0.6, 0.15], [0.7, 0.2, 0.12]]) },
   });
   Object.assign(S, {
-    bendRock: { tpl: [...T.pinnacle, ...T.mound], scale: [1.1, 1.8], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.2, sink: 0.25, tint: tintFrom([[0.55, 0.52, 0.46]]) },
+    bendRock: { tpl: T.bigRocks || [...T.pinnacle, ...T.mound], scale: [1.1, 1.8], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.2, sink: 0.25, tint: tintFrom([[0.55, 0.52, 0.46]]) },
     grit: { tpl: T.grit, scale: [0.8, 1.6], follow: 1, sink: 0.01, tint: tintFrom([[1, 0.96, 0.9]], 0.06) },
     algae: { tpl: T.algae, scale: [0.6, 1.5], follow: 1, sink: 0.01, tint: tintFrom([[0.7, 0.8, 0.5], [0.8, 0.7, 0.45]], 0.1) },
   });

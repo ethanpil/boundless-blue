@@ -135,7 +135,8 @@ if (pMode > 0.5 && pMode < 1.5) {
   vec4 r1 = pTri(vWPos + vec3(rk * 13.0, rk * 5.0, rk * 7.0), pW, P);
   vec3 mw = vec3(fract(rk * 3.1), fract(rk * 5.7), fract(rk * 7.3)) + 0.1;
   float n = dot(r1.rgb, mw) / (mw.x + mw.y + mw.z);
-  diffuseColor.rgb *= 0.6 + 0.8 * n;
+  n = clamp((n - 0.5) * 2.2 + 0.5, 0.0, 1.0); // noise clusters near 0.5: stretch it so rock texture reads
+  diffuseColor.rgb *= 0.62 + 0.76 * n;
   float sp = step(0.7, pB.b) * step(fract(rk * 11.0), 0.45);           // granite speckle
   diffuseColor.rgb *= 1.0 + sp * 0.35 - step(pB.a, 0.18) * 0.2;
   float band = sin(vWPos.y * (5.0 + rk * 12.0) + r1.r * 5.0);         // strata

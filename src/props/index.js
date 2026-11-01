@@ -1,6 +1,8 @@
-// Props & set-pieces entry point. Generates every geometry variant once at startup, then registers
-// one or more populators per biome on the terrain. Each populator returns merged / instanced meshes
-// for its chunk (a handful of draw calls) and frees its per-chunk buffers on dispose.
+// Props & set-pieces entry point. Generates the startup geometry variants, then registers one or more
+// populators per biome on the terrain. Each populator returns merged / instanced meshes for its chunk
+// (a handful of draw calls) and frees its per-chunk buffers on dispose. Rock pools (T.rocks, T.mound,
+// T.pinnacle, T.bigRocks, T.tpRock, T.ventRock) and vent chimneys are regenerated per biome segment by
+// rock_gen.js, whose stages run first in every chunk build: keep live references to those arrays.
 import { T, ENV, staged, named } from './core.js';
 import { initMaterials } from './materials.js';
 import { rock, pebblePatch, algaePatch, rockSet, ROCK_TYPE_KEYS } from './shapes.js';
@@ -16,6 +18,7 @@ import { initTidepool, layoutTidepool } from './tidepool.js';
 import { initPolar, layoutPolar } from './polar.js';
 import { initPelagic, layoutPelagic } from './pelagic.js';
 import { initFeatures } from './features.js';
+import { rockGenStages, captureBase, makePool } from './rock_gen.js';
 
 // lightweight per-populator stats (inspect window.__props in the console)
 const stats = { init: 0, pops: {} };
@@ -46,7 +49,7 @@ export function registerProps(terrain, env) {
   const t0 = performance.now();
   ENV.shape = env.shape;
   initMaterials();
-  T.rocks = rockSet(ROCK_TYPE_KEYS.filter((k) => k !== 'pinnacle'), 5, { detail: 3 });
+  T.rocks = [...rockSet(ROCK_TYPE_KEYS.filter((k) => k !== 'pinnacle'), 4, { detail: 3 }), ...makePool('kelp', 'rocks', 7, 3)];
   T.mound = rockSet(['boulder', 'angular', 'sediment', 'undercut', 'volcanic'], 2, { detail: 4, growth: 1.0 });
   // shared floor micro detail + steer-around pinnacles
   T.rubble = [pebblePatch(1, { n: 14, r: 0.6, size: 0.07, flat: 0.45, elong: 3, col: [0.85, 0.8, 0.7], growth: 0.4, mode: 2 }), pebblePatch(2, { n: 9, r: 0.4, size: 0.09, flat: 0.5, elong: 2.5, col: [0.8, 0.76, 0.68], growth: 0.5, mode: 2 })];
@@ -59,8 +62,11 @@ export function registerProps(terrain, env) {
   initRuins(); initVents(); initTidepool(); initPolar(); initPelagic(); initSandflat(); initFeatures();
   flagTemplates();
   nameAll();
+  captureBase(); // startup pools = fallback while a segment's own palette is generated
   stats.init = performance.now() - t0;
   console.info(`props: templates built in ${stats.init.toFixed(0)} ms`);
+  // lazy per-segment rock / chimney generation (<= 2 ms slices), ahead of every other populator of a chunk
+  terrain.populators.unshift(...rockGenStages());
   const add = (name, layout) => staged(layout).forEach((p, i) => terrain.populators.push(wrap(name + i, p)));
   add('reef', layoutReef);
   add('reefM', layoutReefMicro);
