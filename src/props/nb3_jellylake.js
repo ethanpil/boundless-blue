@@ -103,13 +103,19 @@ function turfCarpet(seed, { R = 1.2, n = 190, col = [0.12, 0.42, 0.08], tip = [0
     }
     for (let i = 0; i < 2; i++) { const a = v0 + i * 2; b.t(a, a + 1, a + 2); b.t(a + 1, a + 3, a + 2); }
   };
+  // blade bases: the carpet colour itself, lifted toward the tips and an olive silt tone (bases at 0.6 x
+  // read as tar spots from a few metres, and black at night)
+  const base = [lerp(col[0], tip[0], 0.3) * 0.9 * 0.85 + 0.25 * 0.15 * 0.9, lerp(col[1], tip[1], 0.3) * 0.9 * 0.85 + 0.24 * 0.15 * 0.9, lerp(col[2], tip[2], 0.3) * 0.9 * 0.85 + 0.1 * 0.15 * 0.9];
   for (let k = 0; k < n; k++) {
-    const a = rng() * TAU, d = edge(a) * Math.sqrt(rng()), x = Math.cos(a) * d, z = Math.sin(a) * d, k2 = 0.8 + 0.4 * rng();
-    blade(x, z, 0.03 + 0.09 * rng() * (1 - 0.5 * d / R), 0.006 + rng() * 0.006, 0.02, [col[0] * 0.6 * k2, col[1] * 0.6 * k2, col[2] * 0.6 * k2], [tip[0] * k2, tip[1] * k2, tip[2] * k2]);
+    const a = rng() * TAU, f = Math.sqrt(rng()), d = edge(a) * f, x = Math.cos(a) * d, z = Math.sin(a) * d, k2 = 0.8 + 0.4 * rng();
+    // feathered rim: toward the edge the blades thin out and shorten into the sand
+    const fe = sstep(0.62, 1, f);
+    if (rng() < fe * 0.6) continue;
+    blade(x, z, (0.03 + 0.09 * rng() * (1 - 0.5 * d / R)) * (1 - 0.6 * fe), 0.006 + rng() * 0.006, 0.02, [base[0] * k2, base[1] * k2, base[2] * k2], [tip[0] * k2, tip[1] * k2, tip[2] * k2]);
   }
   for (let k = 0; k < tall; k++) {
     const a = rng() * TAU, d = edge(a) * 0.7 * Math.sqrt(rng()), x = Math.cos(a) * d, z = Math.sin(a) * d;
-    for (let q = 0; q < 5; q++) blade(x + (rng() - 0.5) * 0.04, z + (rng() - 0.5) * 0.04, 0.15 + rng() * 0.25, 0.004, 0.12, [col[0] * 0.7, col[1] * 0.7, col[2] * 0.7], tip);
+    for (let q = 0; q < 5; q++) blade(x + (rng() - 0.5) * 0.04, z + (rng() - 0.5) * 0.04, 0.15 + rng() * 0.25, 0.004, 0.12, base, tip);
   }
   const t = b.build();
   t.label = 'Green algal turf'; t.fact = 'In the sunlit lake, carpets of green algae grow fast on the nutrients the jellyfish release.';
@@ -143,7 +149,7 @@ function algaeCushion(seed, { R = 0.35, H = 0.14, n = 110, col = [0.05, 0.2, 0.0
   b.grid(12, 4, (u, v, i, j, o) => {
     const a = u * TAU, rr = R * (1 + 0.18 * Math.sin(a * 3 + ph) + 0.1 * Math.sin(a * 5 + ph * 2)) * (1 - v * 0.999), x = Math.cos(a) * rr, z = Math.sin(a) * rr;
     o[0] = x; o[1] = Math.max(0, shape(x * 0.999, z * 0.999)) - 0.01; o[2] = z;
-    const k = 0.7 + 0.5 * v; o[3] = col[0] * k; o[4] = col[1] * k; o[5] = col[2] * k; o[6] = 0; o[7] = 0;
+    const k = 0.7 + 0.5 * v; o[3] = lerp(col[0], tip[0], 0.35) * k; o[4] = lerp(col[1], tip[1], 0.35) * k; o[5] = lerp(col[2], tip[2], 0.35) * k; o[6] = 0; o[7] = 0; // (raw base colour read as a black mound)
   }, { wrapU: true });
   for (let k = 0; k < 8; k++) { const a = (k / 8) * TAU; base.push(Math.cos(a) * R * 0.7, -0.01, Math.sin(a) * R * 0.7); }
   for (let k = 0; k < n; k++) {
@@ -152,7 +158,7 @@ function algaeCushion(seed, { R = 0.35, H = 0.14, n = 110, col = [0.05, 0.2, 0.0
     const L = 0.025 + 0.06 * rng(), la = a + (rng() - 0.5) * 2, out = [Math.cos(la) * (0.3 + d / R * 0.6), 1, Math.sin(la) * (0.3 + d / R * 0.6)], ol = Math.hypot(out[0], out[1], out[2]);
     const dir = [out[0] / ol, out[1] / ol, out[2] / ol], fx = -Math.sin(la), fz = Math.cos(la), w = 0.004 + rng() * 0.004, v0 = b.vc, k2 = 0.8 + 0.4 * rng();
     for (let i = 0; i <= 1; i++) {
-      const t = i, px = x + dir[0] * L * t, py = y + dir[1] * L * t, pz = z + dir[2] * L * t, ww = w * (1 - 0.6 * t), c = [lerp(col[0], tip[0], t) * k2, lerp(col[1], tip[1], t) * k2, lerp(col[2], tip[2], t) * k2];
+      const t = i, px = x + dir[0] * L * t, py = y + dir[1] * L * t, pz = z + dir[2] * L * t, ww = w * (1 - 0.6 * t), c = [lerp(col[0], tip[0], 0.25 + 0.75 * t) * k2, lerp(col[1], tip[1], 0.25 + 0.75 * t) * k2, lerp(col[2], tip[2], 0.25 + 0.75 * t) * k2];
       b.v(px - fx * ww, py, pz - fz * ww, dir[0], dir[1], dir[2], c[0], c[1], c[2], 0.02 * t, 0);
       b.v(px + fx * ww, py, pz + fz * ww, dir[0], dir[1], dir[2], c[0], c[1], c[2], 0.02 * t, 0);
     }

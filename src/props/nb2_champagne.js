@@ -171,7 +171,8 @@ export function* layoutChB(ctx) {
   for (const cl of P.clusters) { // stained sand and bacterial film around each cluster
     const r = cl.R * (1.2 + rng() * 0.5);
     decalDisc(dec, fs, ctx, cl.x, cl.s, r, r * (cl.line ? 0.45 : 0.85), cl.ang, tintOf(rng, [[0.62, 0.6, 0.52], [0.66, 0.62, 0.5], [0.6, 0.5, 0.38]], 0.1), 0, 0.45, 6, 20);
-    if (rc0 && rng() < rc0.sulphur) decalDisc(dec, fs, ctx, cl.x + (rng() - 0.5) * cl.R, cl.s + (rng() - 0.5) * cl.R, r * 0.5, r * 0.4, rng() * TAU, [0.85, 0.72, 0.25], 0, 0.5, 5, 16);
+    // (sulphur film: a pale, desaturated yellow; saturated yellow turned into a glowing lime puddle under the green water)
+    if (rc0 && rng() < rc0.sulphur) decalDisc(dec, fs, ctx, cl.x + (rng() - 0.5) * cl.R, cl.s + (rng() - 0.5) * cl.R, r * 0.5, r * 0.4, rng() * TAU, [0.8, 0.72, 0.46], 0, 0.38, 5, 16);
     if (cl.line) { // the fissure itself: a dark crack with pale lips
       const pts = [];
       for (let i = 0; i <= 10; i++) { const t = (i / 10 - 0.5) * 2 * cl.R * 1.7; pts.push(cl.x + Math.cos(cl.ang) * t + (rng() - 0.5) * 0.25, cl.s + Math.sin(cl.ang) * t + (rng() - 0.5) * 0.25); }
@@ -191,9 +192,11 @@ export function* layoutChB(ctx) {
     decalDisc(dec, fs, ctx, v.x, v.s, r * 2.6, r * 2.6, rng() * TAU, tintOf(rng, [[0.85, 0.84, 0.76], [0.88, 0.8, 0.55]], 0.08), 2, 0.55, 3, 10);
     decalDisc(dec, fs, ctx, v.x, v.s, r, r, rng() * TAU, [0.05, 0.05, 0.05], 3, 0.85, 2, 8);
     // the bubble stream(s): fine fizz, sometimes big wobbling burps
-    const fizz = { x: v.x, y: v.y + 0.02, s: v.s, n: Math.round((v.big ? 220 : 80 + rng() * 110) * Math.min(1, rc.fizz) * lowF) + 16, rise, speed: 0.3 + rng() * 0.2, size: 0.009 + rng() * 0.008, wob: 0.015 + rng() * 0.03, drift: rc.drift + (rng() - 0.5) * 0.25, spread: v.big ? 0.16 : 0.07 };
+    // each stream meanders on its own (phase, eddy amplitude) and leans with the current
+    const ph = rng(), mea = 0.1 + 0.15 * rng();
+    const fizz = { x: v.x, y: v.y + 0.02, s: v.s, n: Math.round((v.big ? 220 : 80 + rng() * 110) * Math.min(1, rc.fizz) * lowF) + 16, rise, speed: 0.3 + rng() * 0.2, size: 0.009 + rng() * 0.008, wob: 0.015 + rng() * 0.03, drift: rc.drift + (rng() - 0.5) * 0.4, spread: v.big ? 0.16 : 0.07, ph, mea };
     streams.push(fizz);
-    if (v.big || rng() < rc.burp * 0.35) streams.push({ x: v.x, y: v.y + 0.02, s: v.s, n: Math.round((14 + rng() * 20) * lowF) + 4, rise, speed: 0.55 + rng() * 0.25, size: 0.026 + rng() * 0.025, wob: 0.07 + rng() * 0.08, drift: rc.drift * 0.7 + (rng() - 0.5) * 0.3, spread: 0.12 });
+    if (v.big || rng() < rc.burp * 0.35) streams.push({ x: v.x, y: v.y + 0.02, s: v.s, n: Math.round((14 + rng() * 20) * lowF) + 4, rise, speed: 0.55 + rng() * 0.25, size: 0.026 + rng() * 0.025, wob: 0.07 + rng() * 0.08, drift: rc.drift * 0.7 + (rng() - 0.5) * 0.3, spread: 0.12, ph: (ph + 0.3) % 1, mea: mea * 1.4 });
   }
   const extra = [];
   yield;

@@ -143,7 +143,7 @@ function sargMaterial() {
             float sun = pow(max(dot(vd, uSunDir), 0.0), 3.0);
             float up = smoothstep(-0.1, 0.55, vd.y);
             float th = sgPart > 1.5 && sgPart < 2.5 ? 1.35 : (sgPart > 0.5 && sgPart < 1.5 ? 1.0 : 0.4);
-            totalEmissiveRadiance += diffuseColor.rgb * Tl * uSunColor * uSunScatter * (0.12 + 1.25 * up + 1.7 * sun) * th;
+            totalEmissiveRadiance += diffuseColor.rgb * vec3(1.1, 0.94, 0.72) * Tl * uSunColor * uSunScatter * (0.12 + 1.1 * up + 1.5 * sun) * th * (1.0 - uNight);
           }
           totalEmissiveRadiance += diffuseColor.rgb * uLamp * 0.12;`);
     },
@@ -176,7 +176,8 @@ function matMaterial() {
             sgFine = k4;
             float weed = max(max(mix(0.67, c3.a, k3), mix(0.67, c4.a, k4)), mix(0.67, c2.a, k2) - 0.05);
             float cov = vFx.x * (0.5 + 0.65 * c1.r);
-            float thr = 0.98 - 0.4 * cov + (vFx.y > 0.5 ? 0.05 : 0.0);
+            // (layer 2 is the sagging underlayer: sparser, ragged tangles; every layer keeps some gaps)
+            float thr = max(0.56, 0.98 - 0.4 * cov) + (vFx.y > 1.5 ? 0.1 : vFx.y > 0.5 ? 0.05 : 0.0);
             if (weed < thr) discard;
             float edge = smoothstep(0.0, 0.1, weed - thr);
             sgThick = smoothstep(0.45, 1.0, cov) * (0.55 + 0.45 * c2.r) * edge;
@@ -190,8 +191,11 @@ function matMaterial() {
             vec3 vd = normalize(vWPos - cameraPosition);
             float sun = pow(max(dot(vd, uSunDir), 0.0), 3.0);
             float up = smoothstep(-0.1, 0.55, vd.y);
-            float th = mix(1.25, 0.3, sgThick) * (1.0 - 0.3 * vFx.y); // thin edges glow, thick cores stay dark
-            totalEmissiveRadiance += diffuseColor.rgb * uSunColor * uSunScatter * (0.2 + 1.3 * up + 1.8 * sun) * th + diffuseColor.rgb * uLamp * 0.1;
+            float th = mix(1.0, 0.25, sgThick) * (1.0 - 0.3 * min(vFx.y, 2.0)); // thin edges glow, thick cores stay dark
+            // light filtering through the weed is warm (the blades absorb blue), and there is none at night
+            vec3 warm = diffuseColor.rgb * vec3(1.12, 0.92, 0.68);
+            float dB = max(0.0, uSurfaceY - vWPos.y);
+            totalEmissiveRadiance += warm * exp(-uLightSigma * dB) * uSunColor * uSunScatter * (0.12 + 0.95 * up + 1.4 * sun) * th * (1.0 - uNight) + diffuseColor.rgb * uLamp * 0.1;
           }`);
     },
   });
@@ -201,7 +205,8 @@ function matMaterial() {
 // small individual wiggle. aFx.x = sway amplitude (m); aFx.y = part + fraction:
 // [0,1) column / disc (fraction = height), [1,2) tentacle (fraction = along, 0 base .. 1 tip),
 // [2,3) carpet-anemone disc (fraction = radius; short sticky tentacles drawn as nubs),
-// [3,4) mushroom-anemone disc (fraction = radius; radial ridges).
+// [3,4) mushroom-anemone disc (fraction = radius; radial ridges),
+// [4,5) magnificent-anemone tentacle pile (impostor of the finger carpet; fraction = radius).
 const AN_V = /* glsl */`
 attribute vec2 aFx;
 varying vec2 vFx;
@@ -241,7 +246,26 @@ function anemMaterial() {
           {
             vec4 n1 = texture2D(uNoiseTex, vWPos.xz * 4.0 + vec2(vWPos.y * 2.0));
             diffuseColor.rgb *= 0.86 + 0.28 * n1.g;
-            if (anPart > 1.5 && anPart < 2.5) {
+            if (anPart > 3.5) {
+              // magnificent-anemone finger pile (impostor of the tentacle carpet): blunt finger tips packed
+              // in staggered rows (~2.8 cm apart; 36 cells per metre divides the 1024 m rebase), dark gaps
+              // between them, pale tips; fades to its mean colour before it would alias
+              vec2 q = vWPos.xz * 36.0;
+              q.x += 0.5 * floor(q.y);
+              vec2 id = floor(q);
+              vec4 h = texture2D(uNoiseTex, (id + 0.5) / 256.0);
+              // (each cell its own finger: jittered centre, own size, own tilt of the pale tip; not a polka-dot grid)
+              vec2 f = fract(q) - 0.5 + (h.xy - 0.5) * 0.55;
+              float fw = length(fwidth(q));
+              float fade = 1.0 - smoothstep(0.35, 0.9, fw);
+              float sz = 0.75 + 0.5 * h.w, rr = length(f) / sz;
+              float nub = 1.0 - smoothstep(0.1, 0.46, rr);
+              vec3 tipc = mix(diffuseColor.rgb * 1.6, vec3(dot(diffuseColor.rgb, vec3(0.33))) * 1.6 + 0.05, 0.3);
+              vec3 c = mix(diffuseColor.rgb * 0.5, diffuseColor.rgb * (0.85 + 0.3 * h.z), smoothstep(0.5, 0.2, rr));
+              c = mix(c, tipc, smoothstep(0.24, 0.0, length(f + (h.zw - 0.5) * 0.12) / sz) * (0.35 + 0.35 * h.y));
+              diffuseColor.rgb = mix(diffuseColor.rgb * 0.88 + tipc * 0.1, c, fade);
+              anH = nub * fade; anK = 0.022;
+            } else if (anPart > 1.5 && anPart < 2.5) {
               // carpet anemone: thousands of short sticky tentacles, tips paler (a dotted pile)
               vec2 q = vWPos.xz * 64.0 + vec2(vWPos.y * 41.0);
               vec2 f = fract(q) - 0.5;
@@ -279,10 +303,10 @@ function anemMaterial() {
             vec3 Tl = exp(-uLightSigma * dB) * skyVis(vWPos);
             float back = pow(max(dot(vd, uSunDir), 0.0), 2.0);
             float rim = pow(1.0 - abs(dot(wN, vd)), 2.0);
-            float tk = anPart > 0.5 && anPart < 1.5 ? 1.0 : 0.35;
+            float tk = anPart > 0.5 && anPart < 1.5 ? 1.0 : anPart > 3.5 ? 0.7 : 0.35;
             totalEmissiveRadiance += diffuseColor.rgb * uSunColor * uSunScatter * Tl * (0.05 + 0.35 * rim + 0.8 * back) * tk;
             // tentacle tips fluoresce faintly under the lamps and at night
-            float tip = anPart > 0.5 && anPart < 1.5 ? anT * anT : 0.0;
+            float tip = anPart > 0.5 && anPart < 1.5 ? anT * anT : anPart > 3.5 ? anH * 0.5 : 0.0;
             totalEmissiveRadiance += diffuseColor.rgb * tip * (uLamp * 0.35 + uNight * 0.06);
           }`);
     },

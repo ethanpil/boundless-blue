@@ -13,7 +13,7 @@ import { initSeamount, layoutSmP, layoutSmA, layoutSmB, layoutSmC, SM_ROCKS, SM_
 import { initForest, layoutSfP, layoutSfA, layoutSfB, layoutSfC, treeKind } from './nb2_forest.js';
 import { treeG, logG, stumpG } from './nb2_trees.js';
 import { initChampagne, layoutChP, layoutChA, layoutChB, layoutChC, CH_ROCKS } from './nb2_champagne.js';
-import { initBluehole, layoutBhP, layoutBhA, layoutBhB, layoutBhC, BH_ROCKS } from './nb2_bluehole.js';
+import { initBluehole, layoutBhP, layoutBhA, layoutBhB, layoutBhC, BH_ROCKS, ribTpl } from './nb2_bluehole.js';
 
 const once = (f) => function* () { return f(); };
 const named = (t, [label, fact]) => { t.label = label; t.fact = fact; return t; };
@@ -36,6 +36,7 @@ export function registerNewBiomeProps2(terrain, env) {
   provide('champagne', 'nb2chRock', 8, (seg, k, tier) => rockJob(tiered(CH_ROCKS[(k + (seg.seed >>> 5)) % CH_ROCKS.length], tier), (seg.seed ^ (k * 0x7feb352d)) >>> 0), 2);
   provide('bluehole', 'nb2bhRock', 8, (seg, k, tier) => rockJob(tiered(BH_ROCKS[(k + (seg.seed >>> 6)) % BH_ROCKS.length], tier), (seg.seed ^ (k * 0x2c1b3c6d)) >>> 0), 2);
   provide('bluehole', 'nb2bhFan', 6, (seg, k) => once(() => named(giantFan((seg.seed ^ (k * 0x297a2d39)) >>> 0, { h: 1.4 + ((seg.seed >>> (k + 3)) % 7) * 0.15, lobes: 1 + (k % 3 === 2 ? 1 : 0), cup: 0.04 + (k % 3) * 0.03 }), SM_FAN))(), 2);
+  provide('bluehole', 'nb2bhRib', 6, (seg, k) => once(() => ribTpl((seg.seed ^ (k * 0x3c6ef372)) >>> 0, k + (seg.seed >>> 9)))(), 2);
   provide('bluehole', 'nb2bhCave', 3, (seg, k) => once(() => caveMouth((seg.seed ^ (k * 0x1b873593)) >>> 0, { W: 10 + ((seg.seed >>> (k + 1)) % 7) * 1.3, H: 5 + ((seg.seed >>> (k + 4)) % 4) * 0.8, D: 3 + (k % 3) * 0.6 }))(), 2);
   provide('sunkenforest', 'nb2sfStump', 3, (seg, k) => stumpG((seg.seed ^ (k * 0x61c88647)) >>> 0), 2);
   const ms = performance.now() - t0;
@@ -47,7 +48,7 @@ export function registerNewBiomeProps2(terrain, env) {
   const PLAN = { smP: layoutSmP, sfP: layoutSfP, chP: layoutChP, bhP: layoutBhP };
   const add = (name, layout, n) => stagedNB2(layout, n).forEach((p, i) => terrain.populators.push(statWrap(name + i, p)));
   for (const [name, layout] of Object.entries(PLAN)) add(name, layout, 10);
-  // seamount chain B also builds the crust skin (~16 slices of 3 ms on a laptop): headroom before the last
-  // stage would have to drain it in one go on slower devices
-  for (const [name, layout] of Object.entries(L)) add(name, layout, name === 'smB' ? 34 : 22);
+  // seamount chain B and blue hole chain B also build a crust skin (~16 slices of 3 ms on a laptop): headroom
+  // before the last stage would have to drain it in one go on slower devices
+  for (const [name, layout] of Object.entries(L)) add(name, layout, name === 'smB' || name === 'bhB' ? 34 : 22);
 }

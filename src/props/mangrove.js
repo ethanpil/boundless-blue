@@ -21,7 +21,8 @@ const M = {};
 const DROPS = [2.2, 3.0, 3.9, 4.9];
 const EXT = 0.45; // root length continuing straight down below its nominal mud point
 
-const SPONGE = [[0.95, 0.28, 0.03], [0.7, 0.05, 0.04], [0.32, 0.06, 0.42], [0.85, 0.6, 0.05], [0.95, 0.42, 0.1]];
+// root sponges: orange, red, purple (no yellow: in the green water it turned into lime 'corn cobs')
+const SPONGE = [[0.95, 0.28, 0.03], [0.7, 0.05, 0.04], [0.32, 0.06, 0.42], [0.55, 0.08, 0.5], [0.9, 0.16, 0.06]];
 
 // ---------------------------------------------------------------- templates
 // One prop root, like an arm of an upside-down candelabra: it leaves the trunk above the waterline at a
@@ -31,7 +32,8 @@ function rootTpl(seed, drop, far) {
   const b = new Builder(), rng = mulberry32(seed);
   const radial = far ? 4 : 5, segs = far ? 8 : 12;
   const age = 0.55 + rng() * 0.9, spread = drop * (0.75 + rng() * 0.65);
-  const r0 = 0.06 + 0.05 * age, r1 = r0 * (0.5 + rng() * 0.12), zw = (rng() - 0.5) * 0.45 * spread;
+  // thick and only gently tapering (a prop root is still 8-12 cm across where it enters the water)
+  const r0 = 0.085 + 0.05 * age, r1 = r0 * (0.68 + rng() * 0.12), zw = (rng() - 0.5) * 0.45 * spread;
   const P0 = [0, 0, 0], P1 = [spread * (0.38 + rng() * 0.22), -drop * (0.04 + rng() * 0.2), zw * 0.25];
   const P2 = [spread * (0.82 + rng() * 0.15), -drop * (0.3 + rng() * 0.3), zw * 0.8], P3 = [spread, -drop, zw];
   const paint = (v, a, x, y, z, o) => {
@@ -40,7 +42,7 @@ function rootTpl(seed, drop, far) {
     o[3] = lerp(0.23, 0.1, wet) * n * mud; o[4] = lerp(0.15, 0.1, wet) * n * mud; o[5] = lerp(0.1, 0.05, wet) * n * mud;
     o[6] = 0.8 * wet; o[7] = 0;
   };
-  const fork = Math.round((0.38 + rng() * 0.2) * segs), nFork = far ? (rng() < 0.6 ? 1 : 0) : 1 + (rng() < 0.45 ? 1 : 0);
+  const fork = Math.round((0.38 + rng() * 0.2) * segs), nFork = far ? 1 + (rng() < 0.4 ? 1 : 0) : 1 + (rng() < 0.7 ? 1 : 0);
   const kink = (t, k) => 0.035 * spread * sstep(0.65, 1, t) * vn3(t * 5 + k, k, 0, seed + 5);
   const main = [], rad = [];
   for (let i = 0; i <= segs; i++) {
@@ -64,16 +66,30 @@ function rootTpl(seed, drop, far) {
     const C1 = [Q[0] + dir[0] * reach * 0.55, Q[1] - (Q[1] + drop) * 0.08, Q[2] + dir[2] * reach * 0.55];
     const C2 = [E[0] - dir[0] * reach * 0.08, Q[1] - (Q[1] + drop) * 0.55, E[2] - dir[2] * reach * 0.08];
     const n = far ? 5 : 8, pts = [], rr = [];
-    for (let i = 0; i <= n; i++) { const t = i / n, p = bez(Q, C1, C2, E, t); p[0] += kink(t, 3 + f); p[2] += kink(t, 5 + f); pts.push(p); rr.push(lerp(rad[fork] * 0.72, r1 * 0.7, Math.pow(t, 0.7))); }
+    for (let i = 0; i <= n; i++) { const t = i / n, p = bez(Q, C1, C2, E, t); p[0] += kink(t, 3 + f); p[2] += kink(t, 5 + f); pts.push(p); rr.push(lerp(rad[fork] * 0.8, r1 * 0.82, Math.pow(t, 0.7))); }
     const En = pts[n];
     pts.push([En[0] + dir[0] * 0.05, -drop - EXT * 0.5, En[2] + dir[2] * 0.05], [En[0] + dir[0] * 0.08, -drop - EXT, En[2] + dir[2] * 0.08]); rr.push(rr[n] * 0.95, rr[n] * 0.9);
     b.tube(pts, rr, far ? 4 : radial, paint, { tip: true });
     for (let i = 0; i <= n; i += 2) spine.push(pts[i][0], pts[i][1], pts[i][2], rr[i]);
     tips.push(pts[n + 2]);
     obs.push([...Q, ...pts[n + 2], rr[0] + 0.03]);
+    // a smaller sub-arch springing from the daughter root and dropping to its own anchor
+    if (!far && rng() < 0.65) {
+      const j = Math.round(n * (0.35 + rng() * 0.25)), S0 = pts[j], ya = (rng() < 0.5 ? 1 : -1) * (0.5 + rng() * 0.6), c2 = Math.cos(ya), s2 = Math.sin(ya);
+      const d2 = [dir[0] * c2 - dir[2] * s2, 0, dir[0] * s2 + dir[2] * c2], reach2 = 0.35 + rng() * 0.6, E2 = [S0[0] + d2[0] * reach2, -drop, S0[2] + d2[2] * reach2];
+      const D1 = [S0[0] + d2[0] * reach2 * 0.6, S0[1] - (S0[1] + drop) * 0.05, S0[2] + d2[2] * reach2 * 0.6], D2 = [E2[0] - d2[0] * reach2 * 0.05, S0[1] - (S0[1] + drop) * 0.6, E2[2] - d2[2] * reach2 * 0.05];
+      const q = [], qr = [];
+      for (let i = 0; i <= 5; i++) { const t = i / 5; q.push(bez(S0, D1, D2, E2, t)); qr.push(lerp(rr[j] * 0.7, r1 * 0.62, Math.pow(t, 0.7))); }
+      const Eq = q[5];
+      q.push([Eq[0] + d2[0] * 0.04, -drop - EXT * 0.5, Eq[2] + d2[2] * 0.04], [Eq[0] + d2[0] * 0.06, -drop - EXT, Eq[2] + d2[2] * 0.06]); qr.push(qr[5] * 0.95, qr[5] * 0.9);
+      b.tube(q, qr, 4, paint, { tip: true });
+      for (let i = 0; i <= 5; i += 2) spine.push(q[i][0], q[i][1], q[i][2], qr[i]);
+      tips.push(q[7]);
+      obs.push([...S0, ...q[7], qr[0] + 0.03]);
+    }
   }
   // baked collar sponge hugging the submerged part of some roots
-  if (!far && rng() < 0.45) {
+  if (!far && rng() < 0.6) {
     const i0 = Math.round((0.6 + rng() * 0.2) * segs), col = SPONGE[(rng() * SPONGE.length) | 0];
     const pts = main.slice(i0, i0 + 3), rr = pts.map((p, k) => rad[i0 + k] * (k === 1 ? 1.45 + rng() * 0.35 : 0.96));
     b.tube(pts, rr, 7, (v, a, x, y, z, o) => {
@@ -283,12 +299,12 @@ function* planGen(ctx) {
     if (t.yb < -0.05 && !clearBox(pc, t.x, t.s, t.yb, 0, t.tpl.nbR + 0.1)) t.yb = 0.05;
     // every tree differs: age (root count), reach and how high its roots leave the trunk
     const age = rng(), spreadK = 0.8 + rng() * 0.45, hi = 0.2 + rng() * 0.5;
-    const nR = Math.round((near ? (t.d < 9 ? 12 + age * 8 : 9 + age * 6) : 5 + age * 4));
+    const nR = Math.round((near ? (t.d < 9 ? 17 + age * 10 : 13 + age * 8) : 6 + age * 5));
     let placed = 0;
     for (let k = 0; k < nR; k++) {
       const yaw = rng() * TAU; // irregular, so neighbouring roots cross and overlap
       // most roots leave the trunk above the water; some drop from overhead branches
-      const fromBranch = rng() < 0.25, ya = fromBranch ? 0.8 + rng() * 1.0 : t.yb + hi + Math.pow(rng(), 0.8) * 1.1;
+      const fromBranch = rng() < 0.2, ya = fromBranch ? 0.8 + rng() * 1.0 : t.yb + hi + Math.pow(rng(), 0.8) * 1.1;
       const aa = fromBranch ? rng() * TAU : yaw, ra = fromBranch ? 0.7 + rng() * 1.8 : t.tpl.nbR * 0.55;
       const xa = t.x + Math.cos(aa) * ra, sa = t.s + Math.sin(aa) * ra, D = ya - yf;
       if (D < 1.0) continue;
@@ -297,14 +313,14 @@ function* planGen(ctx) {
       let k2 = spreadK * (0.85 + rng() * 0.3), ok = false, sy = 1;
       const R = rotY(yaw);
       for (let attempt = 0; attempt < 3 && !ok; attempt++) { // shorten roots that would reach into the channel
-        if (attempt) k2 *= 0.72;
+        if (attempt) k2 *= 0.84;
         sy = 0;
         for (const tp of tpl.nbTips) { // vertical stretch so that every tip enters the mud by 15 cm
           const o = xf(R, k2, 1, k2, tp[0], 0, tp[2]);
           const f = fs.at(xa + o[0], sa - o[2]);
           sy = Math.max(sy, (ya - f + 0.15) / -tp[1]);
         }
-        if (sy < 0.55 || sy > 1.7) break;
+        if (sy < 0.55 || sy > 1.7 || k2 < 0.62) break;
         if (t.d - ra - (tpl.box[3] + Math.max(-tpl.box[2], tpl.box[5]) + 0.3) * k2 > 4.3) { ok = true; break; } // too far from the path to matter
         const sp = tpl.nbSpine, pts = [];
         for (let i = 0; i < sp.length; i += 4) { const o = xf(R, k2, sy, k2, sp[i], sp[i + 1], sp[i + 2]); pts.push(xa + o[0], ya + o[1], sa - o[2], sp[i + 3] * k2); }
@@ -335,9 +351,11 @@ export function* layoutMangroveP(ctx) { if (presence(ctx, 'mangrove') > 0) yield
 function planTrees(ctx) { return PLANS.get(ctx.group) || runLayout(planGen, ctx); }
 export function layoutMangroveA(ctx) {
   if (presence(ctx, 'mangrove') <= 0) return null;
-  const P = planTrees(ctx);
-  const st = new Batch(MAT.static, 80000);
-  for (const r of P.roots) put(ctx, st, r.tpl, r.x, r.y, r.s, r.R, r.sx, r.sy, r.sz, [1, 1, 1], 1, 'floor');
+  const P = planTrees(ctx), pc = pathCache(ctx);
+  const st = new Batch(MAT.static, 90000);
+  // channel-side roots first: if the batch fills up, it is the far ones that are left out
+  const roots = P.roots.slice().sort((p, q) => Math.abs(p.x - pc.x(p.s)) - Math.abs(q.x - pc.x(q.s)));
+  for (const r of roots) r.ok = put(ctx, st, r.tpl, r.x, r.y, r.s, r.R, r.sx, r.sy, r.sz, [1, 1, 1], 1, 'floor');
   for (const d of P.drops) put(ctx, st, d.tpl, d.x, d.y, d.s, d.R, 1, d.sy, 1, [1, 1, 1], 1, 'floor');
   for (const t of P.trees) if (t.placed) put(ctx, st, t.tpl, t.x, t.yb, t.s, rotY(t.yaw), 1, 1, 1, [1, 1, 1], 1, 'roots');
   // label the nearest trees
@@ -370,14 +388,14 @@ export function* layoutMangroveB(ctx) {
   if (presence(ctx, 'mangrove') <= 0) return null;
   const P = planTrees(ctx), lk = lowK(ctx), bk = budgetK(ctx, 'mangrove');
   const rng = mulberry32(((ctx.s0 * 2246822519) ^ 0x3c6ef372) >>> 0), fs = nbFloor(ctx), pc = pathCache(ctx);
-  const near = new Batch(MAT.static, 38000 * bk); near.lod = 'near';
-  const sw = new Batch(MAT.sway, 8000 * bk); sw.lod = 'near'; sw.soft = true;
+  const near = new Batch(MAT.static, 52000 * bk); near.lod = 'near';
+  const sw = new Batch(MAT.sway, 12000 * bk); sw.lod = 'near'; sw.soft = true;
   // --- life encrusting the submerged roots
   for (const r of P.roots) {
     if (Y.over()) { yield; Y.reset(); }
-    if (!r.near || rng() > lk) continue;
+    if (r.ok === false || rng() > lk * (r.near ? 1 : 0.4)) continue; // (a root chain A left out carries nothing)
     const g = segFor(ctx, r.s, 'mangrove'), rc = recipeOf(g), pal = rc.pal.length ? rc.pal : SPONGE;
-    const n = Math.floor(rng() * (2 + 1.5 * (rc.oyster + rc.sponge)));
+    const n = 2 + Math.floor(rng() * (3 + 2 * (rc.oyster + rc.sponge)));
     for (let k = 0; k < n; k++) {
       const ri = (rng() * r.tpl.nbRings.length) | 0, rg = r.tpl.nbRings[ri], a = rng() * TAU, ca = Math.cos(a), sa = Math.sin(a);
       const nl = [ca * rg.A[0] + sa * rg.B[0], ca * rg.A[1] + sa * rg.B[1], ca * rg.A[2] + sa * rg.B[2]];
@@ -390,7 +408,7 @@ export function* layoutMangroveB(ctx) {
       const u = rng() * (rc.oyster + rc.sponge + 1.1);
       if (u < rc.oyster * (wy > -0.9 ? 2 : 0.4) && wy > -1.3) { tpl = pick(rng, M.oyster); sc = 0.8 + rng() * 0.5; col = [1, 1, 1]; }
       else if (u < rc.oyster + rc.sponge) { tpl = pick(rng, M.sponge); sc = 0.6 + rng() * 0.7; col = pick(rng, pal); }
-      else if (u < rc.oyster + rc.sponge + 0.45) { tpl = pick(rng, M.tunic); sc = 0.8 + rng() * 0.6; col = pick(rng, [[0.25, 0.45, 1.0], [1.0, 0.85, 0.2], [0.3, 0.85, 0.4], [0.75, 0.35, 0.95], [1, 1, 1]]); }
+      else if (u < rc.oyster + rc.sponge + 0.45) { tpl = pick(rng, M.tunic); sc = 0.8 + rng() * 0.6; col = pick(rng, [[0.25, 0.45, 1.0], [1.0, 0.55, 0.2], [0.85, 0.3, 0.55], [0.75, 0.35, 0.95], [1, 1, 1]]); }
       else if (u < rc.oyster + rc.sponge + 0.7 && wy < -1.0) { tpl = pick(rng, M.anem); sc = 0.7 + rng() * 0.5; col = [1, 1, 1]; b = sw; }
       else { tpl = pick(rng, M.fuzz); sc = 0.8 + rng() * 0.6; col = pick(rng, [[0.55, 0.5, 0.25], [0.35, 0.45, 0.2], [0.6, 0.35, 0.3]]); b = sw; }
       // keep the flat base no wider than the root, and sink it so its rim still meets the curved surface

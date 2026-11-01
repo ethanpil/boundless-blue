@@ -4,7 +4,7 @@ import { ENV } from './core.js';
 import { initMaterials } from './materials.js';
 import { initNBMaterials, stagedNB, statWrap, NBSTATS, NBDBG } from './nb_common.js';
 import { initMangrove, layoutMangroveP, layoutMangroveA, layoutMangroveB, layoutMangroveC } from './mangrove.js';
-import { initWall, layoutWallP, layoutWallA, layoutWallB, layoutWallC } from './wall.js';
+import { initWall, layoutWallP, layoutWallA, layoutWallB, layoutWallC, layoutWallD, layoutWallE } from './wall.js';
 import { initSoftcoral, layoutSoftA, layoutSoftB } from './softcoral.js';
 import { initDeepplain, layoutDeepA, layoutDeepB, layoutDeepC } from './deepplain.js';
 
@@ -22,7 +22,7 @@ export function registerNewBiomeProps(terrain, env) {
   if (typeof console !== 'undefined') console.info(`new-biome props: templates built in ${NBSTATS.init.toFixed(0)} ms`);
   const L = {
     mangroveA: layoutMangroveA, mangroveB: layoutMangroveB, mangroveC: layoutMangroveC,
-    wallA: layoutWallA, wallB: layoutWallB, wallC: layoutWallC,
+    wallA: layoutWallA, wallB: layoutWallB, wallC: layoutWallC, wallD: layoutWallD, wallE: layoutWallE,
     softA: layoutSoftA, softB: layoutSoftB,
     deepA: layoutDeepA, deepB: layoutDeepB, deepC: layoutDeepC,
   };
@@ -31,5 +31,7 @@ export function registerNewBiomeProps(terrain, env) {
   const PLAN = { mangroveP: layoutMangroveP, wallP: layoutWallP };
   const add = (name, layout, n) => stagedNB(layout, n).forEach((p, i) => terrain.populators.push(statWrap(name + i, p)));
   for (const [name, layout] of Object.entries(PLAN)) add(name, layout, 3);
-  for (const [name, layout] of Object.entries(L)) add(name, layout, 10);
+  // (the wall's terrace reef, chain E, seats colonies on the knolls' meshes and merges five batches: it
+  // needs more slices than the others, or its last stage drains the rest in one go)
+  for (const [name, layout] of Object.entries(L)) add(name, layout, name === 'wallE' ? 20 : 10);
 }

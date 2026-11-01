@@ -49,12 +49,12 @@ export const recipeOf = (g) => recipe(g, 'nb3an', (g) => {
     leathM: subset(g, 380, MORPH.leathery.length, 1 + (u(4) < 0.5 ? 1 : 0)),
     tubeM: subset(g, 390, MORPH.tube.length, 2),
     mushM: subset(g, 400, MORPH.mushroom.length, 2 + (u(5) < 0.5 ? 1 : 0)),
-    magR: 0.26 + 0.16 * u(6),                         // typical magnificent disc radius (they reach a metre across)
+    magR: 0.34 + 0.16 * u(6),                         // typical magnificent disc radius (they reach a metre across)
     hard: [[1.0, 0.55, 0.2], [0.75, 0.3, 0.85], [0.55, 0.8, 0.25], [1.05, 0.82, 0.25], [1.0, 0.4, 0.55], [0.3, 0.75, 0.7], [0.9, 0.9, 0.82]].filter((_, i) => u(10 + i) > 0.35),
     fanPal: [[0.72, 0.1, 0.9], [1.0, 0.1, 0.18], [1.1, 0.48, 0.08], [1.05, 0.85, 0.15], [0.95, 0.2, 0.6]].filter((_, i) => u(20 + i) > 0.4),
     spongePal: [[0.72, 0.15, 0.95], [1.1, 0.42, 0.06], [1.1, 0.86, 0.1], [0.85, 0.3, 0.22], [0.3, 0.55, 0.95]].filter((_, i) => u(30 + i) > 0.4),
     sandK: 0.4 + 0.8 * u(7),                          // pale sand patches between the rocks
-    closedK: 0.08 + 0.27 * u(8),                      // share of magnificent anemones balled up
+    closedK: 0.04 + 0.12 * u(8),                      // share of magnificent anemones balled up
     patchK: 0.8 + 0.5 * u(9),                         // how many dense anemone patches line the route
   };
 });
@@ -73,14 +73,14 @@ const MORPH_OF = { mag: 'magnificent', magL: 'magnificent', magB: 'magnificent',
 const SUB_OF = { mag: 'magM', magL: 'magM', magB: 'magM', magC: 'magM', bub: 'bubM', bubL: 'bubM', bubM: 'bubM', bubB: 'bubM', carp: 'carpM', leath: 'leathM', tube: 'tubeM', mush: 'mushM' };
 export function initAnemoneField(tier) {
   const S = (k) => 7100 + k * 37;
-  A.mag = [0, 3, 5].map((m, i) => drainG(mk(tier, 'mag', S(i), MORPH.magnificent[m], { R: 0.26 + i * 0.05 })));
+  A.mag = [0, 3, 5].map((m, i) => drainG(mk(tier, 'mag', S(i), MORPH.magnificent[m], { R: 0.34 + i * 0.06 })));
   A.bub = [0, 1, 3, 5].map((m, i) => drainG(tagged(mk(tier, 'bub', S(10 + i), MORPH.bubble[m], { R: 0.08 + i * 0.015 }), m)));
-  A.magL = [0, 3, 5].map((m, i) => drainG(mk(tier, 'magL', S(80 + i), MORPH.magnificent[m], { R: 0.24 + i * 0.05 })));
+  A.magL = [0, 3, 5].map((m, i) => drainG(mk(tier, 'magL', S(80 + i), MORPH.magnificent[m], { R: 0.32 + i * 0.06 })));
   A.bubL = [0, 1, 3, 5].map((m, i) => drainG(tagged(mk(tier, 'bubL', S(90 + i), MORPH.bubble[m], { R: 0.08 + i * 0.015 }), m)));
   A.bubM = [0, 1, 3, 5].map((m, i) => drainG(tagged(mk(tier, 'bubM', S(95 + i), MORPH.bubble[m], { R: 0.08 + i * 0.015 }), m)));
   A.bubB = [0, 1, 3, 5].map((m, i) => drainG(tagged(mk(tier, 'bubB', S(97 + i), MORPH.bubble[m], { R: 0.08 + i * 0.015 }), m)));
-  A.magB = [0, 3, 5].map((m, i) => drainG(mk(tier, 'magB', S(85 + i), MORPH.magnificent[m], { R: 0.24 + i * 0.05 })));
-  A.magC = [0, 2, 6].map((m, i) => drainG(mk(tier, 'magC', S(88 + i), MORPH.magnificent[m], { R: 0.26 + i * 0.05 })));
+  A.magB = [0, 3, 5].map((m, i) => drainG(mk(tier, 'magB', S(85 + i), MORPH.magnificent[m], { R: 0.32 + i * 0.06 })));
+  A.magC = [0, 2, 6].map((m, i) => drainG(mk(tier, 'magC', S(88 + i), MORPH.magnificent[m], { R: 0.34 + i * 0.06 })));
   A.carp = [0, 1, 3].map((m, i) => drainG(mk(tier, 'carp', S(20 + i), MORPH.carpet[m], { R: 0.35 + i * 0.08 })));
   A.leath = [0, 1].map((m, i) => drainG(mk(tier, 'leath', S(30 + i), MORPH.leathery[m])));
   A.tube = [0, 1, 3].map((m, i) => drainG(mk(tier, 'tube', S(40 + i), MORPH.tube[m])));
@@ -153,15 +153,17 @@ const PL = planned(function* (ctx) {
   // "cities", bubble-tip clone beds or carpet-anemone flats, each an irregular blob a few metres across
   // stratified along the route (one per stretch of 64 / nP m, sides alternating more often than not), so
   // there is always a patch in view rather than clumps with bare stretches between
-  const pSp = new Space(), nP = Math.max(1, Math.round((6 + rng() * 2.5) * rc0.patchK * bk));
+  // (a near-continuous field: patches overlap their neighbours' fringes and reach 14 m out, so the
+  // sand between them is a strip of rubble, not an empty plain)
+  const pSp = new Space(), nP = Math.max(1, Math.round((12 + rng() * 4) * rc0.patchK * bk));
   let side = rng() < 0.5 ? -1 : 1;
   for (let k = 0; k < nP; k++) {
     side = rng() < 0.7 ? -side : side;
     for (let t = 0; t < 4; t++) {
       const s = ctx.s0 + (k + 0.1 + 0.8 * rng()) * (CHUNK / nP), g = segFor(ctx, s, KEY);
       if (!g || rng() > ctx.weightOf(s, KEY)) continue;
-      const rc = recipeOf(g), r = 1.6 + rng() * 1.6, x = pc.x(s) + side * (0.8 + r * 0.45 + Math.pow(rng(), 1.15) * (9.5 - r * 0.45));
-      if (!pSp.free(x, s, r, 1.5)) continue;
+      const rc = recipeOf(g), r = 2.2 + rng() * 2.0, x = pc.x(s) + side * (0.8 + r * 0.45 + Math.pow(rng(), 1.1) * (14 - r * 0.45));
+      if (!pSp.free(x, s, r * 0.8, 0.2)) continue;
       pSp.add(x, s, r);
       const kind = pickW(rng, [[rc.mag, 'mag'], [rc.bub, 'bub'], [0.35 * (rc.carp + rc.leath + rc.tube), 'carp']]);
       out.patches.push({ x, s, r, kind, g, ph: rng() * TAU, ph2: rng() * TAU });
@@ -267,11 +269,11 @@ export function* layoutAnA(ctx) {
   yield;
   // the patches beside the route: magnificent cities packed shoulder to shoulder (a share balled up, showing
   // their columns), or carpet-anemone flats with leathery and tube anemones
-  const anP = new Batch(NB3.mat.anem, 66000 * bk * lk); anP.soft = true; anP.lod = 'mid'; anP.jobVerts = 14000;
+  const anP = new Batch(NB3.mat.anem, 90000 * bk * lk); anP.soft = true; anP.lod = 'mid'; anP.jobVerts = 14000;
   const q = { x: 0, s: 0, d: 0 }, share = anP.max / Math.max(1, P.patches.filter((p) => p.kind !== 'bub').length); // every patch gets its share
   for (const Pt of P.patches) {
     if (Pt.kind === 'bub') continue;
-    const cap = Math.min(anP.max, anP.tris + share) - 2500;
+    const cap = Math.min(anP.max, anP.tris + share) - 300;
     const rc = recipeOf(Pt.g), mag = Pt.kind === 'mag', R0 = mag && P.rocks.find((r) => r.patch === Pt && r.item);
     if (R0) { // crown the city's boulder: anemones packed over its top and upper flanks
       const spots = itemSpots(R0.item, ctx, 60, 0.5);
@@ -291,7 +293,7 @@ export function* layoutAnA(ctx) {
       }
     }
     // ~60 % cover: neighbours stand disc to disc (they may touch, never overlap)
-    const n = Math.round(Pt.r * Pt.r * (mag ? 8 : 3) * lk);
+    const n = Math.round(Pt.r * Pt.r * (mag ? 12 : 4.5) * lk);
     for (let t = 0, placed = 0; t < n * 3 && placed < n && anP.tris < cap; t++) {
       if (Y.over()) { yield; Y.reset(); }
       inPatch(Pt, rng, q);
@@ -308,7 +310,7 @@ export function* layoutAnA(ctx) {
   yield;
   // anemones scattered over the sand and rubble between the patches: magnificent groups, carpets, leathery anemones
   const KINDS = [['mag', rc0.mag * 0.9], ['carp', rc0.carp], ['leath', rc0.leath]];
-  const nA = Math.round(12 * bk * lk);
+  const nA = Math.round(20 * bk * lk);
   for (let k = 0; k < nA * 3 && k < 300; k++) {
     if (Y.over()) { yield; Y.reset(); }
     const s = ctx.s0 + rng() * CHUNK, g = segFor(ctx, s, KEY);
@@ -472,22 +474,44 @@ export function* layoutAnC(ctx) {
   if (presence(ctx, KEY) <= 0) return null;
   const P = plan(ctx), bk = budgetK(ctx, KEY), lk = lowK(ctx);
   const rng = chunkRng(ctx, 0xa14e), fs = nbFloor(ctx), pc = pathCache(ctx), sp = P.sp;
-  const near = new Batch(MAT.static, 14000 * bk); near.lod = 'near';
+  const near = new Batch(MAT.static, 18000 * bk); near.lod = 'near';
   const g0 = segFor(ctx, ctx.s0 + 32, KEY), rc0 = recipeOf(g0);
   const FL = [
     { t: T.star, w: 0.6, sc: [0.1, 0.17], col: [[1.0, 0.45, 0.12], [0.9, 0.2, 0.2], [1.0, 0.75, 0.3]] },
     { t: T.linckia, w: 0.4, sc: [0.12, 0.18], col: [[1, 1, 1]] },
     { t: T.urchin, w: 0.4, sc: [0.06, 0.1], col: [[1, 1, 1]] },
-    { t: T.rubble, w: 1.4, sc: [0.7, 1.4], col: [[0.75, 0.72, 0.68], [0.85, 0.8, 0.7]] },
+    { t: T.rubble, w: 2.6, sc: [0.7, 1.5], col: [[0.75, 0.72, 0.68], [0.85, 0.8, 0.7]] },
     { t: T.pebbles, w: 0.6, sc: [0.6, 1.2], col: [[0.8, 0.78, 0.72]] },
     { t: T.clam, w: 0.25, sc: [0.6, 1.0], col: [[1, 1, 1]] },
   ].filter((e) => e.t && e.t.length);
-  for (let k = 0; k < 90 * lk * bk; k++) {
+  for (let k = 0; k < 220 * lk * bk; k++) {
     if (Y.over()) { yield; Y.reset(); }
     const s = ctx.s0 + rng() * CHUNK, g = segFor(ctx, s, KEY);
     if (!g || rng() > ctx.weightOf(s, KEY)) continue;
     const e = pickW(rng, FL.map((q) => [q.w, q])), tpl = pick(rng, e.t), sc = lerp(e.sc[0], e.sc[1], rng());
     placeOn(ctx, fs, pc, sp, near, tpl, pc.x(s) + lateral(rng, 0.3, 18, 1.4), s, sc, rng, tint(rng, e.col, 0.1), { soft: false, follow: 0.85, rad: tpl.r * 0.7, pad: 0.02, embed: 0.015 });
+  }
+  yield;
+  // the colonies sit on a rubble flat: coral rubble, small coral heads and sponges fill the gaps between
+  // the anemones and spill out around each patch (seen to the mid-LOD distance)
+  const fill = new Batch(MAT.static, 26000 * bk * lk); fill.lod = 'mid';
+  const q0 = { x: 0, s: 0, d: 0 };
+  const FILL = [
+    { t: T.rubble, w: 3.0, sc: [0.7, 1.5], col: [[0.78, 0.74, 0.68], [0.86, 0.8, 0.7], [0.7, 0.66, 0.62]] },
+    { t: T.pebbles, w: 1.0, sc: [0.7, 1.3], col: [[0.8, 0.78, 0.72]] },
+    { t: T.brain, w: 0.7, sc: [0.3, 0.6], hard: true }, { t: T.boulder, w: 0.5, sc: [0.3, 0.55], hard: true }, { t: T.finger, w: 0.6, sc: [0.35, 0.7], hard: true },
+    { t: T.tubeSp, w: 0.45, sc: [0.35, 0.7], sponge: true }, { t: T.barrel, w: 0.2, sc: [0.3, 0.5], sponge: true },
+  ].filter((e) => e.t && e.t.length);
+  for (const Pt of P.patches) {
+    const rc = recipeOf(Pt.g), n = Math.round(Pt.r * Pt.r * 2.4 * lk);
+    for (let t = 0, placed = 0; t < n * 3 && placed < n && fill.tris < fill.max - 800; t++) {
+      if (Y.over()) { yield; Y.reset(); }
+      inPatch(Pt, rng, q0);
+      const k = 1 + 0.35 * rng(), x = Pt.x + (q0.x - Pt.x) * k, s = Pt.s + (q0.s - Pt.s) * k; // some spill past the rim
+      const e = pickW(rng, FILL.map((f) => [f.w, f])), tpl = pick(rng, e.t), sc = lerp(e.sc[0], e.sc[1], rng());
+      const col = e.hard ? tint(rng, rc.hard.length ? rc.hard : [[0.9, 0.6, 0.35]], 0.15) : e.sponge ? tint(rng, rc.spongePal.length ? rc.spongePal : [[1.1, 0.42, 0.06]], 0.12) : tint(rng, e.col, 0.08);
+      if (placeOn(ctx, fs, pc, sp, fill, tpl, x, s, sc, rng, col, { soft: false, follow: 0.8, rad: tpl.r * sc > 0.25 ? tpl.r * 0.75 : tpl.r * 0.6, pad: 0.01, embed: e.hard || e.sponge ? 0.03 : 0.015 })) placed++;
+    }
   }
   yield;
   // pale sand pools and darker rubble between the colonies
@@ -498,28 +522,24 @@ export function* layoutAnC(ctx) {
     const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + lateral(rng, 0, 26, 1.2), r = 1.2 + rng() * 2.8;
     decalDisc(dec, fs, ctx, x, s, r, r * (0.5 + rng() * 0.5), rng() * TAU, tint(rng, [[0.95, 0.9, 0.78], [0.88, 0.84, 0.72]], 0.05), 0, 0.5, 5, 18);
   }
-  for (let k = 0; k < 4 * bk; k++) {
-    const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + lateral(rng, 1, 22, 1.2), r = 1 + rng() * 2;
-    decalDisc(dec, fs, ctx, x, s, r, r * (0.6 + rng() * 0.4), rng() * TAU, [0.42, 0.38, 0.32], 3, 0.35, 4, 14);
+  for (let k = 0; k < 10 * bk; k++) { // darker rubble flats between the colonies
+    const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + lateral(rng, 1, 22, 1.2), r = 1.5 + rng() * 2.5;
+    decalDisc(dec, fs, ctx, x, s, r, r * (0.6 + rng() * 0.4), rng() * TAU, tint(rng, [[0.46, 0.42, 0.35], [0.5, 0.45, 0.36]], 0.05), 0, 0.42, 4, 16);
   }
-  // the ground under a magnificent city or carpet flat is shaded and littered: a soft dark stain
-  // tinted toward the patch's own tentacle colour, so a city still reads as a coloured carpet when the
-  // anemones themselves are too low to see at a grazing angle
+  // the ground under a colony is coarse rubble and shaded sand: a soft, noise-feathered darkening in
+  // rubble tones with only a hint of the colony's colour (a tinted disc read as a glowing lime puddle)
+  const RUB = [[0.5, 0.46, 0.38], [0.46, 0.43, 0.37], [0.54, 0.48, 0.38]];
   for (const Pt of P.patches) {
-    if (Pt.kind === 'bub') continue;
-    // (carpet flats: only a darker sand, their own blues and purples would read as a puddle)
-    const rc = recipeOf(Pt.g), m = Pt.kind === 'mag' ? MORPH.magnificent[rc.magM[0]][1] : [0.17, 0.15, 0.1];
-    const c = [0.1 + m[0] * 1.8, 0.1 + m[1] * 1.8, 0.06 + m[2] * 1.8];
-    decalDisc(dec, fs, ctx, Pt.x, Pt.s, Pt.r * 1.1, Pt.r * (0.85 + rng() * 0.25), Pt.ph, tint(rng, [c], 0.05), 3, 0.8, 5, 18);
+    const c = tint(rng, RUB, 0.06);
+    decalDisc(dec, fs, ctx, Pt.x, Pt.s, Pt.r * 1.15, Pt.r * (0.85 + rng() * 0.25), Pt.ph, c, 0, 0.5, 5, 22);
   }
-  // each clone bed tints the ground under it with its colour, so the beds read as patches from afar
   for (const B of P.beds) {
     if (Y.over()) { yield; Y.reset(); }
-    const c = B.col, k = 1.6 / Math.max(0.05, Math.max(c[0], c[1], c[2]));
-    decalDisc(dec, fs, ctx, B.x, B.s, B.r, B.r * (0.75 + rng() * 0.25), rng() * TAU, [Math.min(1, c[0] * k * 0.4 + 0.2), Math.min(1, c[1] * k * 0.4 + 0.18), Math.min(1, c[2] * k * 0.4 + 0.13)], 0, 0.62, 5, 18);
+    const m = B.col, l = Math.max(0.05, (m[0] + m[1] + m[2]) / 3), c = tint(rng, RUB, 0.05);
+    decalDisc(dec, fs, ctx, B.x, B.s, B.r, B.r * (0.75 + rng() * 0.25), rng() * TAU, [lerp(c[0], c[0] * m[0] / l, 0.12), lerp(c[1], c[1] * m[1] / l, 0.12), lerp(c[2], c[2] * m[2] / l, 0.12)], 0, 0.42, 5, 20);
   }
   const extra = [];
   const dm = dec.vc ? builderMesh(dec, NBMAT.decal, null, 'mid') : null;
   if (dm) { dm.renderOrder = 1; extra.push(dm); }
-  return { batches: [near], extra };
+  return { batches: [near, fill], extra };
 }

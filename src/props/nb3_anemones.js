@@ -21,30 +21,32 @@ function tentacle(b, pts, radii, radial, col, amp, tipCone = true) {
   }, { tip: tipCone });
 }
 // Column + undulating oral disc. yD(r, a) = disc height; rimR(a) = disc radius; colour of column / disc.
-function body(b, { R, H, rimR, yD, colCol, discCol, mouthCol, nu = 14, base = 0.55, disc = true }) {
-  // column: from a slightly buried foot to the rim of the disc, flaring at the top
-  b.grid(nu, 4, (u, v, i, j, o) => {
-    const a = u * TAU, rr = rimR(a) * lerp(base, 1, Math.pow(v, 2.2)), y = lerp(-0.02, yD(rimR(a), a), v);
+// The column is a smooth lathe: a slightly flared foot, a waist, then a flare out to the disc rim.
+// discPart: shading of the disc (0 plain flesh; 4 the finger-pile impostor of nb3_common.js).
+function body(b, { R, H, rimR, yD, colCol, discCol, mouthCol, nu = 14, base = 0.55, disc = true, rows = 4, rings = 3, discPart = 0 }) {
+  b.grid(nu, rows, (u, v, i, j, o) => {
+    const a = u * TAU, rr = rimR(a) * (lerp(base, 1, Math.pow(v, 2.2)) + 0.08 * Math.pow(1 - v, 4)), y = lerp(-0.02, yD(rimR(a), a), v);
     o[0] = Math.cos(a) * rr; o[1] = y; o[2] = Math.sin(a) * rr;
     const k = 0.55 + 0.45 * v; o[3] = colCol[0] * k; o[4] = colCol[1] * k; o[5] = colCol[2] * k; o[6] = 0; o[7] = 0.99 * v;
   }, { wrapU: true });
   if (!disc) return; // lite anemones: the tentacle pile covers the disc
   // oral disc, rim to mouth
-  b.grid(nu, 3, (u, v, i, j, o) => {
+  b.grid(nu, rings, (u, v, i, j, o) => {
     const a = u * TAU, rr = rimR(a) * (1 - v), y = yD(rr, a);
     o[0] = Math.cos(a) * rr; o[1] = y; o[2] = Math.sin(a) * rr;
-    const c = mixc(discCol, mouthCol, sstep(0.55, 1, v)); o[3] = c[0]; o[4] = c[1]; o[5] = c[2]; o[6] = 0; o[7] = 0.99;
+    const c = mixc(discCol, mouthCol, sstep(0.55, 1, v)); o[3] = c[0]; o[4] = c[1]; o[5] = c[2]; o[6] = 0; o[7] = discPart ? discPart + Math.min(0.99, 1 - v) : 0.99;
   }, { wrapU: true });
 }
 // Lite anemones (seen from a few metres or more): the tentacle mass as a low dome drawn with the
-// dotted-pile shading (part 2), plus a ring of real tentacles at the margin for the silhouette.
-// flat: a plateau that rounds off only near the rim (a full tentacle mound), else a spherical cap.
+// dotted-pile shading (part 2, or the coarser finger pile, part 4), plus real tentacles at the margin
+// for the silhouette. flat: a plateau that rounds off only near the rim (a full tentacle mound), else a
+// spherical cap.
 const domeY = (q, flat) => (flat ? Math.pow(Math.max(0, 1 - q * q * q), 0.6) : Math.sqrt(Math.max(0, 1 - q * q))) * 0.95;
-function pileDome(b, rimR, yD, h, col, tip, nu = 12, flat = false) {
-  b.grid(nu, 3, (u, v, i, j, o) => {
+function pileDome(b, rimR, yD, h, col, tip, nu = 12, flat = false, part = 2, rings = 3) {
+  b.grid(nu, rings, (u, v, i, j, o) => {
     const a = u * TAU, r = rimR(a) * 0.98 * (1 - v * 0.999), y = yD(r, a) + h * domeY(r / rimR(a), flat);
     o[0] = Math.cos(a) * r; o[1] = y; o[2] = Math.sin(a) * r;
-    const c = mixc(col, tip, 0.35 + 0.5 * v); o[3] = c[0]; o[4] = c[1]; o[5] = c[2]; o[6] = 0.006 * v; o[7] = 2 + Math.min(0.99, 1 - v);
+    const c = mixc(col, tip, 0.35 + 0.5 * v); o[3] = c[0]; o[4] = c[1]; o[5] = c[2]; o[6] = 0.006 * v; o[7] = part + Math.min(0.99, 1 - v);
   }, { wrapU: true });
 }
 function foot(t, R, n = 8) {
@@ -58,34 +60,62 @@ function foot(t, R, n = 8) {
 // finger-like tentacles of even length. The tentacle mass is darkest at its base (the gaps between the
 // fingers) and pale at the tips, so a bed reads as a textured pile against the sand, and the column
 // shows as a coloured skirt below the rim. closed: balled up (see closedMagnificent).
+// Detail levels: lite 0 = full (high/ultra: 150-250 real fingers; medium ~120; low: the finger-pile
+// impostor disc plus a fringe of real fingers hanging over the rim), lite 1 = mid distance (impostor
+// mound, fringe and a few standing fingers), lite 2 = far (impostor mound and a sparse fringe).
 export function* magnificent(seed, { R = 0.3, col = [0.5, 0.05, 0.3], tent = [0.2, 0.17, 0.05], tip = [0.55, 0.55, 0.12], tier = 'high', lite = false, closed = false } = {}) {
   if (closed) return yield* closedMagnificent(seed, { R, col, tent, tip, tier });
-  const rng = mulberry32(seed * 977 + 3), b = new Builder(), lo = tier === 'low';
-  const H = R * (0.42 + rng() * 0.28), folds = 2 + ((rng() * 5) | 0), fph = rng() * TAU, fA = 0.05 + rng() * 0.09, wav = 0.06 + rng() * 0.16;
-  const rimR = (a) => R * (1 + fA * Math.sin(a * folds + fph) + 0.03 * Math.sin(a * (folds * 2 + 1) + fph * 2));
-  const yD = (r, a) => H + R * ((r / R) ** 2 * wav * Math.sin(a * folds + fph + 1.3) - 0.05 * (1 - r / R));
-  body(b, { R, H, rimR, yD, colCol: col, discCol: scl(tent, 0.3), mouthCol: scl(col, 0.8), nu: lite === 2 ? 8 : lite ? 10 : lo ? 12 : 16, base: 0.5 + rng() * 0.15, disc: !lite });
+  const rng = mulberry32(seed * 977 + 3), b = new Builder(), lo = tier === 'low', med = tier === 'medium', ult = tier === 'ultra';
+  // (the impostor levels sit lower: their pile adds height, and a tall column under it read as a cake)
+  const H = R * ((lite || lo) ? 0.3 + rng() * 0.16 : 0.42 + rng() * 0.28), base = 0.5 + rng() * 0.15;
+  // the disc margin: a few broad folds with a finer ruffle on top, rising and falling around the rim
+  // (few, deep folds made kite-shaped discs: more, gentler folds keep the outline round but wavy)
+  const folds = 4 + ((rng() * 4) | 0), ruf = 9 + ((rng() * 6) | 0), fph = rng() * TAU, rph = rng() * TAU;
+  const fA = 0.035 + rng() * 0.045, rA = (lite === 2 ? 0.012 : 0.025) + rng() * 0.015, wav = 0.04 + rng() * 0.06, rW = lite === 2 ? 0.2 : 0.6;
+  const rimR = (a) => R * (1 + fA * Math.sin(a * folds + fph) + rA * Math.sin(a * ruf + rph));
+  const yD = (r, a) => { const q = r / R; return H + R * (q * q * wav * (Math.sin(a * folds + fph + 1.3) + rW * Math.sin(a * ruf + rph + 0.7)) - 0.06 * (1 - q)); };
+  // (the lite piles are a rounded mound of real height: a flat plateau read as a tilted slab from afar)
+  const pile = lite || lo; // impostor finger pile instead of the inner carpet of real fingers
+  const nu = lite === 2 ? 12 : lite ? 20 : lo ? 30 : 40, Lb = 0.05 + 0.15 * R, hD = pile ? Lb * 1.1 + R * 0.12 : Lb * 0.65;
+  body(b, { R, H, rimR, yD, colCol: col, discCol: scl(tent, pile ? 0.75 : 0.55), mouthCol: scl(col, 0.8), nu, base, disc: !pile, rows: lite === 2 ? 2 : lite ? 3 : 5, rings: 4, discPart: 4 });
+  if (pile) pileDome(b, rimR, yD, hD, scl(tent, 0.8), scl(tip, 0.85), nu, false, 4, lite === 2 ? 2 : 3);
   yield;
-  const nT = lite === 2 ? 4 : lite ? (lo ? 18 : 26) : Math.round((lo ? 60 : (tier === 'medium' ? 80 : 95) + rng() * 35) * Math.min(1.3, Math.max(0.7, R / 0.3))), Lb = 0.05 + 0.15 * R;
-  const radial = 3, two = tier === 'ultra' && !lite && R > 0.33, hD = Lb * 0.7;
-  // lite: a mound of the tentacle mass (dotted-pile shading) with fewer, real fingers standing out of it
-  if (lite) pileDome(b, rimR, yD, hD, scl(tent, 0.5), scl(tip, 0.75), lite === 2 ? 8 : lo ? 10 : 12, true);
-  for (let i = 0; i < nT; i++) {
-    const f = lite === 2 ? 0.9 : lite ? 0.06 + 0.94 * (i + 0.5) / nT : (i + 0.5) / nT, a = i * GOLD + (rng() - 0.5) * 0.3, rr = Math.sqrt(f) * 0.97, rimA = rimR(a), r = rr * rimA;
-    const out = [Math.cos(a), 0, Math.sin(a)], lean = 0.1 + 0.55 * rr * rr; // marginal fingers stand up: the skirt stays visible
-    const d = nrm([out[0] * lean + (rng() - 0.5) * 0.25, 1, out[2] * lean + (rng() - 0.5) * 0.25]);
-    const L = Lb * (0.8 + 0.4 * rng()) * (0.9 + 0.2 * rr) * (lite ? 0.8 : 1), rt = Math.max(0.007, L * 0.14);
-    const p0 = [out[0] * r, yD(r, a) + (lite ? hD * domeY(rr, true) * 0.7 : 0) - rt * 0.5, out[2] * r];
-    const pts = two ? [p0, [p0[0] + d[0] * L * 0.5, p0[1] + d[1] * L * 0.5, p0[2] + d[2] * L * 0.5], [p0[0] + (d[0] + out[0] * 0.15) * L, p0[1] + d[1] * L * 0.95, p0[2] + (d[2] + out[2] * 0.15) * L]]
+  // fingers: inner ones stand up out of the carpet; the outer third hang out over the rim and droop,
+  // so the anemone reads as a shaggy, ruffled mat with its coloured column showing below the fringe
+  const sz = Math.min(1.3, Math.max(0.75, R / 0.3));
+  // (beyond ~6 m a finger is about a pixel wide: the far level is the mound alone, a few fingers on top tiers)
+  const nIn = lite === 2 ? 0 : lite ? (lo ? 6 : 10) : lo ? 14 : Math.round((ult ? 190 : med ? 85 : 130) * sz + rng() * 25);
+  const nRim = lite === 2 ? (lo ? 0 : 6) : lite ? (lo ? 24 : 28) : lo ? 56 : Math.round((ult ? 64 : med ? 40 : 52) * sz);
+  const tipP = mixc(tip, [0.85, 0.85, 0.8], 0.25);
+  const colOf = (k) => (t) => scl(mixc(tent, tipP, sstep(0.5, 1, t)), k * (0.45 + 0.55 * sstep(0, 0.7, t)));
+  for (let i = 0; i < nIn; i++) {
+    const f = (i + 0.5) / nIn, a = i * GOLD + (rng() - 0.5) * 0.3, rr = Math.sqrt(f) * 0.84, r = rr * rimR(a);
+    const out = [Math.cos(a), 0, Math.sin(a)], lean = 0.12 + 0.6 * rr * rr;
+    // each finger leans its own way (the carpet is tousled, not combed) and swells to a blunt tip
+    const d = nrm([out[0] * lean + (rng() - 0.5) * 0.9, 1, out[2] * lean + (rng() - 0.5) * 0.9]);
+    const L = Lb * (0.6 + 0.75 * rng()) * (0.85 + 0.3 * rr) * (pile ? 0.85 : 1), rt = Math.max(0.006, Lb * (0.1 + 0.035 * rng()));
+    const p0 = [out[0] * r, yD(r, a) + (pile ? hD * domeY(rr, false) * 0.6 : 0) - rt * 0.5, out[2] * r];
+    const pts = ult ? [p0, [p0[0] + d[0] * L * 0.5, p0[1] + d[1] * L * 0.5, p0[2] + d[2] * L * 0.5], [p0[0] + (d[0] + out[0] * 0.15) * L, p0[1] + d[1] * L * 0.95, p0[2] + (d[2] + out[2] * 0.15) * L]]
       : [p0, [p0[0] + d[0] * L, p0[1] + d[1] * L, p0[2] + d[2] * L]];
-    const k = 0.85 + 0.3 * rng();
-    tentacle(b, pts, two ? [rt, rt * 1.02, rt * 0.85] : [rt, rt * 0.85], radial, (t) => scl(mixc(tent, tip, sstep(0.45, 1, t)), k * (0.45 + 0.55 * sstep(0, 0.75, t))), L * 0.32);
+    tentacle(b, pts, ult ? [rt * 0.9, rt, rt * 1.08] : [rt * 0.88, rt * 1.08], 3, colOf(0.8 + 0.4 * rng()), L * 0.3);
+    if ((i & 31) === 31) yield;
+  }
+  for (let i = 0; i < nRim; i++) {
+    const a = (i / nRim) * TAU + (rng() - 0.5) * (TAU / nRim) * 0.8, rr = 0.8 + 0.16 * rng(), r = rr * rimR(a);
+    const out = [Math.cos(a), 0, Math.sin(a)], side = [-out[2], 0, out[0]], sw = (rng() - 0.5) * 0.5;
+    const L = Lb * (1.0 + 0.5 * rng()) * (lite === 2 ? 1.15 : 1), rt = Math.max(0.0065, L * 0.12), droop = 0.35 + 0.45 * rng();
+    const p0 = [out[0] * r, yD(r, a) + (pile ? hD * domeY(rr, false) * 0.5 : 0) - rt * 0.4, out[2] * r];
+    const at = (t, up) => [p0[0] + (out[0] + side[0] * sw) * L * t, Math.max(0.03, p0[1] + up * L), p0[2] + (out[2] + side[2] * sw) * L * t]; // tips stay off the sand
+    const two = lite || lo; // (two-point fringe fingers on low tier and the lite levels: a dense fringe stays cheap)
+    // hanging over the rim like a skirt that hides the column's upper edge
+    const pts = two ? [p0, at(0.5, -0.45 - droop * 0.5)] : [p0, at(0.42, 0.08), at(0.6, -0.45 - droop * 0.5)];
+    tentacle(b, pts, two ? [rt, rt * 0.95] : [rt * 0.95, rt * 0.9, rt * 1.05], 3, colOf(0.8 + 0.4 * rng()), L * 0.35);
     if ((i & 31) === 31) yield;
   }
   const t = foot(b.build(), R * 0.5);
   t.label = 'Magnificent sea anemone';
   t.fact = 'A magnificent sea anemone can reach a metre across; at night it balls up and shows its brightly coloured column.';
-  t.solid = false; t.nbR = R; t.nbTop = H + 0.6 * Lb;
+  t.solid = false; t.nbR = R * (1 + fA + rA) + Lb * 0.6; t.nbTop = H + Math.max(0.6 * Lb, pile ? hD * 0.95 : 0); // the fringe reaches past the rim
   return t;
 }
 // A magnificent anemone balled up (in strong current, at dusk, when disturbed): the disc folds inside and
@@ -129,11 +159,11 @@ export function* bubbleTip(seed, { R = 0.1, col = [0.3, 0.12, 0.05], tent = [0.2
   const yD = (r, a) => H + R * 0.1 * (r / R) ** 2 * Math.sin(a * folds + fph);
   const micro = lite >= 2, blob = lite === 3;
   if (blob) { // distant clone: a pile of tentacles on a short column, nothing finer
-    b.grid(6, 1, (u, v, i, j, o) => { const a = u * TAU, rr = rimR(a) * lerp(0.6, 1, v); o[0] = Math.cos(a) * rr; o[1] = lerp(-0.02, yD(rimR(a), a), v); o[2] = Math.sin(a) * rr; o[3] = col[0] * 0.6; o[4] = col[1] * 0.6; o[5] = col[2] * 0.6; o[6] = 0; o[7] = 0.5; }, { wrapU: true });
-    pileDome(b, rimR, yD, R * 0.75, tent, tip, 7);
-  } else body(b, { R, H, rimR, yD, colCol: col, discCol: scl(tent, 0.6), mouthCol: scl(col, 1.3), nu: micro ? 6 : lite ? 8 : lo ? 9 : 12, base: 0.6, disc: !lite });
+    b.grid(10, 1, (u, v, i, j, o) => { const a = u * TAU, rr = rimR(a) * lerp(0.6, 1, v); o[0] = Math.cos(a) * rr; o[1] = lerp(-0.02, yD(rimR(a), a), v); o[2] = Math.sin(a) * rr; o[3] = col[0] * 0.6; o[4] = col[1] * 0.6; o[5] = col[2] * 0.6; o[6] = 0; o[7] = 0.5; }, { wrapU: true });
+    pileDome(b, rimR, yD, R * 0.75, tent, tip, 10);
+  } else body(b, { R, H, rimR, yD, colCol: col, discCol: scl(tent, 0.6), mouthCol: scl(col, 1.3), nu: micro ? 9 : lite ? 10 : lo ? 10 : 14, base: 0.6, disc: !lite });
   const nT = blob ? 0 : micro ? 4 : lite ? (lo ? 5 : 7) : Math.round((lo ? 14 : 18 + rng() * 10) * Math.min(1.3, Math.max(0.7, R / 0.1)));
-  if (lite && !blob) pileDome(b, rimR, yD, R * 0.55, tent, tip, micro ? 6 : 8);
+  if (lite && !blob) pileDome(b, rimR, yD, R * 0.55, tent, tip, micro ? 9 : 10);
   for (let i = 0; i < nT; i++) {
     const f = lite ? 0.75 + 0.2 * ((i * 0.618) % 1) : (i + 0.5) / nT, a = lite ? (i / nT) * TAU + (rng() - 0.5) * 0.4 : i * GOLD + (rng() - 0.5) * 0.4, rr = 0.2 + 0.78 * Math.sqrt(f), r = rr * rimR(a);
     const out = [Math.cos(a), 0, Math.sin(a)], lean = 0.25 + 0.9 * rr * rr;
@@ -163,10 +193,11 @@ export function* bubbleTip(seed, { R = 0.1, col = [0.3, 0.12, 0.05], tent = [0.2
 // tentacles (drawn by the material as a dotted pile, part 2).
 export function* carpet(seed, { R = 0.4, col = [0.1, 0.35, 0.12], mouth = [0.4, 0.38, 0.2], tier = 'high' } = {}) {
   const rng = mulberry32(seed * 733 + 11), b = new Builder(), lo = tier === 'low';
-  const h = 0.03 + rng() * 0.03, A = R * (0.12 + rng() * 0.16), k1 = 4 + ((rng() * 6) | 0), k2 = 2 + ((rng() * 2) | 0), ph = rng() * TAU, ph2 = rng() * TAU;
+  // many shallow folds (a few deep ones made a pentagonal slab): a round, ruffled disc
+  const h = 0.03 + rng() * 0.03, A = R * (0.06 + rng() * 0.08), k1 = 7 + ((rng() * 6) | 0), k2 = 2 + ((rng() * 2) | 0), ph = rng() * TAU, ph2 = rng() * TAU;
   const ex = 0.9 + rng() * 0.3; // slightly oval
-  const rimR = (a) => R * (1 + 0.07 * Math.sin(a * k1 + ph) + 0.05 * Math.sin(a * k2 + ph2));
-  const fold = (r, a) => A * Math.pow(r / R, 2.2) * Math.sin(a * k1 + ph + 1.2 * Math.sin(a * k2 + ph2));
+  const rimR = (a) => R * (1 + 0.045 * Math.sin(a * k1 + ph) + 0.04 * Math.sin(a * k2 + ph2) + 0.02 * Math.sin(a * (2 * k1 + 1) + ph2));
+  const fold = (r, a) => Math.pow(r / R, 2.2) * (A * Math.sin(a * k1 + ph + 1.2 * Math.sin(a * k2 + ph2)) + R * 0.05 * Math.sin(a * k2 + ph2 + 0.7));
   const nu = lo ? 28 : 44, nr = lo ? 5 : 8;
   const P = (r, a) => [Math.cos(a) * r * ex, Math.sin(a) * r / ex];
   // underside skirt / short column
@@ -334,8 +365,8 @@ export const MORPH = {
     [[0.6, 0.04, 0.05], [0.13, 0.2, 0.04], [0.42, 0.6, 0.12]],     // red column, olive-green
     [[0.06, 0.14, 0.6], [0.24, 0.18, 0.07], [0.62, 0.5, 0.2]],     // blue column, brown
     [[0.75, 0.72, 0.68], [0.3, 0.26, 0.09], [0.72, 0.66, 0.3]],    // white column, khaki
-    [[0.9, 0.3, 0.04], [0.15, 0.24, 0.04], [0.5, 0.72, 0.12]],     // orange column, green
-    [[0.1, 0.42, 0.1], [0.12, 0.3, 0.04], [0.45, 0.88, 0.14]],     // green, lime tips
+    [[0.9, 0.3, 0.04], [0.15, 0.24, 0.05], [0.5, 0.62, 0.18]],     // orange column, green
+    [[0.1, 0.42, 0.1], [0.13, 0.26, 0.06], [0.42, 0.64, 0.2]],     // green, pale green tips
     [[0.32, 0.05, 0.42], [0.28, 0.17, 0.13], [0.78, 0.5, 0.55]],   // purple column, pinkish-brown
   ],
   // bubble-tip: [column, tentacle, tip, white ring]

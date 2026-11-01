@@ -121,9 +121,9 @@ export function polypMat(seed, { n = 22, r = 0.22, size = 0.025, zoanthid = fals
 // ---------------------------------------------------------------- rock shelves
 // A ledge / roof slab jutting horizontally out of a wall along local +z; its back half (z < 0) is meant
 // to be buried in the rock. Base points along the buried back edge (seated against the wall).
-export function shelf(seed, { w = 3, d = 1.8, th = 0.6, col = [0.6, 0.56, 0.5], growth = 0.9, under = 0.6 } = {}) {
+export function shelf(seed, { w = 3, d = 1.8, th = 0.6, col = [0.6, 0.56, 0.5], growth = 0.9, under = 0.6, rough = 0.3 } = {}) {
   const b = new Builder(), rng = mulberry32(seed * 811 + 9);
-  rockInto(b, seed + 4400, { detail: 3, sx: w / 2, sy: th, sz: d / 2 + 0.6, rough: 0.3, flat: 0.1, growth, col, strata: 0.04 + rng() * 0.04 });
+  rockInto(b, seed + 4400, { detail: 3, sx: w / 2, sy: th, sz: d / 2 + 0.6, rough, flat: 0.1, growth, col, strata: 0.04 + rng() * 0.04 });
   // shift so the back face sits behind z = 0; darken the underside (shade)
   b.paint(0, (i, x, y, z, nx, ny, nz, o) => { const k = ny < -0.2 ? under : 1; o[0] *= k; o[1] *= k; o[2] *= k; });
   for (let i = 0; i < b.vc; i++) b.P[i * 3 + 2] += d * 0.25;

@@ -161,7 +161,7 @@ function barkMaterial() {
 // attributes: position = vent (chunk local), aCorner, aB = (phase, rise speed m/s, rise height m, radius m),
 // aW = (wobble amplitude m, wobble rate, seed 0..1, drift)
 const BUB_V = /* glsl */`
-attribute vec2 aCorner; attribute vec4 aB; attribute vec4 aW;
+attribute vec2 aCorner; attribute vec4 aB; attribute vec4 aW; attribute vec2 aS;
 varying vec2 vC; varying float vT; varying float vS; varying float vCam; varying float vTop; varying float vK;
 uniform float uTime;
 `;
@@ -181,13 +181,17 @@ function bubbleMaterial() {
         c.y += h;
         float ph = aW.z * 6.2831853 + uTime * aW.y;
         float amp = aW.x * (0.25 + 0.75 * sqrt(t));
-        c.x += sin(ph + h * 2.3) * amp + aW.w * h * h * 0.02;
-        c.z += aW.w * h * h * 0.012;
+        c.x += sin(ph + h * 2.3) * amp;
         c.z += cos(ph * 0.83 + h * 1.9) * amp;
-        float sz = aB.w * (0.75 + 0.55 * t);
+        // the whole stream meanders: eddy waves travel up the column (aS.x = stream phase, aS.y = amplitude
+        // in metres, growing with height), and the current leans it downstream
+        float sph = aS.x * 6.2831853, mh = aS.y * sqrt(h);
+        c.x += mh * (sin(h * 0.9 - uTime * 0.7 + sph) + 0.45 * sin(h * 2.3 + uTime * 0.45 + sph * 2.0)) + aW.w * (h * 0.06 + h * h * 0.012);
+        c.z += mh * (cos(h * 0.75 - uTime * 0.55 + sph * 1.3) + 0.4 * sin(h * 1.9 - uTime * 0.6 + sph)) + aW.w * h * h * 0.01;
+        float sz = aB.w * (0.65 + 1.0 * t); // they swell as the pressure drops
         vec4 mvPosition = modelViewMatrix * vec4(c, 1.0);
         // never smaller than ~1.6 px (assuming ~700 px tall): distant streams stay visible as silver threads
-        float minSz = 1.6 * max(0.1, -mvPosition.z) / (projectionMatrix[1][1] * 350.0);
+        float minSz = 1.6 * (0.7 + 0.6 * aW.z) * max(0.1, -mvPosition.z) / (projectionMatrix[1][1] * 350.0);
         vK = sz < minSz ? pow(sz / minSz, 1.3) * 0.85 + 0.03 : 1.0;
         sz = max(sz, minSz);
         float wob = sin(uTime * (8.0 + aW.z * 5.0) + aW.z * 40.0);
@@ -320,14 +324,15 @@ export function bubbleMesh(ctx, streams, rng) {
   let total = 0;
   for (const e of streams) total += e.n;
   if (!total) return null;
-  const pos = new Float32Array(total * 12), cor = new Float32Array(total * 8), ab = new Float32Array(total * 16), aw = new Float32Array(total * 16);
+  const pos = new Float32Array(total * 12), cor = new Float32Array(total * 8), ab = new Float32Array(total * 16), aw = new Float32Array(total * 16), as = new Float32Array(total * 8);
   const idx = total * 4 > 65535 ? new Uint32Array(total * 6) : new Uint16Array(total * 6);
   const C = [-1, -1, 1, -1, 1, 1, -1, 1];
   let q = 0;
   for (const e of streams) {
-    const z = -(e.s - ctx.s0);
+    const z = -(e.s - ctx.s0), sph = e.ph ?? rng(), mea = e.mea ?? 0.1;
     for (let k = 0; k < e.n; k++, q++) {
-      const ph = (k + rng() * 0.6) / e.n, sp = e.speed * (0.8 + 0.4 * rng()), sz = e.size * (0.55 + 0.9 * rng() * rng());
+      // irregular spacing: half the bubbles anywhere, half near an even beat (bursts and gaps, not a ruled dotted line)
+      const ph = rng() < 0.5 ? rng() : ((k + (rng() - 0.5) * 1.6) / e.n + 1) % 1, sp = e.speed * (0.8 + 0.4 * rng()), sz = e.size * (0.55 + 0.9 * rng() * rng());
       const seed = rng(), w = e.wob * (0.6 + 0.8 * rng());
       const jx = (rng() - 0.5) * e.spread, jz = (rng() - 0.5) * e.spread;
       for (let c = 0; c < 4; c++) {
@@ -336,6 +341,7 @@ export function bubbleMesh(ctx, streams, rng) {
         cor[v * 2] = C[c * 2]; cor[v * 2 + 1] = C[c * 2 + 1];
         ab[v * 4] = ph; ab[v * 4 + 1] = sp; ab[v * 4 + 2] = e.rise; ab[v * 4 + 3] = sz;
         aw[v * 4] = w; aw[v * 4 + 1] = 1.5 + 2.5 * seed; aw[v * 4 + 2] = seed; aw[v * 4 + 3] = e.drift;
+        as[v * 2] = sph; as[v * 2 + 1] = mea;
       }
       const b = q * 4, o = q * 6;
       idx[o] = b; idx[o + 1] = b + 1; idx[o + 2] = b + 2; idx[o + 3] = b; idx[o + 4] = b + 2; idx[o + 5] = b + 3;
@@ -346,6 +352,7 @@ export function bubbleMesh(ctx, streams, rng) {
   g.setAttribute('aCorner', new THREE.BufferAttribute(cor, 2));
   g.setAttribute('aB', new THREE.BufferAttribute(ab, 4));
   g.setAttribute('aW', new THREE.BufferAttribute(aw, 4));
+  g.setAttribute('aS', new THREE.BufferAttribute(as, 2));
   g.setIndex(new THREE.BufferAttribute(idx, 1));
   g.computeBoundingSphere();
   g.boundingSphere.radius += 12;

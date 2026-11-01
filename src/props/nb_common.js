@@ -279,12 +279,33 @@ export function registerNB(ctx, batches, extraLabels, maxLabels = 45) {
       };
       const name = it.lbl || t.label;
       if (name && size > 0.15 && !it.noLabel) labels.push([size * (t.fact ? 1.5 : 1) * (it.lbl ? 3 : 1), name, tf((bx[0] + bx[3]) / 2, (bx[1] + bx[4]) / 2, (bx[2] + bx[5]) / 2), t.fact]);
-      if (b.soft || !t.solid || size < 0.4) continue;
-      for (const o of t.obstacles()) {
-        const vert = Math.abs(o[1] - o[4]) > Math.abs(o[0] - o[3]) + Math.abs(o[2] - o[5]);
-        const k = vert ? Math.max(it.sx, it.sz) : Math.max(it.sx, it.sy, it.sz);
-        obs.push([o[6] * k * 1.08 + 0.1, tf(o[0], o[1], o[2]), tf(o[3], o[4], o[5])]);
+      // no obstacles for soft things, ground cover (draped patches) or anything lower than a hand
+      if (b.soft || !t.solid || size < 0.4 || t.drape || it.drape || (bx[4] - bx[1]) * it.sy < 0.2) continue;
+      if (t.obs) { // authored capsules (arches, roots, logs...): used as drawn
+        for (const o of t.obs) {
+          const vert = Math.abs(o[1] - o[4]) > Math.abs(o[0] - o[3]) + Math.abs(o[2] - o[5]);
+          const k = vert ? Math.max(it.sx, it.sz) : Math.max(it.sx, it.sy, it.sz);
+          obs.push([o[6] * k * 1.08 + 0.1, tf(o[0], o[1], o[2]), tf(o[3], o[4], o[5])]);
+        }
+        continue;
       }
+      // (the bounding-box fit of Template.obstacles() makes a wide, flat item a ball as tall as it is wide:
+      // a 5 m mat 0.3 m high became a 2.5 m sphere poking up into the flight tube; fit the real shape instead)
+      if (size < 1.5) { // small: one capsule along the longest scaled axis of the box
+        const e = [(bx[3] - bx[0]) * it.sx, (bx[4] - bx[1]) * it.sy, (bx[5] - bx[2]) * it.sz], c = [(bx[0] + bx[3]) / 2, (bx[1] + bx[4]) / 2, (bx[2] + bx[5]) / 2];
+        const ax = e[0] >= e[1] && e[0] >= e[2] ? 0 : e[1] >= e[2] ? 1 : 2, r = Math.hypot(e[(ax + 1) % 3], e[(ax + 2) % 3]) / 2, half = Math.max(0, e[ax] / 2 - r * 0.7);
+        const A = [c[0], c[1], c[2]], E = [c[0], c[1], c[2]], sc = [it.sx, it.sy, it.sz];
+        A[ax] -= half / sc[ax]; E[ax] += half / sc[ax];
+        obs.push([r * 0.9 + 0.05, tf(A[0], A[1], A[2]), tf(E[0], E[1], E[2])]);
+        continue;
+      }
+      // big: a capsule chain fitted to the mesh at this item's (possibly non-uniform) scale (core.js capsules())
+      const ry = it.sy / it.sx, rz = it.sz / it.sx, F = t.capsules(ry, rz, 6), cy = ry / F.fy, cz = rz / F.fz, kr = Math.max(1, cy, cz) * it.sx;
+      const tc = (x, y, z) => {
+        const px = x * it.sx, py = y * cy * it.sx, pz = z * cz * it.sx;
+        return [R[0] * px + R[1] * py + R[2] * pz + it.x, R[3] * px + R[4] * py + R[5] * pz + it.y, ctx.s0 - (R[6] * px + R[7] * py + R[8] * pz + it.z)];
+      };
+      for (const o of F.list) obs.push([o[6] * kr * 1.03 + 0.05, tc(o[0], o[1], o[2]), tc(o[3], o[4], o[5])]);
     }
   }
   if (ctx.addObstacle) {
@@ -485,7 +506,7 @@ function softMaterial() {
             vec4 pB = nbTri(vWPos, pW, 2.0);
             float stalk = step(0.5, vFx.y);
             float lum = dot(diffuseColor.rgb, vec3(0.3, 0.55, 0.15));
-            vec3 st = mix(diffuseColor.rgb, vec3(lum) * 1.15 + 0.06, 0.5);
+            vec3 st = mix(diffuseColor.rgb, vec3(lum) * 1.3 + 0.16, 0.6); // pale, so the stalk survives the haze
             float scl = smoothstep(0.6, 0.78, nbTri(vWPos, pW, 0.25).b);
             st = mix(st, vec3(0.95, 0.9, 0.92), scl * 0.5);
             vec3 po = diffuseColor.rgb * (0.65 + 0.7 * smoothstep(0.3, 0.75, pA.a));

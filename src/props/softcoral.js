@@ -9,60 +9,81 @@ import { sv } from '../biomes.js';
 import { NBMAT, pathCache, clearBox, SOLID, SOFT, seat, put, upTo, nrm, mix3, lab, segFor, recipe, lowK, rayY, setBase, nbFloor, itemSupport, slice } from './nb_common.js';
 import { encrust, featherStar, ground } from './nb_shapes.js';
 import { tintFrom } from './scatter.js';
+import { Space } from './nb3_common.js';
 
 const S = {};
 
 // ---------------------------------------------------------------- Dendronephthya
-// Translucent trunk and branches (aFx.y = 1) ending in dense polyp bundles (aFx.y = 0) that form
-// rounded "broccoli" lobes. aFx.x = sway amplitude (grows with height).
+// A thick, pale, translucent stalk on a flared holdfast, forking into 3-6 limbs that each end in a
+// "cauliflower" lobe: a knobbly bundle of polyp clusters (aFx.y = 0) on translucent branches (aFx.y = 1).
+// Every template draws its own habit: an open umbrella, a rounded bush or a tall, narrow tree, leaning a
+// little. aFx.x = sway amplitude (grows with height).
+const knob = (seed, k) => (x, y, z) => 1 + 0.16 * vn3(x * 2.6 + k, y * 2.6, z * 2.6, seed) + 0.24 * Math.max(0, vn3(x * 7 + k, y * 7, z * 7, seed + 5));
+function holdfast(b, h, sway) {
+  b.lathe(8, 2, (v) => [h * (0.16 - 0.08 * v), -0.02 + h * 0.07 * v * v], (a, v) => 1 + 0.18 * Math.sin(a * 3 + v * 2) * (1 - v), (v, a, x, y, z, o) => { o[3] = o[4] = o[5] = 0.95; o[6] = sway(y); o[7] = 1; });
+}
 function dendro(seed, { h = 0.8, lod = 0 } = {}) {
   const b = new Builder(), rng = mulberry32(seed), tips = [];
-  const radial = 3, trunkH = h * (0.18 + rng() * 0.15);
+  const habit = rng(), umbrella = habit < 0.4, tall = habit > 0.78;
+  const radial = 4, trunkH = h * (tall ? 0.42 + rng() * 0.12 : 0.24 + rng() * 0.14), lx = (rng() - 0.5) * 0.12, lz = (rng() - 0.5) * 0.12;
   const sway = (y) => 0.05 * h * sat(y / h) ** 2;
   const stalk = (v, a, x, y, z, o) => { o[3] = o[4] = o[5] = 0.95; o[6] = sway(y); o[7] = 1; };
-  // stout translucent trunk, slightly bulbous
-  b.tube([[0, -0.02, 0], [0.01, trunkH * 0.5, 0], [(rng() - 0.5) * 0.04, trunkH, (rng() - 0.5) * 0.04]], [h * 0.07, h * 0.06, h * 0.05], radial + 1, stalk);
-  const nMain = 4 + Math.floor(rng() * 3);
+  holdfast(b, h, sway);
+  // stout translucent trunk, bulging a little where the limbs fork off
+  b.tube([[0, -0.02, 0], [lx * h * 0.4, trunkH * 0.5, lz * h * 0.4], [lx * h, trunkH, lz * h]], [h * 0.11, h * 0.095, h * 0.085], radial + 1, stalk);
+  const nMain = 3 + Math.floor(rng() * 4), top = [lx * h, trunkH * (0.82 + 0.15 * rng()), lz * h];
   for (let k = 0; k < nMain; k++) {
-    const a = (k / nMain) * TAU + rng() * 0.6, out = 0.35 + rng() * 0.5;
+    const a = (k / nMain) * TAU + rng() * 0.7, out = umbrella ? 0.9 + rng() * 0.6 : tall ? 0.25 + rng() * 0.3 : 0.45 + rng() * 0.5;
     branchesInto(b, rng, {
-      depth: 1, len: h * (0.34 + rng() * 0.14), rad: h * 0.032, radial, segs: lod ? 1 : 2, kids: lod ? [1, 2] : [2, 3], spread: 0.5 + rng() * 0.3, up: 0.12, wiggle: 0.25,
-      lenK: 0.62, radK: 0.72, tipK: 0.6, childAt: [0.45, 1], tip: false,
+      depth: 1, len: h * (umbrella ? 0.38 : 0.3 + rng() * 0.12), rad: h * 0.05, radial: 3, segs: lod ? 1 : 2, kids: lod ? [1, 2] : [2, 3], spread: umbrella ? 0.65 : 0.45 + rng() * 0.25, up: umbrella ? 0.04 : 0.14, wiggle: 0.25,
+      lenK: 0.6, radK: 0.72, tipK: 0.6, childAt: [0.45, 1], tip: false,
       paint(level, v, x, y, z, o) { o[3] = o[4] = o[5] = 0.95; o[6] = sway(y); o[7] = 1; },
       onTip(p) { tips.push(p); },
-    }, [0, trunkH * (0.75 + 0.2 * rng()), 0], [Math.cos(a) * out, 1, Math.sin(a) * out]);
+    }, top, [Math.cos(a) * out, 1, Math.sin(a) * out]);
   }
-  // polyp bundles: grape-like clusters at every twig tip
+  // polyp lobes: a knobbly cluster at every twig tip, the lobes of one limb crowding into a cauliflower head
   for (const p of tips) {
-    const n = lod ? 1 : 3 + Math.floor(rng() * 2), s = h * (lod ? 0.11 : 0.085) * (0.8 + 0.4 * rng());
+    const s = h * (lod ? 0.13 : 0.1) * (0.75 + 0.5 * rng()), k = rng() * 10, kn = knob(seed, k);
+    const n = lod ? 1 : 1 + (rng() < 0.5 ? 1 : 0);
     for (let q = 0; q < n; q++) {
-      const c = [p[0] + (rng() - 0.5) * s * 1.8, p[1] + (rng() - 0.3) * s * 1.2, p[2] + (rng() - 0.5) * s * 1.8], k = q + rng() * 10;
-      b.blob(0, (x, y, z, o) => {
-        const d = 1 + 0.22 * vn3(x * 3 + k, y * 3, z * 3, seed);
-        o[0] = c[0] + x * s * d; o[1] = c[1] + y * s * d * 0.9; o[2] = c[2] + z * s * d;
-        o[3] = o[4] = o[5] = 0.85 + 0.25 * Math.max(0, y); o[6] = sway(o[1]); o[7] = 0;
+      const c = q ? [p[0] + (rng() - 0.5) * s * 1.4, p[1] - s * 0.3, p[2] + (rng() - 0.5) * s * 1.4] : [p[0], p[1] + s * 0.25, p[2]], sq = q ? s * 0.7 : s;
+      b.blob(1, (x, y, z, o) => {
+        const d = kn(x, y, z);
+        o[0] = c[0] + x * sq * d; o[1] = c[1] + y * sq * d * (umbrella ? 0.75 : 0.9); o[2] = c[2] + z * sq * d;
+        o[3] = o[4] = o[5] = 0.8 + 0.3 * Math.max(0, y) + 0.12 * (d - 1); o[6] = sway(o[1]); o[7] = 0;
       });
     }
   }
   const t = ground(b).build();
-  const rb = h * 0.05;
-  setBase(t, [rb, 0, 0, -rb, 0, 0, 0, 0, rb, 0, 0, -rb, 0, 0, 0]);
+  const rb = h * 0.13;
+  setBase(t, [rb, 0, 0, -rb, 0, 0, 0, 0, rb, 0, 0, -rb, rb * 0.7, 0, rb * 0.7, -rb * 0.7, 0, -rb * 0.7]);
   t.label = 'Tree soft coral (Dendronephthya)';
   t.fact = 'Without algae of its own, it inflates with water and feeds on plankton in the current';
   t.solid = false;
   return t;
 }
 
-// distant colonies: a short translucent trunk under one lumpy, lobed crown (about 100 triangles)
+// distant colonies: the same build, coarser: a thick pale stalk on its holdfast and 3-5 knobbly lobes on
+// short limbs (about 250 triangles), so the stalk still reads through the haze and nothing hovers
 function dendroFar(seed, { h = 0.8 } = {}) {
-  const b = new Builder(), rng = mulberry32(seed), th = h * (0.3 + rng() * 0.15), cr = h * (0.32 + rng() * 0.1);
-  b.tube([[0, -0.02, 0], [0.01, th * 0.6, 0], [0, th + cr * 0.2, 0]], [h * 0.07, h * 0.06, h * 0.05], 3, (v, a, x, y, z, o) => { o[3] = o[4] = o[5] = 0.95; o[6] = 0; o[7] = 1; });
-  b.blob(1, (x, y, z, o) => {
-    const d = 1 + 0.3 * vn3(x * 2.5 + seed, y * 2.5, z * 2.5, seed) + 0.12 * vn3(x * 7, y * 7, z * 7, seed + 3);
-    o[0] = x * cr * d; o[1] = th + cr * 0.55 + y * cr * 0.7 * d; o[2] = z * cr * d;
-    o[3] = o[4] = o[5] = y < -0.4 ? 0.95 : 0.9 + 0.2 * y; o[6] = 0.04 * h * sat(o[1] / h); o[7] = y < -0.4 ? 1 : 0;
-  });
-  const t = ground(b).build(), rb = h * 0.05;
+  const b = new Builder(), rng = mulberry32(seed), habit = rng(), umbrella = habit < 0.4, tall = habit > 0.78;
+  const th = h * (tall ? 0.45 : 0.3 + rng() * 0.12), sway = (y) => 0.04 * h * sat(y / h);
+  holdfast(b, h, sway);
+  b.tube([[0, -0.02, 0], [0.01, th * 0.6, 0], [0, th, 0]], [h * 0.12, h * 0.1, h * 0.09], 4, (v, a, x, y, z, o) => { o[3] = o[4] = o[5] = 0.95; o[6] = sway(y); o[7] = 1; });
+  const nL = 3 + Math.floor(rng() * 3), cr = h * (umbrella ? 0.2 : 0.17) * (0.9 + 0.2 * rng());
+  // the central head, then lobes around it on short limbs
+  const lobe = (c, r, det, k) => {
+    const kn = knob(seed, k);
+    b.blob(det, (x, y, z, o) => { const d = kn(x, y, z); o[0] = c[0] + x * r * d; o[1] = c[1] + y * r * d * (umbrella ? 0.75 : 0.9); o[2] = c[2] + z * r * d; o[3] = o[4] = o[5] = 0.82 + 0.25 * Math.max(0, y); o[6] = sway(o[1]); o[7] = 0; });
+  };
+  lobe([0, th + cr * 0.8, 0], cr, 1, 0);
+  for (let k = 0; k < nL; k++) {
+    const a = (k / nL) * TAU + rng() * 0.8, out = (umbrella ? 1.5 : tall ? 0.7 : 1.1) * cr * (0.9 + 0.3 * rng()), up = cr * (umbrella ? 0.2 : 0.5 + 0.5 * rng());
+    const c = [Math.cos(a) * out * 1.3, th + up, Math.sin(a) * out * 1.3];
+    b.tube([[0, th * 0.85, 0], [c[0] * 0.8, c[1] - cr * 0.4, c[2] * 0.8]], [h * 0.05, h * 0.035], 3, (v, an, x, y, z, o) => { o[3] = o[4] = o[5] = 0.95; o[6] = sway(y); o[7] = 1; });
+    lobe(c, cr * (0.7 + 0.25 * rng()), 0, k + 1);
+  }
+  const t = ground(b).build(), rb = h * 0.13;
   setBase(t, [rb, 0, 0, -rb, 0, 0, 0, 0, rb, 0, 0, -rb, 0, 0, 0]);
   t.label = 'Tree soft coral (Dendronephthya)'; t.solid = false;
   return t;
@@ -106,18 +127,19 @@ export function initSoftcoral() {
 
 // ---------------------------------------------------------------- palettes & recipe
 // saturated, authored to survive blue water (linear RGB)
+// (red-biased: the water's blue-green filter turns yellow to lime, violet to periwinkle, white to mint)
 const DEN = {
-  pink: [[1.0, 0.18, 0.55], [0.95, 0.35, 0.75], [1.0, 0.1, 0.35]],
-  purple: [[0.7, 0.12, 1.0], [0.55, 0.2, 0.95], [0.85, 0.3, 1.0]],
-  red: [[1.0, 0.06, 0.08], [1.0, 0.2, 0.1], [0.85, 0.04, 0.2]],
-  orange: [[1.1, 0.42, 0.04], [1.05, 0.6, 0.1], [1.0, 0.3, 0.1]],
-  yellow: [[1.1, 0.9, 0.12], [1.0, 0.95, 0.4], [0.95, 0.75, 0.1]],
-  white: [[1.0, 0.95, 0.95], [0.95, 0.85, 0.9]],
+  pink: [[1.0, 0.16, 0.45], [1.0, 0.3, 0.6], [1.0, 0.1, 0.3]],
+  purple: [[0.78, 0.08, 0.72], [0.65, 0.1, 0.78], [0.88, 0.16, 0.66]],
+  red: [[1.0, 0.06, 0.08], [1.0, 0.18, 0.1], [0.85, 0.04, 0.2]],
+  orange: [[1.1, 0.3, 0.04], [1.05, 0.4, 0.07], [1.0, 0.22, 0.06]],
+  salmon: [[1.05, 0.3, 0.26], [1.0, 0.36, 0.34], [1.08, 0.26, 0.18]],
+  white: [[1.05, 0.88, 0.84], [1.0, 0.82, 0.82]],
 };
 const FANP = [[1.05, 0.12, 0.12], [1.1, 0.45, 0.06], [0.75, 0.1, 0.9], [1.05, 0.85, 0.12]];
 const ENC = [[1.0, 0.35, 0.5], [0.9, 0.08, 0.15], [0.6, 0.15, 0.85], [1.05, 0.55, 0.1], [0.95, 0.85, 0.2], [0.2, 0.5, 1.0]];
 const recipeOf = (g) => recipe(g, 'softcoral', (g) => {
-  const keys = ['pink', 'purple', 'red', 'orange', 'yellow'], pal = [];
+  const keys = ['pink', 'purple', 'red', 'orange', 'salmon'], pal = [];
   const a = Math.floor(sv(g, 19) * 5), b = (a + 1 + Math.floor(sv(g, 20) * 4)) % 5;
   pal.push(...DEN[keys[a]], ...DEN[keys[a]], ...DEN[keys[b]]);
   if (sv(g, 21) > 0.5) pal.push(...DEN[keys[(b + 1 + Math.floor(sv(g, 22) * 3)) % 5]]);
@@ -152,6 +174,17 @@ export function* layoutSoftA(ctx) {
     seat(fs, tpl, R, sc, sc, sc, Pp, null, 0.12);
     if (!put(ctx, rock, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, tint(rng, [[1, 0.9, 0.85], [0.9, 0.85, 0.95]], 0.1))) continue;
     const item = rock.items[rock.items.length - 1], top = itemSupport(tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, true, fs);
+    // encrusting sponges on the bommie's flanks, following the rock (seated along the local surface normal)
+    for (let q = 0, ne = 1 + Math.floor(rng() * 3); q < ne; q++) {
+      const a = rng() * TAU, rr = tpl.r * sc * (0.45 + 0.3 * rng()), ex = Pp[0] + Math.cos(a) * rr, es = Pp[2] + Math.sin(a) * rr, e = 0.15;
+      const ey = top.at(ex, es), gx = (top.at(ex + e, es) - top.at(ex - e, es)) / (2 * e), gs = (top.at(ex, es + e) - top.at(ex, es - e)) / (2 * e);
+      if (top.miss) { top.miss = 0; continue; }
+      if (ey < fs.at(ex, es) + 0.15 || Math.hypot(gx, gs) > 1.6) continue; // on the rock, not at its foot or under a lip
+      const nl = Math.hypot(gx, 1, gs), n = [-gx / nl, 1 / nl, gs / nl], et = pick(rng, S.enc), esc = 0.5 + rng() * 0.5, Re = upTo(n, rng() * TAU), Pe = [ex, ey, es];
+      seat(top, et, Re, esc, esc, esc, Pe, n, 0.03);
+      if (top.miss) { top.miss = 0; continue; }
+      put(ctx, rock, et, Pe[0], Pe[1], Pe[2], Re, esc, esc, esc, tint(rng, ENC, 0.2), 1, { item });
+    }
     const col0 = pick(rng, rc.pal), n = 6 + Math.floor(rng() * 8);
     for (let q = 0; q < n; q++) {
       const a = rng() * TAU, rr = Math.sqrt(rng()) * tpl.r * sc * 0.75, cx = Pp[0] + Math.cos(a) * rr, cs = Pp[2] + Math.sin(a) * rr;
@@ -205,14 +238,17 @@ export function* layoutSoftB(ctx) {
   const st = new Batch(MAT.static, 36000 * bk); st.lod = 'mid';
   const sw = new Batch(MAT.sway, 36000 * bk); sw.lod = 'mid'; sw.soft = true;
   const near = new Batch(MAT.static, 18000 * bk); near.lod = 'mid';
-  const labels = [], pois = [];
+  const labels = [], pois = [], sp = new Space(); // (spacing: nothing grows on top of another colony)
   const place = (b, tpl, x, s, sc, col, follow, kind, tube = 0, embed = 0.03) => {
-    const y = fs.at(x, s), n = [fs.nx, fs.ny, fs.nz];
+    const y = fs.at(x, s), n = [fs.nx, fs.ny, fs.nz], rr = tpl.r * sc * 0.75;
+    if (!sp.free(x, s, rr)) return null;
     const R = upTo(mix3([0, 1, 0], n, follow), rng() * TAU), h = (tpl.maxY - tpl.minY) * sc;
     if (!clearBox(pc, x, s, y, y + h, tpl.r * sc, kind, tube)) return null;
     const Pp = [x, y, s];
     seat(fs, tpl, R, sc, sc, sc, Pp, n, embed);
-    return put(ctx, b, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, col, b === sw ? sc : 1) ? Pp : null;
+    if (!put(ctx, b, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, col, b === sw ? sc : 1)) return null;
+    sp.add(Pp[0], Pp[2], rr);
+    return Pp;
   };
   const tables = T.table && T.table.length ? T.table : null, brains = T.brain && T.brain.length ? T.brain : null;
   for (let k = 0; k < 320; k++) {
@@ -227,7 +263,8 @@ export function* layoutSoftB(ctx) {
     else if (u < (acc += rc.leather)) place(sw, pick(rng, S.leather), x, s, 0.9 + rng() * 1.0, tint(rng, [[0.95, 0.85, 0.45], [0.7, 0.85, 0.4], [1.0, 0.7, 0.55]]), 0.6, SOLID);
     else if (u < (acc += rc.crin * 0.6)) { if (lk === 1 || rng() < lk) place(sw, pick(rng, S.crin), x, s, 1.0 + rng() * 0.8, tint(rng, [[1.1, 0.85, 0.1], [1.0, 0.35, 0.05], [0.95, 0.1, 0.12], [0.9, 0.9, 0.85], [0.2, 0.2, 0.22]], 0.1), 0.8, SOFT, 0.8, 0.01); }
     else if (u < (acc += rc.table * 0.7)) { if (tables && pin < 1.5) place(st, pick(rng, tables), x, s, 0.8 + rng() * 0.9, tint(rng, [[0.95, 0.55, 0.2], [0.6, 0.78, 0.18], [0.78, 0.3, 0.88]], 0.2), 0.15, SOLID); }
-    else if (u < (acc += encW)) place(near, pick(rng, S.enc), x, s, 0.6 + rng() * 1.0, tint(rng, ENC, 0.2), 1, SOLID, 0, 0.02);
+    // encrusting sponges only on rock: the steep flanks of the pinnacles (the bommies get theirs in chain A)
+    else if (u < (acc += encW)) { fs.at(x, s); if (fs.ny < 0.7) place(near, pick(rng, S.enc), x, s, 0.6 + rng() * 0.8, tint(rng, ENC, 0.2), 1, SOLID, 0, 0.03); }
     else if (brains) place(st, pick(rng, brains), x, s, 0.4 + rng() * 0.6, tint(rng, [[1.0, 0.5, 0.18], [0.78, 0.28, 0.85], [0.55, 0.8, 0.22]], 0.2), 0.75, SOLID);
   }
   // cleaning station: one coral bommie per segment, beside the path, with a big anemone on top
