@@ -234,13 +234,22 @@ const reloadWith = (params) => {
 const _info = {}, _cands = [], _pois = [];
 let watchName = '', watchTimer = 0;
 const app = {
-  zones: BIOME_KEYS.map((k) => ({ key: k, label: BIOMES[k].label, subtitle: BIOMES[k].subtitle })),
+  // zone catalogue for the picker; colour/deep are the zone's water colours as sRGB hex (for swatches)
+  zones: BIOME_KEYS.map((k) => {
+    const b = BIOMES[k], hex = (c) => '#' + new THREE.Color().setRGB(c[0], c[1], c[2]).getHexString();
+    return { key: k, label: b.label, subtitle: b.subtitle, tempC: b.tempC, color: hex(b.up), deep: hex(b.deep) };
+  }),
   weathers: WEATHER_KEYS, times: TIME_KEYS,
+  // Instrument depth: the deep zones are rendered ~40-55 m down but depict the deep sea, so the deck's
+  // depth gauge adds a nominal offset (blended across zone cross-fades) to read like the real thing.
+  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950 },
+  _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
   get curiosity() { return director.curiosity; }, get wakeLock() { return wakeWanted; }, get wakeLockActive() { return !!wakeLock; },
   get tier() { return tier; }, get quality() { return QUALITY; }, get seed() { return SEED; },
-  get fullscreen() { return !!document.fullscreenElement; },
+  get fullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); },
+  get canFullscreen() { const el = document.documentElement; return !!(el.requestFullscreen || el.webkitRequestFullscreen); },
   sightings, recent,
   onNote(fn) { noteListeners.push(fn); },
   togglePause() { paused = !paused; }, setPaused(v) { paused = !!v; },
@@ -253,7 +262,12 @@ const app = {
   toggleLabels() { labels.toggle(); }, setLabels(v) { if (labels.on !== !!v) labels.toggle(); },
   toggleCaptions() { showCaptions = !showCaptions; }, setCaptions(v) { showCaptions = !!v; },
   toggleStats() { statsOn = !statsOn; if (statsEl) statsEl.style.display = statsOn ? 'block' : 'none'; },
-  toggleFullscreen() { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); },
+  toggleFullscreen() {
+    const d = document, el = d.documentElement;
+    const r = (d.fullscreenElement || d.webkitFullscreenElement) ? (d.exitFullscreen || d.webkitExitFullscreen)?.call(d)
+      : (el.requestFullscreen || el.webkitRequestFullscreen)?.call(el);
+    if (r && r.catch) r.catch(() => {}); // refused (no user gesture, iframe policy): nothing to do
+  },
   setLamp(mode) { lampMode = mode; },              // 'auto' | 'on' | 'off'
   setCuriosity(v) { director.curiosity = Math.max(0, Math.min(1, v)); },
   setWakeLock(v) { wakeWanted = !!v; if (wakeWanted) acquireWake(); else if (wakeLock) { wakeLock.release(); wakeLock = null; } },
@@ -268,7 +282,10 @@ const app = {
     o.zoneKey = g.key; o.zone = b.label; o.subtitle = b.subtitle || '';
     o.nextZone = BIOMES[ng.key].label; o.zoneProgress = Math.min(1, Math.max(0, (s - g.start) / (g.end - g.start)));
     o.metresToNext = Math.max(0, g.end - s);
-    o.depth = depth; o.seabed = floorY > -250 ? -floorY : null; o.altitude = floorY > -250 ? camera.position.y - floorY : null;
+    let off = 0;
+    for (const e of seq.weights(s)) off += (app.depthOffsets[e.key] || 0) * e.w;
+    o.camDepth = depth; o.depth = depth + off; // depth/seabed are instrument readings (see depthOffsets)
+    o.seabed = floorY > -250 ? off - floorY : null; o.altitude = floorY > -250 ? camera.position.y - floorY : null;
     o.speed = lastV; o.speedKnots = lastV * 1.94384; o.speedSetting = speed;
     // faux compass: a slowly wandering base heading plus where the camera actually points
     const base = 180 + 170 * noise1(s / 4000, 501) + 80 * noise1(s / 1300, 502);
@@ -284,28 +301,44 @@ const app = {
     o.timeLabel = C.timeLabel; o.clockHours = conditions.clockHours;
     o.weather = C.weatherLabel || 'clear water'; o.weatherKey = conditions.cur; o.night = C.night;
     o.distanceKm = (s - START_S) / 1000; o.diveTime = simTime;
-    o.seed = SEED; o.tier = tier; o.gpu = gpuName(renderer); o.fps = res.fps; o.res = res.scale;
+    o.seed = SEED; o.tier = tier; o.gpu = app._gpu ??= gpuName(renderer); o.fps = res.fps; o.res = res.scale; // gl query once: it can stall
     o.species = sightings.size;
     o.watching = watchName;
     o.paused = paused;
     return o;
   },
-  // Sonar contacts relative to the camera heading: dx right, dz ahead (m), dy up; kind 'big' | 'animal' | 'poi'.
+  // True when `name` is one of the surprise encounters currently around (for the deck's "rare" toast).
+  isRare(name) {
+    _cands.length = 0;
+    if (surprises.labels) surprises.labels(_cands);
+    for (const e of _cands) if (e.name === name) return true;
+    return false;
+  },
+  // Sonar contacts within 90 m, relative to the camera heading: dx right, dz ahead (m), dy up.
+  // kind: 'rare' (surprise encounter) | 'big' | 'school' | 'animal' | 'poi' (set piece; type, name).
+  // The entry objects are pooled and reused between calls.
   contacts(out) {
-    out.length = 0;
-    const cam = camera.position, f = camState.forward;
+    const cam = camera.position, f = camState.forward, pool = app._cpool;
     const fl = Math.hypot(f.x, f.z) || 1, fx = f.x / fl, fz = f.z / fl;
-    _cands.length = 0; subjectsFn(_cands);
-    for (const e of _cands) {
-      const rx = e.x - cam.x, rz = (e.z - Oz) - cam.z;
-      if (rx * rx + rz * rz > 90 * 90) continue;
-      out.push({ dx: rx * -fz + rz * fx, dz: rx * fx + rz * fz, dy: e.y - cam.y, r: e.r || 1, kind: e.interest >= 0.7 ? 'big' : 'animal' });
+    let n = 0;
+    for (let pass = 0; pass < 3; pass++) {
+      _cands.length = 0;
+      if (pass === 0) { if (creatures.subjects) creatures.subjects(_cands); }
+      else if (pass === 1) { if (surprises.subjects) surprises.subjects(_cands); }
+      else terrain.queryPOIs(s - 30, s + 90, _pois);
+      for (const e of pass === 2 ? _pois : _cands) {
+        const rx = e.x - cam.x, rz = (pass === 2 ? -e.s : e.z) - Oz - cam.z;
+        if (rx * rx + rz * rz > 90 * 90) continue;
+        const c = pool[n] || (pool[n] = { dx: 0, dz: 0, dy: 0, r: 1, kind: '', type: '', name: '' });
+        out[n++] = c;
+        c.dx = rx * -fz + rz * fx; c.dz = rx * fx + rz * fz; c.dy = e.y - cam.y;
+        c.r = e.r || (pass === 2 ? 3 : 1);
+        c.kind = pass === 1 ? 'rare' : pass === 2 ? 'poi' : e.interest >= 0.7 ? 'big' : e.id % 1000 === 999 ? 'school' : 'animal';
+        c.type = pass === 2 ? e.type : '';
+        c.name = pass === 2 && e.data ? (e.data.name || e.data.kind || '') : '';
+      }
     }
-    terrain.queryPOIs(s - 30, s + 90, _pois);
-    for (const p of _pois) {
-      const rx = p.x - cam.x, rz = (-p.s - Oz) - cam.z;
-      out.push({ dx: rx * -fz + rz * fx, dz: rx * fx + rz * fz, dy: p.y - cam.y, r: p.r || 3, kind: 'poi', type: p.type });
-    }
+    out.length = n;
     return out;
   },
 };
@@ -313,6 +346,9 @@ window.__ocean.app = app;
 
 addEventListener('keydown', (e) => {
   if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return; // leave browser shortcuts alone (Ctrl+F, Ctrl+S, ...)
+  // Space/Enter on a focused control-deck button press that button (hud.js), not the pause shortcut
+  if ((e.key === ' ' || e.key === 'Enter') && e.target && e.target.closest && e.target.closest('#deck')) return;
   helpTimer = 4;
   const k = e.key.toLowerCase();
   if (k === 'h') app.toggleCaptions();

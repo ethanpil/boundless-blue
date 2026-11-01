@@ -7,6 +7,8 @@ const SRC = new URL('../../src/', import.meta.url).href;
 const { BiomeSequence, WorldShape } = await import(SRC + 'biomes.js');
 const { registerProps } = await import(SRC + 'props/index.js');
 const { registerNewBiomeProps } = await import(SRC + 'props/newbiomes.js');
+const { registerNewBiomeProps2 } = await import(SRC + 'props/newbiomes2.js');
+const { registerNewBiomeProps3 } = await import(SRC + 'props/newbiomes3.js');
 const NB = await import(SRC + 'props/nb_common.js');
 const { mulberry32 } = await import(SRC + 'noise.js');
 
@@ -26,6 +28,8 @@ const nOld = term.populators.length;
 const tOld = performance.now() - t0;
 t0 = performance.now();
 registerNewBiomeProps(term, env);
+registerNewBiomeProps2(term, env);
+registerNewBiomeProps3(term, env);
 console.log(`init: old props ${tOld.toFixed(0)} ms, new biomes ${(performance.now() - t0).toFixed(0)} ms; populators ${nOld} old + ${term.populators.length - nOld} new`);
 const popNames = Object.keys(NB.NBSTATS.pops || {});
 

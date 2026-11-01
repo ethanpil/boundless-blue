@@ -135,8 +135,10 @@ export const BIOMES = {
     floor(x, s, ad, g) {
       const step = 1.6 + 1.4 * sv(g, 1);
       const t = fbm2(x / 45, s / 45, 3, 71) * 7 * (0.6 + 0.8 * sv(g, 2)) + 4;
-      const f = t / step, terr = (Math.floor(f) + smoothstep(0.82, 1, f - Math.floor(f))) * step;
-      return fbm2(x / 12, s / 12, 2, 72) * 0.4 + terr * smoothstep(9, 30, ad);
+      // ramp up away from the path first, then quantise, so terrace tops are flat
+      const t2 = t * smoothstep(9, 30, ad), f = t2 / step;
+      const terr = (Math.floor(f) + smoothstep(0.82, 1, f - Math.floor(f))) * step;
+      return fbm2(x / 12, s / 12, 2, 72) * 0.4 + terr;
     },
   },
   vents: {
@@ -226,7 +228,7 @@ Object.assign(BIOMES, {
     label: 'Seamount', camY: -18, clearance: 6, len: [600, 950], weight: 0.85,
     sigma: [0.085, 0.026, 0.018], lightSigma: [0.04, 0.014, 0.011],
     deep: C(0x033566), up: C(0x2f8fd8), sun: 1.05, caustic: 0.6, shafts: 1.3, ambient: 1.0, glow: 0, snow: 0.6,
-    sand: [0.36, 0.34, 0.33], rock: [0.32, 0.3, 0.29],
+    sand: [0.42, 0.4, 0.38], rock: [0.44, 0.41, 0.39],
     floor(x, s, ad, g) {
       const base = -40 + fbm2(x / 40, s / 40, 3, 171) * 6;
       const pk = peaks(x, s, 70, 172 + ((g ? g.seed : 0) & 15), 18, 34, 0.6);
@@ -259,7 +261,7 @@ Object.assign(BIOMES, {
     deep: C(0x2f6a4f), up: C(0x9ccf86), sun: 1.15, caustic: 1.1, shafts: 1.2, ambient: 1.05, glow: 0, snow: 1.2,
     sand: [0.52, 0.5, 0.4], rock: [0.62, 0.6, 0.52],
     floor(x, s, ad, g) {
-      return fbm2(x / 18, s / 18, 3, 201) * 1.0 + smoothstep(18, 45, ad) * (9 + 4 * fbm2(x / 15, s / 15, 3, 202)) * (0.8 + 0.4 * sv(g, 1));
+      return fbm2(x / 18, s / 18, 3, 201) * 1.0 + smoothstep(12, 32, ad) * (9 + 4 * fbm2(x / 15, s / 15, 3, 202)) * (0.8 + 0.4 * sv(g, 1));
     },
   },
   sunkenforest: {
@@ -341,7 +343,7 @@ BIOMES.mangrove.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.7, fb
 BIOMES.deepplain.floorTint = (x, s, nn, T) => { const p = smoothstep(0.3, 0.7, fbm2(x / 13, s / 13, 2, 23)); T[0] -= 0.1 * p; T[1] -= 0.1 * p; T[2] -= 0.08 * p; };
 BIOMES.seamount.floorTint = (x, s, nn, T) => { // encrusting orange/purple life on volcanic rock
   const p = smoothstep(0.15, 0.6, fbm2(x / 6, s / 6, 2, 29)), q = smoothstep(0.3, 0.7, fbm2(x / 9, s / 9, 2, 31));
-  T[3] += 0.2 * p + 0.06 * q; T[4] += 0.05 * p; T[5] += 0.03 * p + 0.12 * q;
+  T[3] += 0.12 * p + 0.04 * q; T[4] += 0.03 * p; T[5] += 0.02 * p + 0.07 * q;
 };
 BIOMES.champagne.floorTint = (x, s, nn, T) => { // iron-stained volcanic sand, pale bacterial film
   const p = smoothstep(0.35, 0.75, fbm2(x / 8, s / 8, 2, 37)), q = smoothstep(0.55, 0.85, fbm2(x / 3, s / 3, 2, 41));

@@ -51,6 +51,30 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - `subjects(out)` ids are `uid*1000+i` (animal) or `+999` (group).
   - Night tables blend by `U.uNight`, and POI set pieces have per-type cooldowns.
   - Encounters keep a single hidden class, which matters for V8 speed.
+- **Control deck** (`hud.js`, `src/hud/`): talks only to `window.__ocean.app` (main.js). DOM writes are cached and refreshed at ≤ 5 Hz (heading) or 1 Hz slices; sonar and compass are canvases at ≤ 20 fps. No CSS transitions on gauges: restarting them cost 1–2 ms per refresh on the HD 4600.
+- **Quality** (`quality.js`):
+  - Tiers are low, medium, high and ultra, set by `tierFor()` from the GPU string. The `WQ` macro bakes the tier into every water shader.
+  - At runtime, `AdaptiveResolution` steps features first and then resolution, with hysteresis. It uses GPU timer queries when available (`post.gpuMs`).
+  - Explicit `?quality=` disables adaptation.
+- **Anti-repetition:** `water.js` exports tiling-breakup samplers (`nrTex*`, `nrTri`). Use them instead of a plain `texture2D(uNoiseTex, …)` for large surfaces.
+- **Rock pools:** `rock_gen.js` regenerates `T.rocks`, `T.mound`, `T.pinnacle`, `T.bigRocks`, `T.tpRock` and `T.ventRock`, plus vent chimneys, per biome segment. It runs lazily in ≤ 2 ms slices. Always reference these pools live (`tpl: T.rocks`), never as copies (`[...T.rocks]`).
+- **Creatures:**
+  - `sep.js` separates every pair of animals each frame using geometry-derived capsules, sweep-and-prune, and cross-group checks only where boxes overlap.
+  - `_terrainFix` checks 8 body extremities against the floor, ceiling and surface.
+  - Test tools in devfly.js: `spacingTest`, `terrainTest`, `presenceTest`.
+  - The blue whale is scheduled by `director.whaleTick`.
+- **Surprises** (`src/surprises/`):
+  - One encounter at a time, on persistent timers stored in localStorage key `endlessOcean.surprises.v1`.
+  - Builds are stepped and use `compileAsync`. Bodies are registered as moving obstacles (`o.sur = true`).
+  - Debug: `__ocean.surprises.trigger(kind)`, `list()`.
+- **Wrecks and ruins** are generated per segment:
+  - wrecks: hulls are lofted in `wreck_types*.js`; time-sliced jobs look 460 m ahead
+  - ruins: city plans, building kits and styles live in the `ruins_*.js` files
+  - Big flat props should keep encrusting growth `aFx.x` ≤ ~0.25, or it reads as camouflage.
+- **New-zone props:**
+  - `nb2_*.js` covers seamount, bluehole, sunkenforest and champagne. Its encrusting skin is `nb2_crust.js`.
+  - `nb3_*.js` covers sargassum, jellylake and anemone.
+  - Anemone hosts register `anemone` POIs, where the creatures place clownfish families.
 - **Audits:** run them before shipping prop or creature changes, because they catch floating and penetration regressions.
   - `window.__propsAudit` (in-browser ground-gap audit)
   - `(await import('/src/creatures/devfly.js')).obstacleTest(60, false)` (creature-in-rock check)
