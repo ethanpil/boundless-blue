@@ -12,7 +12,7 @@ import { registerNewBiomeProps2 } from './props/newbiomes2.js';
 import { registerNewBiomeProps3 } from './props/newbiomes3.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
-import { noise1, mulberry32 } from './noise.js';
+import { noise1, mulberry32, smoothstep, clamp } from './noise.js';
 import { obstacles } from './obstacles.js';
 import { Labels } from './labels.js';
 import { Conditions, WEATHER_KEYS, TIME_KEYS } from './conditions.js';
@@ -186,17 +186,25 @@ function updateNotes(dt, C, spawn) {
 }
 
 // ---------- screen wake lock: keep the display awake while the dive is visible ----------
-let wakeWanted = qs.get('wake') !== '0', wakeLock = null;
-async function acquireWake() {
-  if (!wakeWanted || wakeLock || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+// Some browsers refuse the lock until a user gesture, so a refusal on load is retried on the next tap or key.
+// A NotAllowedError on a request made from a gesture means the browser (or a permissions policy) blocks it:
+// it is kept in wakeError and requests stop until the user switches the option off and on again.
+let wakeWanted = qs.get('wake') !== '0', wakeLock = null, wakeError = '', wakeBusy = false;
+async function acquireWake(gesture = false) {
+  if (!wakeWanted || wakeLock || wakeBusy || wakeError || !('wakeLock' in navigator) || document.visibilityState !== 'visible') return;
+  wakeBusy = true;
   try {
     wakeLock = await navigator.wakeLock.request('screen');
     wakeLock.addEventListener('release', () => { wakeLock = null; });
-  } catch (e) { wakeLock = null; } // some browsers only allow it after a user gesture; retried on input
+  } catch (e) {
+    wakeLock = null;
+    if (gesture || e.name !== 'NotAllowedError') wakeError = e.name || 'Error';
+  }
+  wakeBusy = false;
 }
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') acquireWake(); });
-addEventListener('pointerdown', () => acquireWake(), { passive: true });
-addEventListener('keydown', () => acquireWake());
+addEventListener('pointerdown', () => acquireWake(true), { passive: true });
+addEventListener('keydown', () => acquireWake(true));
 acquireWake();
 
 // ---------- sightings log (species seen on this dive) ----------
@@ -246,7 +254,11 @@ const app = {
   _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
-  get curiosity() { return director.curiosity; }, get wakeLock() { return wakeWanted; }, get wakeLockActive() { return !!wakeLock; },
+  // wakeLock is the effective setting: false while a refusal is stored, so the deck shows the toggle off (not
+  // 'waiting' forever) and tapping it calls setWakeLock(true), which clears the error and retries from that gesture.
+  get curiosity() { return director.curiosity; }, get wakeLock() { return wakeWanted && !wakeError; }, get wakeLockActive() { return !!wakeLock; },
+  // '' or the DOMException name of a refusal that followed a user gesture (e.g. 'NotAllowedError': blocked by the browser)
+  get wakeLockError() { return wakeError; },
   get tier() { return tier; }, get quality() { return QUALITY; }, get seed() { return SEED; },
   get fullscreen() { return !!(document.fullscreenElement || document.webkitFullscreenElement); },
   get canFullscreen() { const el = document.documentElement; return !!(el.requestFullscreen || el.webkitRequestFullscreen); },
@@ -270,9 +282,16 @@ const app = {
   },
   setLamp(mode) { lampMode = mode; },              // 'auto' | 'on' | 'off'
   setCuriosity(v) { director.curiosity = Math.max(0, Math.min(1, v)); },
-  setWakeLock(v) { wakeWanted = !!v; if (wakeWanted) acquireWake(); else if (wakeLock) { wakeLock.release(); wakeLock = null; } },
+  setWakeLock(v) { wakeWanted = !!v; wakeError = ''; if (wakeWanted) acquireWake(true); else if (wakeLock) { wakeLock.release(); wakeLock = null; } },
   setQuality(t) { reloadWith({ quality: t === 'auto' ? null : t }); },
-  shareUrl() { const u = new URL(location.href); u.searchParams.set('seed', SEED); u.searchParams.set('biome', START_KEY); return u.toString(); },
+  // The world only: seed and starting zone (plus start, if set). Quality, wake, fps and the time/weather locks
+  // are this viewer's settings and stay out of a shared link.
+  shareUrl() {
+    const u = new URL(location.origin + location.pathname);
+    u.searchParams.set('seed', SEED); u.searchParams.set('biome', START_KEY);
+    if (qs.has('start')) u.searchParams.set('start', qs.get('start'));
+    return u.toString();
+  },
   // Live readings for the control deck. Values are approximate where real instruments would be (compass, current).
   info() {
     const o = _info, g = seq.segs[seq.segAt(s)], b = BIOMES[g.key];
@@ -393,7 +412,13 @@ function updateEnvironment(C) {
   U.uRain.value = C.rain;
   U.uSurge.value = C.surge;
   const deepDark = Math.min(1, Math.max(0, (0.45 - p.sun) / 0.37));
-  const autoLamp = Math.max(deepDark, p.cave * 0.55, C.lampAdd);
+  // Light reaching the scene (sun or moon plus sky light, through the water above the camera). Turbid water
+  // turns it into a dim haze that hides everything beyond a few metres, so murky zones (mangrove, kelp,
+  // blooms) need the lamps sooner: at dusk there, long before night brings C.lampAdd.
+  const sceneLight = (U.uSunScatter.value + 0.25 * U.uAmbientScale.value) * Math.exp(-U.uLightSigma.value.y * depth);
+  const murk = clamp((U.uSigma.value.y - 0.035) / 0.05, 0, 1), dimAt = 0.26 + 0.24 * murk;
+  const dimLamp = smoothstep(dimAt, dimAt - 0.2, sceneLight);
+  const autoLamp = Math.max(deepDark, p.cave * 0.55, C.lampAdd, dimLamp);
   U.uLamp.value = lampMode === 'on' ? Math.max(0.85, autoLamp) : lampMode === 'off' ? 0 : autoLamp;
   sun.color.setRGB(C.sunColor[0], C.sunColor[1], C.sunColor[2]);
   sun.intensity = 3.0 * p.sun * C.sunMul;
@@ -448,7 +473,7 @@ blendParams(s);
 placeCamera(0, 0, C);
 terrain.prime(s);
 const hud = new Hud(app);
-const clock = new THREE.Clock();
+const timer = new THREE.Timer();
 let time = 0, simTime = 0, lastFrame = 0, causticFrame = 0;
 setTimeout(() => { const l = document.getElementById('loader'); if (l) l.style.opacity = 0; }, 900);
 setTimeout(() => { const l = document.getElementById('loader'); if (l) l.remove(); }, 3600);
@@ -458,7 +483,8 @@ function frame(now) {
   // frame cap: a calm 60 fps is plenty for a slow glide and halves the work on 120/144 Hz screens
   if (FPS_CAP > 0 && now - lastFrame < 1000 / FPS_CAP - 1.5) return;
   lastFrame = now;
-  tick(Math.min(clock.getDelta(), 0.1), true);
+  timer.update(now);
+  tick(Math.min(timer.getDelta(), 0.1), true);
 }
 // Debug: advance the simulation without rAF (hidden tabs throttle it).
 window.__ocean.advance = (seconds, step = 1 / 30) => {

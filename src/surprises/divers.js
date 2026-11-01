@@ -207,28 +207,33 @@ export class Divers {
     this.divers = []; this.sub = []; this.lab = [];
   }
 
-  // Lane on one side of the path with room for a diver at a comfortable height for the whole route.
+  // Lane on one side of the path with room for a diver at a comfortable height for the whole route. Over
+  // a dense reef the coral heads fill the first couple of metres above the sand, so the divers may swim
+  // up to 2 m higher (lift) rather than never appearing there.
   _lane(cam, s0, s1, force) {
     const sys = this.sys, sh = sys.shape, rng = this.rng;
     const sides = rng() < 0.5 ? [1, -1] : [-1, 1];
     const lats = [6.5, 8, 9.5, 5.8, 11];
-    let best = null, bestScore = -1;
-    for (const side of sides) for (const lat of lats) {
-      let ok = 0, n = 0, ySum = 0;
-      for (let k = 0; k <= 8; k++) {
-        const s = lerp(s0, s1, k / 8), x = sh.pathX(s) + side * lat;
-        const f = sys.floor(x, s), c = sys.ceil(x, s), py = sh.pathY(s);
-        let y = clamp(Math.max(f + 1.8, py - 4), f + 1.2, py + 1.5); // over deep water: midwater, near our depth
-        y = Math.min(y, c - 1.2);
-        n++;
-        if (y - f < 1.0 || c - y < 1.0) continue;
-        if (sys.obsDist(x, y, s, 3, null) < 1.2) continue;
-        ok++; ySum += y;
+    for (const lift of [0, 1, 2]) {
+      let best = null, bestScore = -1;
+      for (const side of sides) for (const lat of lats) {
+        let ok = 0, n = 0, ySum = 0;
+        for (let k = 0; k <= 8; k++) {
+          const s = lerp(s0, s1, k / 8), x = sh.pathX(s) + side * lat;
+          const f = sys.floor(x, s), c = sys.ceil(x, s), py = sh.pathY(s);
+          let y = clamp(Math.max(f + 1.8 + lift, py - 4), f + 1.2, py + 1.5); // over deep water: midwater, near our depth
+          y = Math.min(y, c - 1.2);
+          n++;
+          if (y - f < 1.0 || c - y < 1.0) continue;
+          if (sys.obsDist(x, y, s, 3, null) < 1.2) continue;
+          ok++; ySum += y;
+        }
+        const score = ok / n - Math.abs(lat - 7.5) * 0.01;
+        if (score > bestScore) { bestScore = score; best = { side, lat, y: ySum / Math.max(1, ok), lift }; }
       }
-      const score = ok / n - Math.abs(lat - 7.5) * 0.01;
-      if (score > bestScore) { bestScore = score; best = { side, lat, y: ySum / Math.max(1, ok) }; }
+      if (bestScore >= (force ? 0.5 : 0.8)) return best;
     }
-    return bestScore >= (force ? 0.5 : 0.8) ? best : null;
+    return null;
   }
 
   plan(cam, force) {
@@ -251,7 +256,7 @@ export class Divers {
     this.speed = this.mode === 'hover' ? 0 : 0.3 + rng() * 0.16;
     this.frog = this.cave || rng() < 0.25;
     this.waver = Math.floor(rng() * this.n);
-    this.alt = (zone === 'sandflat' || zone === 'seagrass' ? 1.3 : 1.6) + rng() * 0.8;
+    this.alt = (zone === 'sandflat' || zone === 'seagrass' ? 1.3 : 1.6) + rng() * 0.8 + lane.lift;
     this.midDepth = 1.5 + rng() * 2.5;
     this.photoIdx = rng() < 0.45 ? (this.waver + 1) % this.n : -1;
     return true;

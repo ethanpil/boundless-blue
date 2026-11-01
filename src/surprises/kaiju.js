@@ -7,7 +7,7 @@
 // it never comes closer than ~38 m, and it is registered as moving obstacles while it is around.
 // The body undulates in the vertex shader (one draw call); geometry is built in small steps.
 import * as THREE from 'three';
-import { applyWater } from '../water.js';
+import { applyWater, U, WATER_PARS } from '../water.js';
 import { GeoBuilder, loft, sph, hose, T, lin, mulS, mixMulS, fbm, clamp, sstep, lerp, TAU } from './kit.js';
 
 const FORMS = ['serpent', 'saurian', 'whale'];
@@ -19,23 +19,33 @@ const FACTS = {
 const EYES = [0xc8ffb8, 0xa8ecff, 0xffe39a, 0xd8fff0];
 const pick = (rng, a) => a[Math.floor(rng() * a.length)];
 
+// the swimming wave travelling down the body (head at +z), shared by the body and its photophores
+const WAVE = /* glsl */`
+uniform float uPh, uAmp, uK, uLen, uVert;
+float kWave(float t) { return uAmp * uLen * (0.1 + 0.9 * t * t) * sin(uPh - uK * 6.2831853 * t); }
+vec3 kBend(vec3 p) {
+  float t = clamp(0.5 - p.z / uLen, 0.0, 1.0);
+  float w = kWave(t) - kWave(0.0) * 0.5;
+  if (uVert > 0.5) p.y += w; else p.x += w;
+  return p;
+}`;
+
 let _mat = null;
 function kaijuMat() {
   if (_mat) return _mat;
-  const u = { uPh: { value: 0 }, uAmp: { value: 0.05 }, uK: { value: 1 }, uLen: { value: 80 }, uVert: { value: 0 }, uGlowK: { value: 1 } };
+  const u = { uPh: { value: 0 }, uAmp: { value: 0.05 }, uK: { value: 1 }, uLen: { value: 80 }, uVert: { value: 0 }, uGlowK: { value: 1 }, uRim: { value: 1 } };
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
   m.userData.u = u;
   applyWater(m, {
     key: 'sur-kaiju',
     uniforms: u,
     vertexHead: `attribute vec2 aSurf; varying vec2 vSurf;
-      uniform float uPh, uAmp, uK, uLen, uVert;
-      float kWave(float t) { return uAmp * uLen * (0.1 + 0.9 * t * t) * sin(uPh - uK * 6.2831853 * t); }
+      ${WAVE}
       float kSlope(float t) { // d(offset)/dt
         float env = 0.1 + 0.9 * t * t, denv = 1.8 * t, a = uPh - uK * 6.2831853 * t;
         return uAmp * uLen * (denv * sin(a) - env * uK * 6.2831853 * cos(a));
       }`,
-    fragmentHead: 'varying vec2 vSurf; uniform float uGlowK;',
+    fragmentHead: 'varying vec2 vSurf; uniform float uGlowK, uRim;',
     patch(sh) {
       sh.vertexShader = sh.vertexShader
         .replace('#include <beginnormal_vertex>', `#include <beginnormal_vertex>
@@ -44,20 +54,68 @@ function kaijuMat() {
             float sl = -kSlope(t) / uLen; // d(offset)/dz (head at +z)
             if (uVert > 0.5) objectNormal.z -= objectNormal.y * sl; else objectNormal.z -= objectNormal.x * sl;
           }`)
-        .replace('#include <begin_vertex>', `#include <begin_vertex>
-          {
-            float t = clamp(0.5 - position.z / uLen, 0.0, 1.0);
-            float w = kWave(t) - kWave(0.0) * 0.5;
-            if (uVert > 0.5) transformed.y += w; else transformed.x += w;
-          }`)
+        .replace('#include <begin_vertex>', '#include <begin_vertex>\ntransformed = kBend(transformed);')
         .replace('#include <color_vertex>', '#include <color_vertex>\nvSurf = aSurf;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-          totalEmissiveRadiance += vColor.rgb * vSurf.x * uGlowK;`);
+          totalEmissiveRadiance += vColor.rgb * vSurf.x * uGlowK;
+          { // faint rim: downwelling light wrapping round the flanks, so the silhouette reads in the murk
+            float fr = 1.0 - clamp(dot(normal, normalize(vViewPosition)), 0.0, 1.0);
+            totalEmissiveRadiance += waterColor(vec3(0.0, 1.0, 0.0)) * uRim * (fr * fr) * (fr * fr);
+          }`);
     },
   });
   _mat = m;
   return m;
+}
+
+// Photophores: soft round glowing dots (GL points) riding the same swimming wave as the skin. Each sprite
+// is 1.6x the organ's projected size (its glow) and at least 6 px across, with a radial falloff (as tiny
+// lit spheres they aliased into 1-3 px squares and crosses); a dot drawn larger than it really is dims a
+// little, and the light fades with the water between.
+const PH_VS = /* glsl */`
+${WAVE}
+uniform float uPxH;
+attribute vec4 aCol; // linear glow colour, diameter (m)
+varying vec3 vCol; varying vec3 vWPos;
+void main() {
+  vec4 wp = modelMatrix * vec4(kBend(position), 1.0);
+  vWPos = wp.xyz;
+  vec4 mv = viewMatrix * wp;
+  gl_Position = projectionMatrix * mv;
+  float px = aCol.w * projectionMatrix[1][1] * 0.5 * uPxH / max(-mv.z, 0.5);
+  float s = max(px * 1.6, 6.0);
+  gl_PointSize = s;
+  vCol = aCol.rgb * mix(0.4, 1.0, px * 1.6 / s);
+}`;
+const PH_FS = /* glsl */`
+${WATER_PARS}
+uniform float uGlowK;
+varying vec3 vCol; varying vec3 vWPos;
+void main() {
+  vec2 q = gl_PointCoord * 2.0 - 1.0;
+  float r2 = dot(q, q);
+  if (r2 >= 1.0) discard;
+  float f = (1.0 - r2) * (1.0 - r2); // half brightness at ~0.55 of the radius
+  gl_FragColor = vec4(vCol * (f * uGlowK) * exp(-uSigma * length(vWPos - cameraPosition)), 1.0);
+  #include <tonemapping_fragment>
+  #include <colorspace_fragment>
+}`;
+let _phMat = null;
+function photophoreMat() {
+  if (_phMat) return _phMat;
+  _phMat = new THREE.ShaderMaterial({
+    uniforms: Object.assign({}, U, kaijuMat().userData.u, { uPxH: { value: 600 } }),
+    vertexShader: PH_VS, fragmentShader: PH_FS,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+  return _phMat;
+}
+const _vp = new THREE.Vector4();
+// point sizes are in pixels of the target being drawn (the scene target, at the adaptive resolution)
+function photophoreSize(renderer, scene, camera, geometry, material) {
+  renderer.getCurrentViewport(_vp);
+  material.uniforms.uPxH.value = _vp.w;
 }
 
 // ---------- geometry ----------
@@ -96,10 +154,10 @@ function* buildKaiju(rng, form, L, low, out) {
     const scar = fbm(x * 0.4, y * 0.4, z * 0.15);
     return mixMulS(base, belly, sstep(-0.1, -0.75, v), 0.75 + 0.5 * scar);
   };
-  // the body in three overlapping spans (each a short build step)
-  const third = Math.ceil(NZ / 3);
-  for (let k = 0; k < 3; k++) {
-    g.add(loft(rings.slice(k * third, Math.min(NZ, (k + 1) * third) + 1), NR, { axis: 'z', caps: k === 0 || k === 2 }), null, skinC, { rough: 0.85 });
+  // the body in overlapping spans (each a short build step)
+  const spans = low ? 4 : 6, per = Math.ceil(NZ / spans);
+  for (let k = 0; k < spans; k++) {
+    g.add(loft(rings.slice(k * per, Math.min(NZ, (k + 1) * per) + 1), NR, { axis: 'z', caps: k === 0 || k === spans - 1 }), null, skinC, { rough: 0.85 });
     yield;
   }
   const at = (t, ang, lift = 1) => { // point on the skin at spine t, around angle (0 = +x side, pi/2 = top)
@@ -133,10 +191,10 @@ function* buildKaiju(rng, form, L, low, out) {
   };
   let np = 0;
   if (form === 'serpent') {
-    for (let t = 0.05; t < 0.92; t += 0.012) { const p = profile(form, t); plate(t, Math.PI / 2, p.ry * L * (1.1 + 0.5 * Math.sin(t * 60)), p.rx * L * 0.35, 0); if (++np % 20 === 0) yield; }
+    for (let t = 0.05; t < 0.92; t += 0.012) { const p = profile(form, t); plate(t, Math.PI / 2, p.ry * L * (1.1 + 0.5 * Math.sin(t * 60)), p.rx * L * 0.35, 0); if (++np % 10 === 0) yield; }
   } else if (form === 'saurian') {
     for (let t = 0.1; t < 0.88; t += 0.022) {
-      if (++np % 8 === 0) yield;
+      if (++np % 4 === 0) yield;
       const p = profile(form, t), hh = p.ry * L * (0.9 + 0.6 * sstep(0.1, 0.3, t) * (1 - sstep(0.4, 0.9, t)));
       plate(t, Math.PI / 2, hh * 1.2, p.rx * L * 0.45, 0);
       if (t < 0.7) { plate(t + 0.011, Math.PI / 2 - 0.45, hh * 0.75, p.rx * L * 0.3, -0.45); plate(t + 0.011, Math.PI / 2 + 0.45, hh * 0.75, p.rx * L * 0.3, 0.45); }
@@ -179,14 +237,20 @@ function* buildKaiju(rng, form, L, low, out) {
       g.add(hose([[x, y, z], [x * 1.1, y - len * 0.35, z - len * 0.35], [x * 1.2, y - len * 0.6, z - len * 0.75], [x * 1.25, y - len * 0.7, z - len]], 0.0018 * L, 10, 4), null, mulS(base, 0.9).slice(), { rough: 0.85 });
     }
   }
-  // photophores: irregular rows, larger and denser toward the head
-  const nP = low ? 16 : 30;
+  yield;
+  // photophores: irregular rows, larger and denser toward the head (drawn as soft points, see PH_VS)
+  const nP = low ? 16 : 30, P = [], C = [];
   for (const sx of [1, -1]) for (let row = 0; row < 2; row++) for (let k = 0; k < nP; k++) {
     if (rng() < 0.3) continue;
     const t = 0.1 + ((k + rng() * 0.8) / nP) * 0.72, ang = -0.4 - row * 0.32 + (rng() - 0.5) * 0.12;
-    const [x, y, z] = at(t, sx > 0 ? ang : Math.PI - ang, 1.0);
-    g.add(sph((0.0018 + 0.0016 * rng()) * L * (1.2 - t), 6, 4), T(x, y, z), photo, { glow: 1.2 + rng() * 1.6 });
+    const [x, y, z] = at(t, sx > 0 ? ang : Math.PI - ang, 1.03);
+    const d = 2 * (0.0018 + 0.0016 * rng()) * L * (1.2 - t), glow = 1.2 + rng() * 1.6;
+    P.push(x, y, z); C.push(photo[0] * glow, photo[1] * glow, photo[2] * glow, d);
   }
+  const pg = new THREE.BufferGeometry();
+  pg.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));
+  pg.setAttribute('aCol', new THREE.Float32BufferAttribute(C, 4));
+  out.photo = pg;
   yield;
   out.geo = g.build();
 }
@@ -301,6 +365,10 @@ export class Kaiju {
     const mesh = new THREE.Mesh(out.geo, kaijuMat());
     out.geo.boundingSphere.radius *= 1.15;
     this.root.add(mesh);
+    const ph = new THREE.Points(out.photo, photophoreMat());
+    ph.frustumCulled = false; // a few dozen points; their bounds ignore the swimming wave
+    ph.onBeforeRender = photophoreSize;
+    this.root.add(ph);
     this.mesh = mesh; this.eyes = out.eyes;
     const u = kaijuMat().userData.u;
     u.uLen.value = this.L; u.uVert.value = this.form === 'whale' ? 1 : 0;
@@ -361,7 +429,9 @@ export class Kaiju {
     // keep the planned distance: back off (sideways / further ahead) when the camera gets closer
     if (this.nearD < this.near - 2) this.extra = (this.extra || 0) + Math.min(this.near - 2 - this.nearD, 1) * dt * (this.nearD < this.near - 8 ? 6 : 2);
     this._eyes(cam);
-    u.uGlowK.value = 0.3 + 0.7 * sys.dark(this.y);
+    const dark = sys.dark(this.y);
+    u.uGlowK.value = 0.3 + 0.7 * dark;
+    u.uRim.value = 0.3 + 1.3 * dark; // the dark body already reads against bright water; at night it needs the rim
     this._register(dt);
     if (!this.seen) this.seen = this._inView(cam);
     const behind = this.route === 'pass' && cam.s - this.s > this.L * 0.6 + 40;

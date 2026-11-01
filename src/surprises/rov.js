@@ -52,10 +52,15 @@ function* buildRov(g, rng, low, out) {
   const duct = paint(lin(0x2c2e33), 0.12), prop = lin(0x1c1c1c);
   const c45 = Math.SQRT1_2;
   thruster(g, 1, [0.72, -0.3, 1.0], [c45, 0, c45], 0.17, duct, prop, 3, low);
+  yield;
   thruster(g, 2, [-0.72, -0.3, 1.0], [-c45, 0, c45], 0.17, duct, prop, 3, low);
+  yield;
   thruster(g, 3, [0.72, -0.3, -1.0], [c45, 0, -c45], 0.17, duct, prop, 3, low);
+  yield;
   thruster(g, 4, [-0.72, -0.3, -1.0], [-c45, 0, -c45], 0.17, duct, prop, 3, low);
+  yield;
   thruster(g, 5, [0.42, 0.45, -0.05], [0, 1, 0], 0.18, duct, prop, 3, low);
+  yield;
   thruster(g, 6, [-0.42, 0.45, -0.05], [0, 1, 0], 0.18, duct, prop, 3, low);
   yield;
   // cameras: pan-tilt HD camera (bone 7) and a fixed one; lamps on a front bar and on the top corners
@@ -144,12 +149,16 @@ export class Rov extends Vehicle {
       idx.push(a, b, c, b, d, c);
     }
     tg.setIndex(idx);
-    this.tether = new THREE.Mesh(tg, surMat('vehicle', { rough: 0.5 }));
+    // its own material: the hull's is skinned, and one material with two program variants would be
+    // only half covered by the precompile (and switch programs every frame)
+    this.tether = new THREE.Mesh(tg, surMat('tether', { rough: 0.5 }));
     this.tether.frustumCulled = false;
     this.tPts = new Float32Array((TETHER_N + 1) * 3);
     this.makeLights(11, 0.36, [0.92, 0.97, 1], 0.2, 4, true);
     this._stow();
   }
+
+  extras() { return [...super.extras(), this.tether]; }
 
   _stow() {
     const b = this.bones;

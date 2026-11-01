@@ -25,6 +25,8 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
 ## Why things are the way they are
 - **Sky-visibility map** (128² texels at 2 m, CPU-computed, camera-local): lets every material and the god rays know whether a cave or ice ceiling is overhead. This costs much less than shadows.
 - **ROV lamps** (`uLamp`): the deep zones and caves are physically too dark to watch, so lamps mounted beside the camera light the scene, as in documentary footage.
+  - Auto mode (`updateEnvironment` in main.js) also estimates the light reaching the scene (sun and sky through the water above the camera) and switches the lamps on when it is low. The threshold rises with turbidity (`uSigma.y`), so murky mangrove, kelp or bloom water gets lamps at dusk while clear reef water waits for night (`C.lampAdd`).
+  - In turbid zones the in-scatter colours (`deep`, `up`) carry most of the frame, so a dark palette there reads as a black screen. Mangrove was 0x2b4a35 and gave a mean luminance of ~40 at 2 m by day.
 - **GPU tiers:** integrated and mobile GPUs (regex in `main.js`) get no MSAA, quarter-res shafts with 16 steps, and DPR ≤ 1. Measured on an Intel HD 4600 at 1024×576: about 7.5 ms per frame for the bare scene (no props or creatures). The full scene (2026-10-18) costs 10–15 ms depending on biome: pelagic ~10, reef ~15. Of that, the post pipeline is a fixed ~5 ms and visible triangles are ~0.25–0.6M.
 - **Shadows (high tier only):**
   - A 2048² PCF sun shadow covers ±48 m around a point 32 m ahead of the camera, snapped to shadow texels to prevent shimmer.
@@ -39,7 +41,12 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
 - **POIs:** `ctx.addPOI(type, x, y, s, r, data)` registers set pieces that creatures and the camera director use (`terrain.queryPOIs`).
 - **Conditions** (`conditions.js`): a day/night cycle and weather produce multipliers that main.js applies. `U.uNight` and `U.uRain` are shared with props and creatures.
 - **Camera director** (`camera.js`): critically damped springs for altitude, gaze, focus and speed. Subjects come from `creatures.subjects(out)` and POIs; cooldowns stop it staring at one thing.
-- **Frame cap:** 60 fps by default (`?fps=`). The adaptive-resolution thresholds are relative to the cap.
+- **Frame cap:** 60 fps by default (`?fps=`). The adaptive-resolution thresholds are relative to the cap. The frame delta comes from `THREE.Timer` (`THREE.Clock` is deprecated since r183 and warns on every load).
+- **Heightfield walls:** terrain is a 1.5 m grid, so a near-vertical step becomes straight grid-aligned edges over stretched triangles. Cenote skylights (`cave.ceil`) therefore place the rim by the approximate distance to the noise contour, `(o - th) / |grad o|`, and climb at ~65°.
+- **Seamount pinnacles:** besides the 70 m lattice in `peaks()`, every seamount segment has path-side spires (`routePeaksOf`: one every 60-80 m, 15-34 m off the path on the outside of the sharpest bend, the first 45 m ahead of the camera via `segs[0].camStart`). `seamountPeaks(g, s0, s1)` lists both kinds; prop code that places summit POIs should use it rather than its own copy of the lattice.
+- **Blue hole camera:** a `bluehole` POI counts as near as its rim when the director picks subjects. While it is watched, the gaze moves to a point ~30 m below the rim (pitch about -25° to -35° across the rim), then eases back to level toward the middle.
+- **Share link** (`app.shareUrl`): origin + path with only `seed`, `biome` (and `start`). Quality, wake, fps and the time/weather locks are the viewer's own settings.
+- **Wake lock:** a `NotAllowedError` on a request made from a user gesture is stored (`app.wakeLockError`) and requests stop until the option is toggled; a refusal on load is retried on the next tap or key. `app.wakeLock` is the *effective* setting (`wanted && !error`), so a blocked lock shows as off in the deck instead of "waiting" forever, and the toggle's tap clears the error and retries.
 
 ## Agent-built subsystems (conventions to keep)
 - **Props** (`src/props/`):

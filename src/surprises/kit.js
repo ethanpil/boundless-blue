@@ -75,7 +75,10 @@ export class GeoBuilder {
     if (nv > this.cap) {
       const c = Math.max(nv, this.cap * 2), cp = (a, k) => { const b = new Float32Array(c * k); if (a) b.set(a.subarray(0, this.nv * k)); return b; };
       this.P = cp(this.P, 3); this.N = cp(this.N, 3); this.C = cp(this.C, 3); this.S = cp(this.S, 2);
-      if (this.skinned) { const k = new Uint16Array(c * 4); if (this.K) k.set(this.K.subarray(0, this.nv * 4)); this.K = k; this.W = cp(this.W, 4); }
+      // skin indices as floats: ANGLE (D3D11) has no input format for non-normalised Uint16 read as vec4,
+      // so the first draw with such a buffer built a converting shader synchronously (~90 ms on an HD 4600,
+      // which no precompile can avoid); float indices match the shader and cost +8 bytes per vertex
+      if (this.skinned) { this.K = cp(this.K, 4); this.W = cp(this.W, 4); }
       this.cap = c;
     }
     if (ni > this.icap) {
@@ -242,10 +245,14 @@ export function surMat(key, { rough = 0.6, metal = 0, transparent = false, opaci
 }
 
 // ---------- volumetric light cones ----------
-// The cone mesh only marks the pixels a beam can cover. Each fragment intersects its view ray with the
-// cone analytically, clips the segment at the seabed (a plane at the height where the beam meets it, so
-// beams fade softly into the floor instead of ending on a hard line) and integrates the in-scattered
-// lamp light along it: soft angular edge, inverse-square falloff and water extinction on both paths.
+// The cone mesh only marks the pixels a beam can cover. Each fragment clips its view ray to the analytic
+// cone (the slab 0 <= h <= length along the axis, then the forward nappe) and to the seabed (a plane at
+// the height where the beam meets it, so beams fade softly into the floor instead of ending on a hard
+// line), and integrates the in-scattered lamp light along the clipped segment: soft angular edge,
+// inverse-square falloff and water extinction on both paths. The inverse-square term is integrated
+// exactly by equi-angular sampling around the lamp; the smooth remainder is averaged over a few
+// stratified samples, so the cone is noise-free with no per-pixel jitter (white-noise dithering of a
+// few ray-march steps read as a speckled cone).
 const BEAM_VS = /* glsl */`
 varying vec3 vWPos;
 void main() {
@@ -262,41 +269,59 @@ void main() {
   vec3 O = cameraPosition, toF = vWPos - O;
   float tf = length(toF);
   vec3 D = toF / tf;
-  // march from where the view ray enters the beam mesh (or from the camera when it is inside the beam)
-  // to where it leaves the beam's bounding sphere, stopping at the seabed
-  float t0 = tf, t1;
-  if (!gl_FrontFacing) { if (uInside < 0.5) discard; t0 = 0.0; }
-  float tn = sqrt(max(1e-4, 1.0 - uCos * uCos)) / max(uCos, 0.2);
-  float R = 0.5 * uLen * sqrt(1.0 + 4.0 * tn * tn) * 1.05;
-  vec3 OM = O - (uApex + uAxis * (uLen * 0.5));
-  float b = dot(OM, D), c = dot(OM, OM) - R * R, disc = b * b - c;
-  if (disc <= 0.0) discard;
-  t1 = -b + sqrt(disc);
-  if (!gl_FrontFacing) t1 = min(t1, tf);
+  // from where the view ray enters the (closed, convex) beam mesh, or from the camera when it is inside
+  // it (then up to the far wall), stopping at the seabed
+  float t0 = tf, t1 = 1e4;
+  if (uInside > 0.5) { if (gl_FrontFacing) discard; t0 = 0.0; t1 = tf; }
+  else if (!gl_FrontFacing) discard;
   if (D.y < -1e-4) t1 = min(t1, (uFloorY - O.y) / D.y);
-  if (O.y + D.y * t0 < uFloorY || t1 <= t0) discard;
+  // the slab 0 <= h <= uLen along the axis
   vec3 CO = O - uApex;
-  float sum = 0.0, dt = (t1 - t0) / float(STEPS), sg = dot(uSigma, vec3(0.3333));
-  float jit = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+  float dv = dot(D, uAxis), cov = dot(CO, uAxis);
+  if (abs(dv) > 1e-5) {
+    float ta = -cov / dv, tb = (uLen - cov) / dv;
+    t0 = max(t0, min(ta, tb)); t1 = min(t1, max(ta, tb));
+  } else if (cov < 0.0 || cov > uLen) discard;
+  // the cone h^2 >= cos^2 |X|^2: A t^2 + 2 B t + C >= 0 (inside the slab only the forward nappe remains,
+  // and its intersection with the ray is one interval)
+  float c2 = uCos * uCos, dco = dot(D, CO), cc0 = dot(CO, CO);
+  float A = dv * dv - c2, B = cov * dv - c2 * dco, C = cov * cov - c2 * cc0;
+  if (abs(A) < 1e-5) A = A < 0.0 ? -1e-5 : 1e-5;
+  float disc = B * B - A * C;
+  if (A < 0.0) {            // steeper than the cone: inside between the roots
+    if (disc <= 0.0) discard;
+    float q = sqrt(disc);
+    t0 = max(t0, (-B + q) / A); t1 = min(t1, (-B - q) / A);
+  } else if (disc > 0.0) {  // shallower: inside before the first root or after the second
+    float q = sqrt(disc), r1 = (-B - q) / A, r2 = (-B + q) / A;
+    if (t0 < r1) t1 = min(t1, r1); else t0 = max(t0, r2);
+  }
+  if (t1 <= t0 || O.y + D.y * t0 < uFloorY) discard;
+  // 1 / (1 + 0.22 l^2) = K / (H^2 + (t - tc)^2) with K = 1 / 0.22 and H^2 = K + (lamp-to-ray distance)^2:
+  // with t = tc + H tan(a) its integral is K / H * (a1 - a0), and the samples are spread evenly in a
+  float tc = -dco, H = sqrt(max(cc0 - dco * dco, 0.0) + 4.5455);
+  float a0 = atan((t0 - tc) / H), a1 = atan((t1 - tc) / H);
+  float sum = 0.0, sg = dot(uSigma, vec3(0.3333));
   for (int i = 0; i < STEPS; i++) {
-    float t = t0 + dt * (float(i) + jit);
+    float t = tc + H * tan(mix(a0, a1, (float(i) + 0.5) / float(STEPS)));
     vec3 X = CO + D * t;
     float l = length(X), h = dot(X, uAxis);
-    if (h <= 0.0) continue;
     float edge = smoothstep(uCos, mix(uCos, 1.0, 0.6), h / max(l, 1e-4));
-    sum += edge * exp(-sg * (l + t)) / (1.0 + l * l * 0.22) * smoothstep(uLen, uLen * 0.45, h) * smoothstep(0.0, 0.4, l);
+    sum += edge * exp(-sg * (l + t)) * smoothstep(uLen, uLen * 0.45, h) * smoothstep(0.0, 0.4, l);
   }
-  vec3 col = uColor * uInt * sum * dt * 0.9;
+  vec3 col = uColor * uInt * (4.5455 * (a1 - a0) / H) * (sum / float(STEPS)) * 0.9;
   gl_FragColor = vec4(col, 1.0);
   #include <tonemapping_fragment>
   #include <colorspace_fragment>
 }`;
 let _beamGeo = null;
+const BEAM_SEG = 18;
 function beamGeometry() {
   if (_beamGeo) return _beamGeo;
-  // unit-length open cone along +Z from the origin; the far radius is 1 (scaled per beam); slightly
-  // longer and wider than the beam so the analytic volume is never cut by the mesh
-  const g = new THREE.CylinderGeometry(0.02, 1, 1, 18, 1, true);
+  // unit-length closed cone along +Z from the origin; the far radius is 1 (scaled per beam); slightly
+  // longer and wider than the beam so the analytic volume is never cut by the mesh. Closed and convex:
+  // from inside, every view ray meets exactly one back face (an open end let rays escape unlit).
+  const g = new THREE.CylinderGeometry(0.02, 1, 1, BEAM_SEG, 1, false);
   g.translate(0, -0.5, 0); g.rotateX(-Math.PI / 2);
   _beamGeo = g; return g;
 }
@@ -319,6 +344,7 @@ export class Beam {
     const r = Math.tan(half * 1.15) * len * 1.2;
     this.mesh = new THREE.Mesh(beamGeometry(), this.mat);
     this.mesh.scale.set(r, r, len * 1.2);
+    this.meshR = r;
     this.mesh.renderOrder = 6;
     this.mesh.frustumCulled = false;
     this.base = intensity; this.len = len; this.half = half;
@@ -341,9 +367,13 @@ export class Beam {
       if (t + 1 > this.len) fy = Math.max(fy, f);
     }
     u.uFloorY.value = fy;
-    // camera inside the cone?
-    const cx = camera.position.x - A.x, cy = camera.position.y - A.y, cz = camera.position.z - A.z, cl = Math.hypot(cx, cy, cz) || 1;
-    u.uInside.value = (cx * X.x + cy * X.y + cz * X.z) / cl > u.uCos.value && cl < this.len * 1.2 ? 1 : 0;
+    // camera inside the cone mesh? Then the beam is drawn by the back faces, integrating from the camera
+    // (front faces are skipped: in the sliver between the polygon and its circumcircle the camera may
+    // still see one, and the beam would count twice)
+    const cx = camera.position.x - A.x, cy = camera.position.y - A.y, cz = camera.position.z - A.z;
+    const h = cx * X.x + cy * X.y + cz * X.z, L = this.len * 1.2;
+    const rho = Math.sqrt(Math.max(0, cx * cx + cy * cy + cz * cz - h * h));
+    u.uInside.value = h > 0 && h < L && rho < (0.02 + 0.98 * h / L) * this.meshR ? 1 : 0;
   }
   dispose() { this.mat.dispose(); }
 }

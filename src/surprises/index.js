@@ -11,6 +11,7 @@
 //
 // Debug (window.__ocean.surprises): trigger(kind), stop(), list(), schedule(); URL ?surprise=<kind>
 // triggers that kind a few seconds after load.
+import * as THREE from 'three';
 import { Obstacles } from '../obstacles.js';
 import { mulberry32 } from '../noise.js';
 import { SurpriseFX } from './fx.js';
@@ -173,9 +174,24 @@ export class Surprises {
     if (b.sync || !r || !r.compileAsync) { this._activate(inst); return; }
     this._compileT = 0;
     this.ready = null; this._compiling = inst;
-    r.compileAsync(inst.root, this.env.camera, this.env.scene).then(() => {
-      if (this._compiling === inst) { this._compiling = null; this.ready = inst; }
-    }).catch(() => { if (this._compiling === inst) { this._compiling = null; this.ready = inst; } });
+    const done = () => { if (this._compiling === inst) { this._compiling = null; this.ready = inst; } };
+    this._compile(inst).then(done, done);
+  }
+  // Compile every program the encounter will draw, exactly as the scene pass will draw it. The scene is
+  // rendered into a render target (post.js), which selects a different program variant (linear output,
+  // no tone mapping) than the canvas, so a scratch target is bound while three builds the programs.
+  // Objects that join the world outside inst.root (ROV tether, lamp pools, the particles) are included;
+  // each material has a single variant, so compileAsync's readiness check covers all of them.
+  _compile(inst) {
+    const r = this.env.renderer, cam = this.env.camera, scene = this.env.scene;
+    const objs = [inst.root, this.fx.mesh];
+    if (inst.extras) for (const o of inst.extras()) if (o) objs.push(o);
+    const prev = r.getRenderTarget();
+    if (!this._rt) this._rt = new THREE.WebGLRenderTarget(1, 1, { depthBuffer: false });
+    r.setRenderTarget(this._rt);
+    let jobs;
+    try { jobs = objs.map((o) => r.compileAsync(o, cam, scene)); } finally { r.setRenderTarget(prev); }
+    return Promise.all(jobs);
   }
   _activate(inst) {
     let ok = false;

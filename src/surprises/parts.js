@@ -127,26 +127,25 @@ export class Vehicle {
   }
   /** Find a side and lateral offset with room for the hull along [s0, s1]. */
   lane(s0, s1, lats, force) {
-    const sys = this.sys, sh = sys.shape;
+    const sys = this.sys, sh = sys.shape, need = force ? 0.55 : 0.85, N = 11;
     const sides = this.rng() < 0.5 ? [1, -1] : [-1, 1];
     let best = null, bestScore = -1;
     for (const side of sides) for (const lat of lats) {
-      let ok = 0, n = 0;
-      for (let k = 0; k <= 10; k++) {
-        const s = lerp(s0, s1, k / 10), x = sh.pathX(s) + side * lat;
+      let fails = 0;
+      for (let k = 0; k < N; k++) {
+        const s = lerp(s0, s1, k / (N - 1)), x = sh.pathX(s) + side * lat;
         const H = this._height(x, s, this.wantY ? this.wantY(s) : undefined);
-        n++;
-        if (!H.ok) continue;
-        let clear = true;
-        for (const [lx, ly, lz, r] of this.samples) {
+        let clear = H.ok;
+        if (clear) for (const [lx, ly, lz, r] of this.samples) {
           if (sys.obsDist(x + lx, H.y + ly, s + lz, r + 3, null) < r + 0.8) { clear = false; break; }
         }
-        if (clear) ok++;
+        // stop sampling a lane that can no longer reach the threshold (callers may try many lanes)
+        if (!clear && (N - ++fails) / N - lat * 0.004 < need) break;
       }
-      const score = ok / n - lat * 0.004;
+      const score = (N - fails) / N - lat * 0.004;
       if (score > bestScore) { bestScore = score; best = { side, lat }; }
     }
-    return bestScore >= (force ? 0.55 : 0.85) ? best : null;
+    return bestScore >= need ? best : null;
   }
 
   // ---------- placement ----------
@@ -315,6 +314,9 @@ export class Vehicle {
       } else this.pool.mesh.visible = false;
     }
   }
+
+  // meshes that join the world outside this.root (precompiled with it before the reveal)
+  extras() { return this.pool ? [this.pool.mesh] : []; }
 
   // moving obstacle along the hull axis
   register(dt, r) {

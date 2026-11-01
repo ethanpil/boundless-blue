@@ -11,6 +11,9 @@ import { CompassTape } from './hud/compass.js';
 
 const UI_MS = 200;                 // refresh period: fast instruments at 5 Hz, the rest in 1 Hz slices
 const IDLE_MS = 8000, IDLE_SHEET_MS = 20000;
+// The zone caption beside the open deck: its widest label word (HYDROTHERMAL, with its letter spacing) is ~12.8em,
+// so the type is capped at span / CAP_EM; below CAP_MIN_FS the caption and notes are hidden and come up as toasts.
+const CAP_EM = 13, CAP_MIN_FS = 14;
 const TOAST_MS = 4800;
 const CARD = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const LAMP_NEXT = { auto: 'on', on: 'off', off: 'auto' };
@@ -50,6 +53,7 @@ export class Hud {
     this.logDirty = true; this.armed = null;
     this.dPrev = null; this.tPrev = 0; this.vs = 0; this.slice = 0;
     this.last = null;                // last info() snapshot
+    this.mv = {}; this.measureDirty = false; this.capOff = false; this.capOffS = false; this.nudgeT = -1e9;
     this._build();
     this._bind();
     this.sonar = new Sonar(this.R.sonar, app, this.reduced);
@@ -90,6 +94,16 @@ export class Hud {
     this.fade.id = 'dk-fade';
     document.body.appendChild(this.fade);
 
+    // A note wrapped beside the open deck lifts the caption above it by its extra lines (CSS --dk-note-x).
+    // Fires only when the note's box changes size (new text, resize).
+    const note = document.getElementById('note');
+    if (note && window.ResizeObserver) {
+      new ResizeObserver(() => {
+        const x = Math.max(0, Math.round(note.offsetHeight - parseFloat(getComputedStyle(note).lineHeight))) + 'px';
+        if (x !== this.noteX) { this.noteX = x; document.documentElement.style.setProperty('--dk-note-x', x); }
+      }).observe(note);
+    }
+
     const $ = (id) => deck.querySelector('#dk-' + id);
     const ids = ['zone', 'sub', 'prog', 'next', 'tonext', 'dive', 'dist', 'species', 'tape', 'hor', 'hdg', 'card', 'pitch',
       'watchrow', 'watch', 'hh', 'mh', 'clock', 'todg', 'tod', 'wxg', 'wx', 'smk', 'dmk', 'depth', 'dzone', 'seabed', 'alt', 'vs',
@@ -110,6 +124,8 @@ export class Hud {
     this.zoneBtns = deck.querySelectorAll('[data-zone]');
     this.topPanels = deck.querySelectorAll('.dk-nav, .dk-compass, .dk-time');
     this.barPanels = deck.querySelectorAll('.dk-helm, .dk-menu');
+    this.leftPanels = deck.querySelectorAll('.dk-depth');
+    this.rightPanels = deck.querySelectorAll('.dk-sonar, .dk-env');
     this.glyph = { tod: '', wx: '', pause: null };
   }
 
@@ -131,6 +147,12 @@ export class Hud {
       this.toggle(false);
     }, { passive: true });
     addEventListener('pointercancel', () => { down = null; }, { passive: true });
+    // Wheel or trackpad scrolling, pointer movement and scrolling inside the deck (e.g. reading a sheet) are use
+    // too, so the deck does not auto-hide under the reader. Throttled: pointermove fires at the display rate.
+    const nudge = (e) => { if (e.timeStamp - this.nudgeT > 250) { this.nudgeT = e.timeStamp; this.poke(); } };
+    deck.addEventListener('wheel', nudge, { passive: true });
+    deck.addEventListener('pointermove', nudge, { passive: true });
+    deck.addEventListener('scroll', nudge, { passive: true, capture: true });   // scroll does not bubble
 
     deck.addEventListener('click', (e) => this._onClick(e));
     this.toastEl.addEventListener('click', () => { this.show(false); this.openSheet('log', null, false); });
@@ -151,17 +173,38 @@ export class Hud {
     document.addEventListener('fullscreenchange', () => { this.nextUI = 0; this.forceFull = true; });
   }
 
-  // Reads layout (on open and resize only): the top row and bottom bar heights position the sheets, the
-  // toast and the lifted caption (CSS --dk-top-m / --dk-bar-m).
+  // Reads layout (on open, resize and depth-zone label changes only): the top row and bottom bar heights
+  // position the sheets, the toast and the lifted caption (CSS --dk-top-m / --dk-bar-m). The caption and note
+  // also get the free span left by the side panels that reach down to them, and a type size cap for it:
+  // without a sheet --dk-cap-x / -w / -fs (centred on the view while that leaves the widest word room, else
+  // centred in the span), with one open --dk-cap-xs / -ws / -fss (between the depth gauge and the sheet).
   _measure() {
-    const H = this.deck.clientHeight || innerHeight;
+    const H = this.deck.clientHeight || innerHeight, W = this.deck.clientWidth || innerWidth;
     let top = 0, bar = H;
     for (const el of this.topPanels) top = Math.max(top, el.offsetTop + el.offsetHeight);
     for (const el of this.barPanels) bar = Math.min(bar, el.offsetTop);
-    const t = Math.round(top) + 'px', b = Math.round(H - bar) + 'px', rs = document.documentElement.style;
-    if (t !== this.mTop) { this.mTop = t; rs.setProperty('--dk-top-m', t); }
-    if (b !== this.mBar) { this.mBar = b; rs.setProperty('--dk-bar-m', b); }
+    const rs = document.documentElement.style;
+    const put = (k, v) => { const s = Math.round(v) + 'px'; if (this.mv[k] !== s) { this.mv[k] = s; rs.setProperty(k, s); } };
+    put('--dk-top-m', top); put('--dk-bar-m', H - bar);
+    // caption band (index.html): bottom at 9vh lifted to clear the bar, up to ~3 lines of clamp(18px, 2.6vw, 34px)
+    const fs = Math.min(34, Math.max(18, 0.026 * W));
+    const band = H - 0.09 * H - Math.max(0, H - bar + 6 - 0.045 * H) - 3.2 * fs, M = 10;
+    const reach = (el) => el.offsetHeight > 0 && el.offsetTop + el.offsetHeight > band;
+    let L = M, R = W - M;
+    for (const el of this.leftPanels) if (reach(el)) L = Math.max(L, el.offsetLeft + el.offsetWidth + M);
+    for (const el of this.rightPanels) if (reach(el)) R = Math.min(R, el.offsetLeft - M);
+    const Rs = Math.min(R, this.sheets.log.offsetLeft - M);    // sheets share one position (fixed: viewport x)
+    let x = W / 2, w = 2 * Math.min(W / 2 - L, R - W / 2);
+    if (w < CAP_EM * fs) { x = (L + R) / 2; w = R - L; }
+    const ws = Rs - L;
+    put('--dk-cap-x', x); put('--dk-cap-w', Math.max(0, w)); put('--dk-cap-fs', Math.max(0, w) / CAP_EM);
+    put('--dk-cap-xs', (L + Rs) / 2); put('--dk-cap-ws', Math.max(0, ws)); put('--dk-cap-fss', Math.max(0, ws) / CAP_EM);
+    this.capOff = w < CAP_EM * CAP_MIN_FS; this.capOffS = ws < CAP_EM * CAP_MIN_FS;
+    flag(document.body, 'dk-cap-off', this.capOff);
+    flag(document.body, 'dk-cap-off-s', this.capOffS);
   }
+  // True while the open deck hides the zone caption and notes (no room for them): they come up as toasts.
+  _capHidden() { return this.narrow.matches || (this.sheet ? this.capOffS : this.capOff); }
 
   // ---------- open / close ----------
   poke() { this.lastPoke = performance.now(); }
@@ -302,8 +345,8 @@ export class Hud {
     this.events.unshift({ name: text, t, ev: true });
     if (this.events.length > 24) this.events.pop();
     this.logDirty = true;
-    // narrow portrait: the caption area is behind the open deck, so the note comes up as a toast instead
-    if (this.open && this.narrow.matches && this.app.captionsOn) this.tq.push({ kind: 'note', name: text, fact: '' });
+    // no room for the note beside the open deck (e.g. narrow portrait): it comes up as a toast instead
+    if (this.open && this._capHidden() && this.app.captionsOn) this.tq.push({ kind: 'note', name: text, fact: '' });
   }
   _checkSightings() {
     const r = this.app.recent;
@@ -378,11 +421,15 @@ export class Hud {
     if (!this.open) return;
     const idle = this.sheet ? IDLE_SHEET_MS : IDLE_MS;
     if (!this.pinned && now - this.lastPoke > idle && !this.deck.contains(document.activeElement)) { this.hide(); return; }
-    if (this.sizeDirty) { this.sizeDirty = false; this._measure(); this.sonar.resize(); this.tape.resize(); }
     if (now >= this.nextUI) {
       this.nextUI = now + UI_MS;
       this._refresh(this.forceFull);
       this.forceFull = false;
+    }
+    // layout reads after the refresh's writes: the panels' widths follow their readouts
+    if (this.sizeDirty || this.measureDirty) {
+      this.measureDirty = false; this._measure();
+      if (this.sizeDirty) { this.sizeDirty = false; this.sonar.resize(); this.tape.resize(); }
     }
     this.sonar.draw(now);
     this.tape.draw(now);
@@ -402,8 +449,8 @@ export class Hud {
     txt(R.card, CARD[Math.round(h / 22.5) % 16]);
     const sl = full ? -1 : (this.slice = (this.slice + 1) % 5);
 
-    if (o.zoneKey !== this.zoneKey) {   // narrow portrait hides the zone caption behind the deck: say it here
-      if (this.zoneKey && this.narrow.matches && a.captionsOn) this.tq.push({ kind: 'zone', name: o.zone, fact: o.subtitle });
+    if (o.zoneKey !== this.zoneKey) {   // the open deck may leave no room for the zone caption: say it here
+      if (this.zoneKey && this._capHidden() && a.captionsOn) this.tq.push({ kind: 'zone', name: o.zone, fact: o.subtitle });
       this.zoneKey = o.zoneKey;
     }
     if (sl <= 0) { // navigation
@@ -435,16 +482,19 @@ export class Hud {
       tf(R.dmk, `translateY(${(depthFrac(d) * 100).toFixed(1)}%)`);
       txt(R.depth, (d >= 100 ? Math.round(d) : d.toFixed(1)) + ' m');
       let zi = 0; while (d >= DEPTH_ZONES[zi].to) zi++;
-      if (R.dzone.__v !== DEPTH_ZONES[zi].name) R.dzone.className = 'dk-dzone ' + DEPTH_ZONES[zi].cls;
+      if (R.dzone.__v !== DEPTH_ZONES[zi].name) { R.dzone.className = 'dk-dzone ' + DEPTH_ZONES[zi].cls; this.measureDirty = true; }
       txt(R.dzone, DEPTH_ZONES[zi].name);
       if (o.seabed != null) { tf(R.smk, `translateY(${(depthFrac(o.seabed) * 100).toFixed(1)}%)`); flag(R.smk, 'on', true); } else flag(R.smk, 'on', false);
       txt(R.seabed, o.seabed != null ? (o.seabed >= 100 ? Math.round(o.seabed) : o.seabed.toFixed(1)) + ' m' : 'open water');
       txt(R.alt, o.altitude != null ? o.altitude.toFixed(1) + ' m' : '—');
+      // V/S from the camera's physical depth: the instrument depth d also carries the deep zones' nominal
+      // offset (app.depthOffsets), which blends in over a zone cross-fade and would read as ~100 m/s.
+      const cd = o.camDepth;
       if (this.dPrev !== null && o.diveTime > this.tPrev + 0.05) {
-        const vz = (d - this.dPrev) / (o.diveTime - this.tPrev);
+        const vz = (cd - this.dPrev) / (o.diveTime - this.tPrev);
         this.vs += (vz - this.vs) * 0.6;
       } else if (o.paused) this.vs = 0;
-      if (o.diveTime !== this.tPrev) { this.dPrev = d; this.tPrev = o.diveTime; }
+      if (o.diveTime !== this.tPrev) { this.dPrev = cd; this.tPrev = o.diveTime; }
       const vs = this.vs, av = Math.abs(vs);
       txt(R.vs, av < 0.05 ? 'level' : (vs > 0 ? '▼ ' : '▲ ') + (av >= 10 ? Math.round(av) : av.toFixed(1)) + ' m/s');
     }
@@ -465,7 +515,7 @@ export class Hud {
       tf(R.needle, `rotate(${speedAngle(v)}deg)`);
       tf(R.setm, `rotate(${speedAngle(o.speedSetting)}deg)`);
       txt(R.spd, v.toFixed(1));
-      txt(R.kn, o.speedKnots.toFixed(1) + ' kn · set ' + o.speedSetting.toFixed(1));
+      txt(R.kn, o.speedKnots.toFixed(1) + ' kn · set ' + (o.speedSetting * 1.94384).toFixed(1));   // both in knots
       flag(R.paused, 'on', o.paused);
       if (this.glyph.pause !== o.paused) {
         this.glyph.pause = o.paused;

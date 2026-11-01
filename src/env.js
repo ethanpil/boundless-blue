@@ -69,10 +69,10 @@ export class Surface {
           vec2 q = vWPos.xz;
           float t = uTime;
           // swell, chop and ripples; the middle octave is rotated (atan 3/4, still 1024 m periodic) so layers never align
-          vec2 g = (texture2D(uNoiseTex, q / 32.0 + vec2(t * 0.011, t * 0.007)).rg - 0.5) * 1.3
-                 + (texture2D(uNoiseTex, mat2(0.8, 0.6, -0.6, 0.8) * q * 0.09765625 - vec2(t * 0.023, -t * 0.017)).ba - 0.5) * 0.7
-                 + (texture2D(uNoiseTex, q / 2.0 + vec2(-t * 0.05, t * 0.04)).rg - 0.5) * 0.25;
-          g *= 1.0 + 1.6 * uSurge;
+          vec2 g1 = (texture2D(uNoiseTex, q / 32.0 + vec2(t * 0.011, t * 0.007)).rg - 0.5) * 1.3;
+          vec2 g2 = (texture2D(uNoiseTex, mat2(0.8, 0.6, -0.6, 0.8) * q * 0.09765625 - vec2(t * 0.023, -t * 0.017)).ba - 0.5) * 0.7;
+          float rough = 1.0 + 1.6 * uSurge;
+          vec2 g = (g1 + g2 + (texture2D(uNoiseTex, q / 2.0 + vec2(-t * 0.05, t * 0.04)).rg - 0.5) * 0.25) * rough;
           float dist = length(vWPos - cameraPosition);
           float distFade = exp(-dist * 0.012);
           if (uRain > 0.01) g += rainGrad(q, t) * 0.9 * uRain * exp(-dist * 0.03);
@@ -83,13 +83,22 @@ export class Surface {
           vec3 refl = mix(waterColor(R), uFloorCol, shallow * smoothstep(-0.05, -0.5, R.y) * 0.8);
           refl *= 0.75 + 0.6 * (g.x + 0.5 * g.y);
           vec3 col = refl;
-          vec3 Tg = refract(V, N, 1.333);
-          if (dot(Tg, Tg) > 1e-4) {
-            // Snell's window: the sky squeezed into a 97 degree cone. Red bends least, blue most: a faint rainbow rim.
-            vec3 Tr = refract(V, N, 1.3305), Tb = refract(V, N, 1.3395);
+          // Snell's window: the sky squeezed into a 97 degree cone (critical angle 48.6 deg, cos 0.6614).
+          // Its rim follows the smoothed waves (swell and half the chop) and fades over ~5 degrees, so the
+          // ripples cannot cut it into hard-edged patches. Transmission is the Schlick term on the air side.
+          vec2 gw = (g1 + 0.5 * g2) * rough * 0.55 * distFade;
+          float ciW = -dot(V, normalize(vec3(gw.x, -1.0, gw.y)));
+          float ctW = sqrt(max(0.0, 1.0 - 1.777 * (1.0 - ciW * ciW)));   // cos of the air-side angle, 0 at the rim
+          float win = smoothstep(0.6614, 0.712 + 2.0 * fwidth(ciW), ciW) * (0.98 - 0.98 * pow(1.0 - ctW, 5.0));
+          if (win > 0.001) {
+            // the full wave normal steers what is seen through the window; through total internal reflection the
+            // direction stays continuous (it grazes the surface), so the sky content never tears
+            float ci = -dot(V, N);
+            float ct = sqrt(max(0.0, 1.0 - 1.777 * (1.0 - ci * ci)));
+            vec3 Tg = normalize(1.333 * V + (1.333 * ci - ct) * N);
             vec3 sA = vec3(uSunDir.x * 1.333, 0.0, uSunDir.z * 1.333);   // the sun's direction in the air
             sA.y = sqrt(max(0.0, 1.0 - dot(sA.xz, sA.xz)));
-            vec3 hy = clamp(vec3(Tr.y, Tg.y, Tb.y), 0.0, 1.0);
+            float hy = clamp(Tg.y, 0.0, 1.0);
             vec3 sky = mix(vec3(0.62, 0.78, 0.95), vec3(0.14, 0.36, 0.82), sqrt(hy)) * 1.15;
             sky = mix(sky, sky * uSunColor * 1.25, 0.6);    // warm skies at dusk, silver under the moon
             sky *= 1.0 - 0.8 * uNight;                      // a moonlit sky is a dim one: moon and stars carry it
@@ -108,10 +117,8 @@ export class Surface {
               float st = step(0.985, h) * smoothstep(0.42, 0.1, length(fract(sc) - 0.5));
               sky += vec3(0.8, 0.85, 1.0) * st * (uNight - 0.3) * 2.5 * (1.0 - cl) * (0.6 + 0.4 * sin(t * 3.0 + h * 90.0));
             }
-            // Fresnel on the air side: the window dims toward its rim, where it turns into a mirror
-            vec3 cosA = clamp(vec3(dot(Tr, -N), dot(Tg, -N), dot(Tb, -N)), 0.0, 1.0);
-            vec3 k = (1.0 - (0.02 + 0.98 * pow(1.0 - cosA, vec3(5.0)))) * smoothstep(0.0, 0.04, hy);
-            col = mix(refl, sky * uSunScatter, k);
+            // the ripples still dim the window softly where they tilt toward total internal reflection
+            col = mix(refl, sky * uSunScatter, win * (0.6 + 0.4 * smoothstep(0.0, 0.3, ct)));
           }
           // a boat passing overhead: dark hull silhouette and a churning white wake behind it
           if (uBoatDim.z > 0.001) {

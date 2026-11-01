@@ -94,10 +94,15 @@ function* buildDeep(g, rng, low, out) {
   // thrusters (ducted, props spin on their bones)
   const duct = paint(lin(0x34373c), 0.15), prop = lin(pick(rng, [0xe6b81e, 0x1c1c1c, 0xc84a24]));
   thruster(g, 1, [0, 0.55, -3.78], [0, 0, 1], 0.42, duct, prop, 4, low);
+  yield;
   thruster(g, 2, [1.25, 0.45, -2.95], [0, 0, 1], 0.22, duct, prop, 3, low);
+  yield;
   thruster(g, 3, [-1.25, 0.45, -2.95], [0, 0, 1], 0.22, duct, prop, 3, low);
+  yield;
   thruster(g, 4, [0.95, 1.5, -0.9], [0, 1, 0], 0.25, duct, prop, 3, low);
+  yield;
   thruster(g, 5, [-0.95, 1.5, -0.9], [0, 1, 0], 0.25, duct, prop, 3, low);
+  yield;
   for (const sx of [1, -1]) g.add(cyl(0.035, 0.035, 1, 6), seg(sx * 0.9, 0.5, -2.95, sx * 1.25, 0.45, -2.95, 1), duct, { rough: 0.5 });
   yield;
   // floodlights: a bar over the bow and two on booms
@@ -172,9 +177,13 @@ function* buildSphere(g, rng, low, out) {
   // thrusters
   const duct = paint(lin(0x34373c), 0.15), prop = lin(0x1c1c1c);
   thruster(g, 1, [1.45, -0.15, -2.35], [0, 0, 1], 0.24, duct, prop, 3, low);
+  yield;
   thruster(g, 2, [-1.45, -0.15, -2.35], [0, 0, 1], 0.24, duct, prop, 3, low);
+  yield;
   thruster(g, 3, [1.45, 0.38, 0.3], [0, 1, 0], 0.22, duct, prop, 3, low);
+  yield;
   thruster(g, 4, [-1.45, 0.38, 0.3], [0, 1, 0], 0.22, duct, prop, 3, low);
+  yield;
   // light bars at the pontoon bows
   const housing = lin(0x2a2c30), lamps = [];
   for (const sx of [1, -1]) {
@@ -220,6 +229,7 @@ function* buildTourist(g, rng, low, out) {
       return head || body ? mulS(warm, 0.08) : warm;
     };
     g.add(cyl(0.3, 0.3, 0.06, 16), M, pc, { rough: 0.05, glow: 1.2 });
+    if (i % 4 === 3) yield;
   }
   yield;
   // conning tower with windows, hatch and a strobe
@@ -236,7 +246,8 @@ function* buildTourist(g, rng, low, out) {
   g.add(box(3.2, 0.1, 1.3), T(0, 0, -8.6), paint(white, 0.12), { rough: 0.45 });
   const duct = paint(lin(0x34373c), 0.15), prop = lin(0xc9a43a);
   thruster(g, 1, [0, 0, -10.05], [0, 0, 1], 0.75, duct, prop, 5, low);
-  for (const sx of [1, -1]) thruster(g, 0, [sx * 1.65, -0.85, -6.8], [0, 0, 1], 0.3, duct, lin(0x1c1c1c), 3, low);
+  yield;
+  for (const sx of [1, -1]) { thruster(g, 0, [sx * 1.65, -0.85, -6.8], [0, 0, 1], 0.3, duct, lin(0x1c1c1c), 3, low); yield; }
   // skids
   for (const sx of [1, -1]) {
     g.add(cyl(0.07, 0.07, 11, 8), T(sx * 0.95, -2.15, 0, Math.PI / 2, 0, 0), steel, { rough: 0.4 });

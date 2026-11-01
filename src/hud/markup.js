@@ -175,7 +175,7 @@ export function deckHTML(app) {
   ${sheetHead('clock', 'Time of day')}
   <div class="dk-sh-b">
     <div class="dk-grid3">${times}</div>
-    <button type="button" class="dk-wbtn" data-act="skiptime">${icon('skip')}<span>Skip ahead <small>about three hours</small></span></button>
+    <button type="button" class="dk-wbtn" data-act="skiptime">${icon('skip')}<span>Skip ahead <small>a few hours</small></span></button>
     <p class="dk-note">The sun moves on its own: a full day and night pass in about an hour.</p>
   </div>
 </div>

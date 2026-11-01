@@ -2,7 +2,7 @@
 // across frames so generation never causes a hitch. Also maintains the sky-visibility map.
 import * as THREE from 'three';
 import { BIOMES, sv } from './biomes.js';
-import { applyWater, U } from './water.js';
+import { applyWater, U, waterQuality } from './water.js';
 import { mulberry32, noise2, smoothstep, clamp } from './noise.js';
 import { obstacles } from './obstacles.js';
 import { PRESETS } from './quality.js';
@@ -92,6 +92,7 @@ function floorMaterial() {
 #else
             fSandH = texture2D(uNoiseTex, vWPos.xz * 0.3125 + fN2.ba).a;
 #endif
+            fSandH *= 1.0 - smoothstep(0.3, 0.6, steep);   // planar grain: it would streak down walls
             vec4 tri = vec4(0.5);
             vec3 bw = pow(abs(wNg), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
 #if WQ == 0
@@ -168,31 +169,84 @@ function floorMaterial() {
   });
 }
 
+// Tileable cellular (Worley) texture for dissolution scallops on cave roofs and the underside of ice, 128 px with
+// 8 x 8 cells per tile (8 m tile: ~1 m dishes). R = F1 (distance to the nearest cell point; 1 = about a crest),
+// G = F2 - F1 (0 on the crests between dishes), B = random value per dish, A = F1 of a 16 x 16 set (~0.5 m dishes).
+// Cells are a little elongated along u, like scallops drawn out by the flow that dissolved them.
+let cellTex = null;
+function cellTexture(size = 128) {
+  if (cellTex) return cellTex;
+  const rng = mulberry32(0x5ca1105);
+  const set = (N) => { const p = new Float32Array(N * N * 3); for (let i = 0; i < p.length; i++) p[i] = i % 3 === 2 ? rng() : 0.1 + 0.8 * rng(); return p; };
+  const A = set(8), B = set(16);
+  const worley = (P, N, u, v, out) => {
+    const cx = Math.floor(u), cy = Math.floor(v);
+    let f1 = 9, f2 = 9, id = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+      const gx = cx + i, gy = cy + j, k = (((gy % N) + N) % N) * N + (((gx % N) + N) % N);
+      const d = Math.hypot((gx + P[k * 3] - u) * 0.8, gy + P[k * 3 + 1] - v);
+      if (d < f1) { f2 = f1; f1 = d; id = k; } else if (d < f2) f2 = d;
+    }
+    out[0] = f1; out[1] = f2 - f1; out[2] = P[id * 3 + 2];
+  };
+  const data = new Uint8Array(size * size * 4), w = [0, 0, 0];
+  const q = (x) => Math.max(0, Math.min(255, Math.round(x * 255)));
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const o = (y * size + x) * 4, u = (x + 0.5) / size, v = (y + 0.5) / size;
+    worley(A, 8, u * 8, v * 8, w);
+    data[o] = q(w[0] / 0.6); data[o + 1] = q(w[1] / 0.45); data[o + 2] = q(w[2]);
+    worley(B, 16, u * 16, v * 16, w);
+    data[o + 3] = q(w[0] / 0.6);
+  }
+  const t = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = THREE.LinearFilter;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = [1, 4, 8, 16][waterQuality()] || 1;
+  t.needsUpdate = true;
+  return (cellTex = t);
+}
+
 function ceilingMaterial() {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.75, metalness: 0, side: THREE.FrontSide });
   return applyWater(m, {
     key: 'ceiling',
+    uniforms: { uCellTex: { value: cellTexture() } },
     vertexHead: 'attribute float aIce; varying float vIce;',
-    fragmentHead: 'varying float vIce; float fCeilH; float fCeilK;',
+    fragmentHead: `varying float vIce; float fCeilH; float fCeilK;
+      uniform sampler2D uCellTex;
+      // triplanar uCellTex with the tiling breakup (as nrTri in water.js)
+      vec4 cellTri(vec3 p, vec3 w, float P, float k) {
+        vec3 dx = dFdx(p) / P, dy = dFdy(p) / P, q = p / P;
+        vec4 c = vec4(0.0); float tw = 0.0;
+        if (w.x > 0.03) { c += nrTexG(uCellTex, q.zy, dx.zy, dy.zy, k) * w.x; tw += w.x; }
+        if (w.y > 0.03) { c += nrTexG(uCellTex, q.xz, dx.xz, dy.xz, k + 5.0) * w.y; tw += w.y; }
+        if (w.z > 0.03) { c += nrTexG(uCellTex, q.xy, dx.xy, dy.xy, k + 9.0) * w.z; tw += w.z; }
+        return c / max(tw, 1e-4);
+      }`,
     patch(sh) {
       sh.vertexShader = sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\nvIce = aIce;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <clipping_planes_fragment>', '#include <clipping_planes_fragment>\nif (vWPos.y > uSurfaceY + 0.05) discard;')
         .replace('#include <color_fragment>', `#include <color_fragment>
           {
-            // triplanar rock / ice with the tiling breakup, so cave roofs and walls never show repeating tiles
+            // limestone roof (or the underside of ice): dissolution scallops, ~1 m dishes with sharp crests and
+            // ~0.5 m ones inside them, over smooth blotchy tone. Everything is triplanar (no smears on shaft walls)
+            // and goes through the tiling breakup (no repeating tiles, no ripple bands).
             vec3 wNg = normalize((vec4(vNormal, 0.0) * viewMatrix).xyz);
             vec3 bw = pow(abs(wNg), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);
             fCeilK = nrIndex(vWPos.xz);
 #if WQ == 0
-            vec3 q = vWPos * 0.125 + vec3(sin(fCeilK * 0.5), 0.0, cos(fCeilK * 0.4)) * 0.4;   // low tier: one tap per plane, warped
+            vec3 q = vWPos * 0.0625 + vec3(sin(fCeilK * 0.5), 0.0, cos(fCeilK * 0.4)) * 0.4;   // low tier: one tap per plane
             vec4 n = texture2D(uNoiseTex, q.zy) * bw.x + texture2D(uNoiseTex, q.xz) * bw.y + texture2D(uNoiseTex, q.xy) * bw.z;
 #else
-            vec4 n = nrTri(vWPos, bw, 8.0, fCeilK);
+            vec4 n = nrTri(vWPos, bw, 16.0, fCeilK);
 #endif
-            vec4 m = texture2D(uNoiseTex, vWPos.xz * 0.5);
-            diffuseColor.rgb *= (0.72 + 0.44 * n.g) * (0.9 + 0.2 * m.r) * (1.0 - 0.3 * smoothstep(0.38, 0.16, n.a) * (1.0 - vIce));
-            fCeilH = n.a * 0.35 + m.b * 0.06;
+            vec4 c = cellTri(vWPos, bw, 8.0, fCeilK + 3.0);
+            float crest = 1.0 - smoothstep(0.0, 0.3, c.g);
+            diffuseColor.rgb *= (0.74 + 0.42 * n.g) * mix((0.86 + 0.24 * c.b) * (0.9 + 0.16 * crest), 1.0, 0.6 * vIce);
+            fCeilH = 0.09 * c.r * c.r + 0.03 * c.a * c.a + 0.2 * n.r;   // dishes recessed, crests toward the viewer
           }`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           {
@@ -204,7 +258,7 @@ function ceilingMaterial() {
             normal = normalize(abs(det) * normal - sign(det) * (dH.x * r1 + dH.y * r2));
           }`)
         .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
-          {
+          if (vIce > 0.001) {   // light glowing through sea ice (rock roofs skip these taps)
 #if WQ == 0
             vec4 n = texture2D(uNoiseTex, vWPos.xz * 0.0625);
 #else

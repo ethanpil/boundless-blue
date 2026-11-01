@@ -10,7 +10,7 @@ const POI_INTEREST = {
   'whale-fall': 0.95, 'brine-pool': 0.9, 'cleaning-station': 0.8, arch: 0.8, wreck: 0.75, treasure: 0.75,
   'vent-field': 0.7, 'cave-opening': 0.7, giant: 0.65, iceberg: 0.6, statue: 0.42, ledge: 0.5,
   'wall-overhang': 0.5, 'amphora-den': 0.5, 'kelp-clearing': 0.5, 'garden-eel-field': 0.45, 'mangrove-roots': 0.4,
-  bluehole: 0.7, stalactites: 0.75, flotsam: 0.7, 'champagne-vent': 0.65, pinnacle: 0.6, anemone: 0.55,
+  bluehole: 0.85, stalactites: 0.75, flotsam: 0.7, 'champagne-vent': 0.65, pinnacle: 0.6, anemone: 0.55,
   'sargassum-raft': 0.55, 'drowned-tree': 0.5, 'limestone-notch': 0.45, 'fallen-log': 0.4, anchor: 0.6, 'lost-instrument': 0.6,
 };
 
@@ -54,7 +54,8 @@ export class CameraDirector {
         const base = POI_INTEREST[p.type] ?? 0.4;
         // a rare set piece seen for the first time beats almost anything else
         const interest = base >= 0.7 && !this.seen.has(id) ? Math.min(1.6, base * 1.7) : base;
-        c.push({ id, x: p.x, y: p.y + Math.min(2.5, (p.r || 3) * 0.3), z: -p.s, vx: 0, vy: 0, vz: 0, r: p.r || 3, interest, poi: true });
+        c.push({ id, x: p.x, y: p.y + Math.min(2.5, (p.r || 3) * 0.3), z: -p.s, vx: 0, vy: 0, vz: 0, r: p.r || 3, interest, poi: true,
+          hole: p.type === 'bluehole' ? p : null });
       }
     }
     const maxD = Math.min(60, 2.6 / Math.max(0.01, sigmaG));
@@ -62,12 +63,13 @@ export class CameraDirector {
     for (const e of c) {
       const dx = e.x - cam.x, dy = e.y - cam.y, dz = (e.z - Oz) - cam.z;
       const d = Math.hypot(dx, dy, dz);
-      if (d < 3.5 || d > maxD) continue;
+      const dv = e.hole ? Math.max(3.6, d - e.r) : d;              // a blue hole is as near as its rim
+      if (d < 3.5 || dv > maxD) continue;
       const cosA = (dx * F.x + dy * F.y + dz * F.z) / d;
       if (cosA < (e.poi ? 0.08 : 0.25)) continue;                // too far off the path heading (POIs may be wider)
       if (this.cooldown.has(e.id)) continue;
       const ang = Math.pow(clamp((cosA - (e.poi ? 0.08 : 0.25)) / (e.poi ? 0.92 : 0.75), 0, 1), e.poi ? 0.8 : 1.2);
-      const vis = Math.exp(-sigmaG * d * 0.7);
+      const vis = Math.exp(-sigmaG * dv * 0.7);
       const size = 0.55 + 0.45 * clamp(e.r / 1.5, 0, 1);
       const sc = e.interest * ang * vis * size;
       if (this.subject && e.id === this.subject.id) curScore = sc;
@@ -121,7 +123,8 @@ export class CameraDirector {
       this.watchTime += dt;
       if (this.subject.poi && this.watchTime > 3) this.seen.add(this.subject.id);
       if (this.seen.size > 400) this.seen.clear();
-      if (this.watchTime > 14) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
+      // a blue hole is watched until the camera is over its middle (it leaves the POI window there)
+      if (this.watchTime > (this.subject.hole ? 60 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
     }
 
     // ---- gaze: blend the path heading with the subject direction ----
@@ -133,17 +136,28 @@ export class CameraDirector {
     if (this.subject) {
       const e = this.subject;
       // lead moving subjects slightly so they stay framed
-      const D = this._d.set(e.x + e.vx * 0.4 - cam.position.x, e.y + e.vy * 0.4 - cam.position.y, (e.z + e.vz * 0.4 - Oz) - cam.position.z);
+      let ax = e.x + e.vx * 0.4, ay = e.y + e.vy * 0.4, az = e.z + e.vz * 0.4;
+      const dS = Math.hypot(ax - cam.position.x, ay - cam.position.y, (az - Oz) - cam.position.z); // to the subject
+      if (e.hole) {
+        // Blue hole: from just before the rim, look down into the sinkhole at a point ~30 m below the rim on
+        // the far side (pitch about -25..-35 deg while crossing the rim), then ease back to a level view ahead
+        // toward the middle. u = -1 at the near rim, 0 over the centre.
+        const H = e.hole, u = (s - H.s) / H.r, k1 = smoothstep(-1.9, -1.15, u), k2 = smoothstep(-0.5, 0.05, u);
+        const sD = H.s + 0.2 * H.r, sL = s + 40;
+        ax += (sh.pathX(sD) - ax) * k1; ay += (H.y - 25 - ay) * k1; az += (-sD - az) * k1;
+        ax += (sh.pathX(sL) - ax) * k2; ay += (sh.pathY(sL) + this.alt.x - ay) * k2; az += (-sL - az) * k2;
+      }
+      const D = this._d.set(ax - cam.position.x, ay - cam.position.y, (az - Oz) - cam.position.z);
       const d = D.length(); D.divideScalar(d);
       const yawS = Math.atan2(F.z * D.x - F.x * D.z, F.x * D.x + F.z * D.z); // signed angle F->D about +Y
       const pitchS = Math.asin(clamp(D.y, -1, 1)) - Math.asin(clamp(F.y, -1, 1));
-      const w = smoothstep(0, 1.2, this.watchTime) * 0.8 * this.curiosity;
+      const w = smoothstep(0, 1.2, this.watchTime) * (e.hole ? 1 : 0.8) * this.curiosity;
       yawT = yawT * (1 - w) + clamp(yawS, -0.95, 0.95) * w;
-      pitchT = pitchT * (1 - w) + clamp(pitchS, -0.5, 0.45) * w;
+      pitchT = pitchT * (1 - w) + clamp(pitchS, e.hole ? -0.62 : -0.5, 0.45) * w;
       focusT = d;
       this.focusPos.set(e.x, e.y, e.z);
-      if (e.interest >= 0.7 && d < 45) speedT = 1 - 0.5 * this.curiosity;            // linger on highlights
-      else if (e.interest >= 0.5 && d < 30) speedT = 1 - 0.25 * this.curiosity;
+      if (e.interest >= 0.7 && dS < 45) speedT = 1 - 0.5 * this.curiosity;            // linger on highlights
+      else if (e.interest >= 0.5 && dS < 30) speedT = 1 - 0.25 * this.curiosity;
     }
     spring(this.yaw, yawT, 1.1, dt);
     spring(this.pitch, pitchT, 1.1, dt);

@@ -71,9 +71,11 @@ export const BIOMES = {
   },
   mangrove: {
     label: 'Mangrove Roots', camY: -1.9, clearance: 2.3, len: [450, 700], weight: 0.8,
+    // shallow, sunlit, tannin-green murk: the in-scatter colours carry most of the frame in water this turbid,
+    // so they are bright (0x2b4a35 / 0xa8c38e left a 2 m daylight scene at a mean luminance of ~40)
     sigma: [0.15, 0.075, 0.12], lightSigma: [0.06, 0.03, 0.05],
-    deep: C(0x2b4a35), up: C(0xa8c38e), sun: 1.1, caustic: 1.2, shafts: 0.9, ambient: 1.0, glow: 0, snow: 1.2,
-    sand: [0.5, 0.43, 0.32], rock: [0.32, 0.27, 0.22],
+    deep: C(0x527a52), up: C(0xbcd8a0), sun: 1.1, caustic: 1.2, shafts: 0.9, ambient: 1.0, glow: 0, snow: 1.2,
+    sand: [0.6, 0.52, 0.39], rock: [0.32, 0.27, 0.22],
     floor(x, s, ad, g) {
       return fbm2(x / 12, s / 12, 3, 131) * 0.5 + smoothstep(9, 26, ad) * (1.6 + 1.2 * sv(g, 1));
     },
@@ -115,8 +117,18 @@ export const BIOMES = {
       const w = (8 + 5 * noise1(s / 50, 51)) * (0.8 + 0.5 * sv(g, 1));
       let c = 3.5 + 1.8 * fbm2(x / 10, s / 10, 4, 54) + Math.max(0, noise2(x / 3, s / 3, 55)) ** 3 * -2.5 * smoothstep(3, 6, ad);
       c -= smoothstep(w, w + 8, ad) * 26;
+      // Cenote openings to the sky where the noise o passes th. The rim follows the approximate distance to
+      // that contour, (o - th) / |grad o|, wobbled by a finer noise so the outline wanders across the 1.5 m
+      // mesh grid; the wall climbs at ~65 degrees from a rounded lip. (A step of (o - th) * 260 made near-vertical
+      // walls that the heightfield drew as straight grid-aligned edges over stretched triangles.)
       const o = noise2(x / 34, s / 34, 56), th = 0.26 + 0.14 * sv(g, 2);
-      if (o > th) c += (o - th) * 260; // cenote openings to the sky
+      if (o > th - 0.52) { // r > -lip needs o - th > -7.3 G, and G is capped at 0.07 /m
+        const e = 0.5, gx = noise2((x + e) / 34, s / 34, 56) - o, gs = noise2(x / 34, (s + e) / 34, 56) - o;
+        const G = Math.min(0.07, Math.max(0.012, Math.hypot(gx, gs) / e));
+        const r = (o - th) / G + 1.3 * noise2(x / 6, s / 6, 57) + 4.5;
+        const lip = 1.5; // smooth max(0, r) over +-lip, times the wall slope tan(65 deg) ~ 2.1
+        if (r > -lip) c += Math.min(45, 2.1 * (r < lip ? (r + lip) * (r + lip) / (4 * lip) : r));
+      }
       return c;
     },
   },
@@ -210,6 +222,54 @@ function peaks(x, s, cell, seed, rMin, rMax, keep) {
   }
   return best;
 }
+// Seamount pinnacles the path is routed past. The lattice above leaves 100+ m of empty blue beside the path,
+// so every seamount segment also gets one spire every 60-80 m, centred 15-34 m to the side at the sharpest
+// bend of that stretch and on its outside (see WorldShape.pathCurv): it rises ahead and the camera swings past.
+// The segment a dive starts in has one 45 m ahead of the camera. Sorted by s; {x, s, r}.
+function routePeaksOf(g) {
+  if (g._route) return g._route;
+  const out = [], h = (i, k) => hash1((g.seed ^ Math.imul(i + 1, 0x85ebca6b) ^ Math.imul(k + 1, 0x9e3779b1)) | 0);
+  const bend = (s) => pathXAt(s + 20) - 2 * pathXAt(s) + pathXAt(s - 20); // + = bending toward +x
+  let s = g.camStart !== undefined ? g.camStart + 45 : g.start + 10 + 30 * sv(g, 20);
+  for (let i = 0; s < g.end + 20; i++) {
+    let b = bend(s);
+    if (i > 0) { // the sharpest bend within the next 60-80 m
+      const s0 = s;
+      for (let t = s0 + 5; t <= s0 + 20; t += 5) { const bt = bend(t); if (Math.abs(bt) > Math.abs(b)) { b = bt; s = t; } }
+    }
+    const side = Math.abs(b) > 0.25 ? -Math.sign(b) : h(i, 1) < 0.5 ? -1 : 1;
+    out.push({ x: pathXAt(s) + side * (15 + 19 * h(i, 2)), s, r: 18 + 12 * h(i, 3) });
+    s += 60;
+  }
+  g._route = out;
+  return out;
+}
+function routePeak(g, x, s) {
+  if (!g || g.key !== 'seamount') return 0;
+  const P = routePeaksOf(g);
+  let lo = 0, hi = P.length, best = 0;
+  while (lo < hi) { const m = (lo + hi) >> 1; if (P[m].s < s - 30) lo = m + 1; else hi = m; }
+  for (let i = lo; i < P.length && P[i].s < s + 30; i++) {
+    const d = Math.hypot(x - P[i].x, s - P[i].s) / P[i].r;
+    if (d < 1) best = Math.max(best, Math.pow(1 - d, 1.4));
+  }
+  return best;
+}
+// Pinnacle centres {x, s, r} of seamount segment g with s0 <= s < s1: the path-side spires plus the lattice
+// peaks within 90 m of the path. Props place summit POIs, labels and fans from this list.
+export function seamountPeaks(g, s0, s1, out = []) {
+  if (!g || g.key !== 'seamount') return out;
+  for (const p of routePeaksOf(g)) if (p.s >= s0 && p.s < s1) out.push({ x: p.x, s: p.s, r: p.r });
+  const cell = 70, seed = 172 + (g.seed & 15), px = pathXAt((s0 + s1) / 2);
+  for (let cy = Math.floor((s0 - 40) / cell); cy <= Math.floor((s1 + 40) / cell); cy++) {
+    for (let cx = Math.floor((px - 90) / cell); cx <= Math.floor((px + 90) / cell); cx++) {
+      if (hash2i(cx, cy, seed + 3) > 0.6) continue;
+      const x = (cx + hash2i(cx, cy, seed)) * cell, s = (cy + hash2i(cx, cy, seed + 1)) * cell;
+      if (s >= s0 && s < s1) out.push({ x, s, r: 18 + 16 * hash2i(cx, cy, seed + 2) });
+    }
+  }
+  return out;
+}
 // Floating sargassum mat density near the surface (0..1); props place mats where this is high.
 export function sargassumCover(x, s) {
   const n = noise2(x / 22, s / 22, 181) * 0.7 + noise2(x / 7, s / 7, 182) * 0.3;
@@ -231,7 +291,7 @@ Object.assign(BIOMES, {
     sand: [0.42, 0.4, 0.38], rock: [0.44, 0.41, 0.39],
     floor(x, s, ad, g) {
       const base = -40 + fbm2(x / 40, s / 40, 3, 171) * 6;
-      const pk = peaks(x, s, 70, 172 + ((g ? g.seed : 0) & 15), 18, 34, 0.6);
+      const pk = Math.max(peaks(x, s, 70, 172 + ((g ? g.seed : 0) & 15), 18, 34, 0.6), routePeak(g, x, s));
       const spire = Math.pow(pk, 1.25) * (52 + 10 * sv(g, 1)) * (1 + 0.25 * fbm2(x / 8, s / 8, 3, 173));
       return Math.min(base + spire, 15);
     },
@@ -410,6 +470,7 @@ export class BiomeSequence {
     this.segs = [];
     this.recent = [];
     this._push(BIOMES[startKey] ? startKey : 'reef');
+    this.segs[0].camStart = startS; // where the camera starts (set pieces can be placed in view of it)
   }
   _push(key) {
     const start = this.segs.length ? this.segs[this.segs.length - 1].end : this.startS - 200;

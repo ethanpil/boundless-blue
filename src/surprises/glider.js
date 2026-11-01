@@ -45,21 +45,27 @@ export class Glider extends Vehicle {
     this.dir = o.dir || (rng() < 0.5 ? -1 : 1);
     this.speed = 0.3 + rng() * 0.12;
     this.alt = 3 + rng() * 4; this.maxBelow = 4;
-    // the sawtooth: a long gentle dive and climb (about 1 m of depth per 4 m travelled)
-    this.saw = 6 + rng() * 6; this.sawLen = 60 + rng() * 40; this.sawPh = rng();
-    this.wantY = (s) => sys.shape.pathY(s) - 1.5 - this.saw * Math.abs(((s / this.sawLen + this.sawPh) % 1) * 2 - 1);
+    // the sawtooth: a long gentle dive and climb (about 1 m of depth per 4 m travelled), shifted by yOff
+    this.saw = 6 + rng() * 6; this.sawLen = 60 + rng() * 40; this.sawPh = rng(); this.yOff = 0;
+    this.wantY = (s) => sys.shape.pathY(s) - 1.5 - this.yOff - this.saw * Math.abs(((s / this.sawLen + this.sawPh) % 1) * 2 - 1);
     this.pitchK = 1.6; this.pitchMax = 0.42;
     const fog = sys.fogD();
     this.ahead = clamp(fog * 0.6, 30, 55);
-    const s0 = cam.s + (this.dir < 0 ? this.ahead : this.ahead * 0.6);
-    const lats = [6.5, 8, 10, 12];
-    const lane = this.dir < 0 ? this.lane(cam.s - 8, s0 + 2, lats, force) : this.lane(s0 - 2, s0 + 25, lats, force);
-    if (!lane) return false;
-    this.side = lane.side; this.lat = lane.lat;
-    this.vessel = pick(rng, NAMES);
-    this.lab.fact = `${this.vessel} — ${FACT}`;
-    this.sub.id = 'sur:glider'; this.sub.r = 0.9; this.sub.interest = 1.2;
-    return true;
+    // Open water rarely blocks a lane, but a raft, a pinnacle, a canopy or a passing body can: before giving
+    // up (the scheduler retries 2 s later) try the other heading, wider lanes and a band of depths.
+    const lats = [6.5, 8, 10, 12, 15, 18], dirs = o.dir ? [this.dir] : [this.dir, -this.dir];
+    for (const yOff of [0, 4, -3, 8]) for (const dir of dirs) {
+      this.yOff = yOff; this.dir = dir;
+      const s0 = cam.s + (dir < 0 ? this.ahead : this.ahead * 0.6);
+      const lane = dir < 0 ? this.lane(cam.s - 8, s0 + 2, lats, force) : this.lane(s0 - 2, s0 + 25, lats, force);
+      if (!lane) continue;
+      this.side = lane.side; this.lat = lane.lat;
+      this.vessel = pick(rng, NAMES);
+      this.lab.fact = `${this.vessel} — ${FACT}`;
+      this.sub.id = 'sur:glider'; this.sub.r = 0.9; this.sub.interest = 1.2;
+      return true;
+    }
+    return false;
   }
 
   *build() {

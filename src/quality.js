@@ -36,10 +36,11 @@ export function gpuName(renderer) {
 
 // Top-end discrete GPUs that comfortably run ultra.
 const ULTRA = /RTX\s?(30[789]0|40[789]0|50[789]0|A[456]000|[456]000 Ada)|RX\s?(6[89][05]0|7[89]00|90[67]0)|Radeon Pro W7[89]|Apple M\d+ (Max|Ultra)/i;
+const PHONE = /Android|iPhone|iPod|Mobile/i;
 
 // Tier from the GPU renderer string (ANGLE strings look like "ANGLE (Intel, Intel(R) HD Graphics 4600 ...)").
 export function tierFor(g, ua = '', touchMac = false, cores = 4) {
-  if (/Android|iPhone|iPod|Mobile/i.test(ua)) return 'low';                       // phones
+  if (PHONE.test(ua)) return 'low';                                                // phones
   if (touchMac || /iPad/i.test(ua)) return 'medium';                               // tablets
   if (/SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(g)) return 'low'; // CPU rasterisers
   if (/Mali|Adreno|PowerVR|Tegra|VideoCore|Immortalis/i.test(g)) return 'low';     // ARM laptops, Chromebooks
@@ -106,11 +107,15 @@ export const qualityController = () => ACTIVE;
 // headroom. GPU time comes from timer queries (post.gpuMs) when the browser offers them; otherwise from the frame
 // interval. Decisions need a sustained condition, and a step up that soon proves too costly doubles the wait before
 // the next try (hysteresis). Features change without popping: AO fades, shafts and bloom keep their brightness.
+// Phones keep the low feature set but start at 1 CSS px per pixel, and with headroom the scale climbs past 1 toward
+// the screen's own density (at most DPR 2); above 1 it is the first thing given back when frames run long.
 export class AdaptiveResolution {
   constructor(renderer, onResize, preset, fpsCap, enabled) {
     this.renderer = renderer; this.onResize = onResize; this.preset = preset;
-    this.maxDPR = Math.min(window.devicePixelRatio || 1, preset.dprMax);
-    this.scale = preset.resStart;
+    const dpr = window.devicePixelRatio || 1, phone = preset === PRESETS.low && PHONE.test(navigator.userAgent);
+    this.baseDPR = Math.min(dpr, phone ? 1 : preset.dprMax);   // pixel ratio at scale 1
+    this.scaleMax = phone && enabled ? Math.max(1, Math.min(dpr, 2) / this.baseDPR) : 1;
+    this.scale = phone ? 1 : preset.resStart;
     this.resMin = preset.resMin ?? 0.5;
     this.fpsCap = fpsCap; this.enabled = enabled;
     this.frameAvg = 16; this.timer = 0; this.age = 0;
@@ -122,7 +127,7 @@ export class AdaptiveResolution {
     this.post = null; this.sun = null;
     this.slowFor = 0; this.roomFor = 0; this.sinceUp = 1e9; this.stableFor = 0; this.backoff = 0;
     this.lastDown = 'res'; this.lastUp = 'feat';
-    renderer.setPixelRatio(this.maxDPR * this.scale);
+    renderer.setPixelRatio(this.baseDPR * this.scale);
     ACTIVE = this;
   }
   get fps() { return 1000 / this.frameAvg; }
@@ -146,22 +151,24 @@ export class AdaptiveResolution {
   }
   _setScale(s) {
     this.scale = s;
-    this.renderer.setPixelRatio(this.maxDPR * s);
+    this.renderer.setPixelRatio(this.baseDPR * s);
     this.onResize();
   }
   _down() {
-    const canF = this.level < this.ladder.length - 1, canR = this.scale > this.resMin + 1e-3;
-    // mild resolution drops (down to 0.76) alternate with feature drops; deeper drops only once features are gone
-    const res = canR && (!canF || (this.scale > 0.77 && this.lastDown === 'feat'));
-    if (res) { this._setScale(Math.max(this.resMin, +(this.scale - 0.08).toFixed(2))); this.lastDown = 'res'; }
+    const canF = this.level < this.ladder.length - 1, canR = this.scale > this.resMin + 1e-3, hi = this.scale > 1 + 1e-3;
+    // density above scale 1 goes first; then mild resolution drops (down to 0.76) alternate with feature drops,
+    // and deeper drops come only once features are gone
+    const res = canR && (hi || !canF || (this.scale > 0.77 && this.lastDown === 'feat'));
+    if (res) { this._setScale(Math.max(this.resMin, +(this.scale - (hi ? 0.1 : 0.08)).toFixed(2))); this.lastDown = 'res'; }
     else if (canF) { this.features = this.ladder[++this.level]; this._apply(); this.lastDown = 'feat'; }
     if (this.sinceUp < 12) this.backoff = Math.min(5, this.backoff + 1); // the last step up was too optimistic
     this.stableFor = 0;
   }
   _up() {
-    const canF = this.level > this.minLevel, canR = this.scale < 1 - 1e-3;
-    const res = canR && (this.scale < 0.76 || !canF || this.lastUp === 'feat');
-    if (res) { this._setScale(Math.min(1, +(this.scale + 0.04).toFixed(2))); this.lastUp = 'res'; }
+    const canF = this.level > this.minLevel, canR = this.scale < this.scaleMax - 1e-3, hi = this.scale > 1 - 1e-3;
+    // past scale 1 (phones) only once every feature is back
+    const res = canR && (this.scale < 0.76 || !canF || (this.lastUp === 'feat' && !hi));
+    if (res) { this._setScale(Math.min(hi ? this.scaleMax : 1, +(this.scale + (hi ? 0.1 : 0.04)).toFixed(2))); this.lastUp = 'res'; }
     else if (canF) { this.features = this.ladder[--this.level]; this._apply(); this.lastUp = 'feat'; }
     else return;
     this.sinceUp = 0;

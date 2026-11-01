@@ -151,7 +151,7 @@ vec3 causticRGB(vec3 wp) {
   vec4 lf = texture2D(uNoiseTex, p * 0.0078125);
   vec2 w = (lf.rg - 0.5) * 1.8;
   vec2 uv = p * 0.125 + w;
-  vec2 d = vec2(0.006, 0.0);
+  vec2 d = vec2(0.002, 0.0);   // dispersion: 1.6 cm between the red and blue images, a hint of colour on the lines
 #if WQ == 0
   vec3 c = vec3(texture2D(uCaustics, uv + d).r, texture2D(uCaustics, uv).r, texture2D(uCaustics, uv - d).r);
 #else

@@ -20,6 +20,8 @@ Tap or click anywhere to open the **control deck**: zone, depth gauge, compass, 
 
 The screen is kept awake while the dive is visible (where the browser supports it; `wake=0` turns this off).
 
+The share link reproduces the world (seed and starting zone) without your own settings such as quality, frame cap, wake lock or a locked time and weather.
+
 | Key | Action |
 | --- | --- |
 | `M` / `Tab` | open the control deck (`Esc` closes it) |

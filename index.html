@@ -53,6 +53,8 @@
       --dk-pad: 10px; --dk-gap: 10px; --dk-sheet-w: 410px;
       /* --dk-top-m / --dk-bar-m: measured by hud.js (top row and bottom bar heights, incl. padding and safe area) */
       --dk-top-m: 130px; --dk-bar-m: 86px;
+      /* --dk-cap-x/-w/-fs (no sheet) and -xs/-ws/-fss (sheet open): caption centre, free span and type cap, from hud.js */
+      --dk-cap-x: 50vw; --dk-cap-w: 100vw; --dk-cap-fs: 34px; --dk-cap-xs: 50vw; --dk-cap-ws: 100vw; --dk-cap-fss: 34px;
       --sa-t: env(safe-area-inset-top, 0px); --sa-r: env(safe-area-inset-right, 0px);
       --sa-b: env(safe-area-inset-bottom, 0px); --sa-l: env(safe-area-inset-left, 0px);
     }
@@ -328,9 +330,21 @@
     .dk-keys b { color: var(--dk-amber); margin-right: 4px; }
     @media (pointer: coarse) { .dk-keys { display: none; } }
     /* lift the caption and note above the deck's bottom bar while it is open */
-    /* (the note sits just above the bar, the caption above it; with a sheet open they centre in the space beside it) */
-    body.deck-open #caption, body.deck-open #note { translate: 0 min(0px, calc(4.5vh - var(--dk-bar-m) - 6px)); }
-    body.dk-sheet-open #caption, body.dk-sheet-open #note { left: calc((100vw - var(--dk-sheet-w) - var(--dk-pad)) / 2); }
+    /* (the note sits just above the bar, the caption above it). They stay clear of the side panels that reach down
+       to them and, with a sheet open, centre in the space between the depth gauge and the sheet: they wrap there,
+       and the caption's type is capped so the widest label word fits (hud.js _measure); a wrapped note lifts the
+       caption by its extra lines (--dk-note-x). Where even that is too narrow, hud.js sets dk-cap-off(-s) and
+       they come up as deck toasts instead. */
+    body.deck-open #caption, body.deck-open #note { translate: 0 min(0px, calc(4.5vh - var(--dk-bar-m) - 6px));
+      left: var(--dk-cap-x); width: max-content; max-width: var(--dk-cap-w); white-space: normal;
+      text-align: center; text-wrap: balance; }
+    body.deck-open #caption { font-size: min(clamp(18px, 2.6vw, 34px), var(--dk-cap-fs));
+      translate: 0 calc(min(0px, 4.5vh - var(--dk-bar-m) - 6px) - var(--dk-note-x, 0px)); }
+    body.deck-open #caption small { font-size: max(8px, .38em); }
+    body.dk-sheet-open #caption, body.dk-sheet-open #note { left: var(--dk-cap-xs); max-width: var(--dk-cap-ws); }
+    body.dk-sheet-open #caption { font-size: min(clamp(18px, 2.6vw, 34px), var(--dk-cap-fss)); }
+    body.deck-open.dk-cap-off:not(.dk-sheet-open) #caption, body.deck-open.dk-cap-off:not(.dk-sheet-open) #note,
+    body.dk-sheet-open.dk-cap-off-s #caption, body.dk-sheet-open.dk-cap-off-s #note { opacity: 0 !important; }
     body.deck-open #stats { left: 50%; top: calc(var(--dk-top-m) + 6px); transform: translateX(-50%); }
     /* toast, hint, page fade */
     #dk-toast { position: fixed; z-index: 4; left: 50%; top: calc(14px + var(--sa-t)); display: flex; gap: 11px; align-items: center; box-sizing: border-box;
@@ -413,6 +427,9 @@
       .dk-btn { min-width: 44px; height: 46px; }
       .dk-mb { width: auto; flex: 1 1 0; max-width: 56px; }
     }
+    @media (max-width: 379px) and (orientation: portrait) {
+      .dk-dial { display: none; }   /* dial + readout need ~162 px; the helm leaves ~146 px at 360 px wide */
+    }
     @media (max-width: 599px) and (orientation: portrait) and (max-height: 720px) {
       .dk-sonar { width: 112px; }
       .dk-sub, .dk-bl, .dk-tk.minor { display: none; }
@@ -446,19 +463,18 @@
       .dk-dread { gap: 4px; min-width: 70px; }
       .dk-dread .dk-big { font-size: 15px; }
       .dk-row b { font-size: 11px; }
-      .dk-right { width: auto; grid-template-columns: 124px 148px; align-items: start; }
+      .dk-right { width: auto; grid-template-columns: 124px 160px; align-items: start; }
       .dk-sonar { padding: 6px 6px 4px; }
       .dk-legend { display: none; }
       .dk-sonrow { flex-direction: column; align-items: stretch; gap: 0; }
       .dk-mini { justify-content: center; }
       .dk-bl, .dk-tk.minor { display: none; }
       .dk-ncont { text-align: center; font-size: 10px; }
-      .dk-env { grid-template-columns: 1fr; }
-      .dk-cell { min-height: 34px; padding: 4px 9px; border-right: 0 !important; }
-      .dk-cell:nth-child(2) { border-top: 1px solid var(--dk-line); }
+      /* environment keeps its two columns (current across both): ~130 px tall, so it fits 320 px high screens */
+      .dk-cell { min-height: 34px; padding: 4px 8px; }
+      .dk-cell b { font-size: 12px; }
       .dk-lampbtn { min-height: 44px; }
-      .dk-cur { grid-template-columns: auto 1fr; }
-      .dk-curd { grid-column: 1 / -1; text-align: left; }
+      .dk-lampbtn b { font-size: 11px; letter-spacing: -.02em; }
       .dk-helm, .dk-menu { padding: 4px; gap: 4px; }
       .dk-btn { min-width: 44px; height: 44px; }
       .dk-mb { width: 46px; height: 46px; }
