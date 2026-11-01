@@ -1,0 +1,48 @@
+// Control-deck glyphs: 24x24 stroke icons drawn in currentColor (no emoji, no external assets).
+const P = {
+  play: '<path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none"/>',
+  pause: '<path d="M7 5h3.6v14H7zM13.4 5H17v14h-3.6z" fill="currentColor" stroke="none"/>',
+  minus: '<path d="M5.5 12h13"/>',
+  plus: '<path d="M12 5.5v13M5.5 12h13"/>',
+  next: '<path d="M5 6.5l7 5.5-7 5.5zM12 6.5l7 5.5-7 5.5z" fill="currentColor" stroke-linejoin="round"/>',
+  zones: '<circle cx="12" cy="12" r="8.5"/><path d="M12 3.5v2.2M12 18.3v2.2M3.5 12h2.2M18.3 12h2.2"/><path d="M15.2 8.8l-1.9 4.5-4.5 1.9 1.9-4.5z" fill="currentColor"/>',
+  clock: '<circle cx="12" cy="12" r="8.5"/><path d="M12 7v5.2l3.2 2"/>',
+  cloud: '<path d="M7.2 18h9.6a3.9 3.9 0 0 0 .5-7.8 5.6 5.6 0 0 0-10.8-.9A4.4 4.4 0 0 0 7.2 18z"/>',
+  log: '<path d="M6 4h9a3 3 0 0 1 3 3v13H9a3 3 0 0 1-3-3z"/><path d="M6 17a3 3 0 0 1 3-3h9M10 8h4"/>',
+  systems: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>',
+  pin: '<path d="M9.5 3.5h5l-.8 5.5 3 3.2H7.3l3-3.2z"/><path d="M12 12.2v8.3"/>',
+  close: '<path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/>',
+  sun: '<circle cx="12" cy="12" r="3.8"/><path d="M12 2.8v2.4M12 18.8v2.4M2.8 12h2.4M18.8 12h2.4M5.5 5.5l1.7 1.7M16.8 16.8l1.7 1.7M5.5 18.5l1.7-1.7M16.8 7.2l1.7-1.7"/>',
+  moon: '<path d="M19 14.6A7.4 7.4 0 0 1 9.4 5a7.4 7.4 0 1 0 9.6 9.6z"/>',
+  dawn: '<path d="M3 18h18M7 18a5 5 0 0 1 10 0M12 7.5v3M5.4 11.4l1.7 1.7M18.6 11.4l-1.7 1.7M3.5 21h17"/>',
+  morning: '<circle cx="12" cy="13" r="3.4"/><path d="M12 5.5v2M5.8 13H4M20 13h-1.8M7.2 8.2l1.3 1.3M16.8 8.2l-1.3 1.3M3 19h18"/>',
+  day: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.6M12 18.9v2.6M2.5 12h2.6M18.9 12h2.6M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"/>',
+  afternoon: '<circle cx="14" cy="11" r="3.6"/><path d="M14 4v1.8M20.5 11h-1.6M8.5 11H7M18.6 6.4l-1.2 1.2M9.4 6.4l1.2 1.2M3 18c3-2 6 2 9 0s6 2 9 0"/>',
+  dusk: '<path d="M3 16h18M7.5 16a4.5 4.5 0 0 1 9 0M12 12.5V8.5M9.5 10.5L12 8l2.5 2.5M5 19.5h14"/>',
+  night: '<path d="M17.5 14.4A6.6 6.6 0 0 1 9.6 6.5a6.6 6.6 0 1 0 7.9 7.9z"/><path d="M18 4.5v2.4M16.8 5.7h2.4M20.5 9v1.6M19.7 9.8h1.6"/>',
+  clear: '<path d="M3 17c2.2-1.6 4.4 1.6 6.6 0s4.4 1.6 6.6 0 3.4 1 4.8.6"/><circle cx="12" cy="9" r="3.2"/><path d="M12 3.3v1.4M6.4 9H5M19 9h-1.4M8 5l1 1M16 5l-1 1"/>',
+  crystal: '<path d="M12 3l6 7.5L12 21l-6-10.5z"/><path d="M6 10.5h12M9.5 10.5L12 21l2.5-10.5L12 3z"/>',
+  overcast: '<path d="M7.2 18h9.6a3.9 3.9 0 0 0 .5-7.8 5.6 5.6 0 0 0-10.8-.9A4.4 4.4 0 0 0 7.2 18z"/>',
+  rain: '<path d="M7.2 14.5h9.6a3.6 3.6 0 0 0 .5-7.2 5.3 5.3 0 0 0-10.2-.8 4 4 0 0 0 .1 8z"/><path d="M8.5 17.5l-1 2.5M12.5 17.5l-1 2.5M16.5 17.5l-1 2.5"/>',
+  plankton: '<circle cx="6.5" cy="8" r="1.4"/><circle cx="12" cy="5.5" r="1"/><circle cx="17" cy="9" r="1.6"/><circle cx="9" cy="13.5" r="1.1"/><circle cx="15" cy="15" r="1.3"/><circle cx="6.5" cy="18" r="1"/><circle cx="18.5" cy="19" r="1"/><circle cx="11.5" cy="19.5" r="1.4"/>',
+  surge: '<path d="M2.5 9c2.4-2.6 4.8 2.6 7.2 0s4.8 2.6 7.2 0 3.5 1.4 4.6.8M2.5 15c2.4-2.6 4.8 2.6 7.2 0s4.8 2.6 7.2 0 3.5 1.4 4.6.8"/>',
+  lamp: '<path d="M3.5 9.5h4.5l5.5-4v13l-5.5-4H3.5z"/><path d="M17 8.5l3.5-1.3M17.4 12h3.6M17 15.5l3.5 1.3"/>',
+  eye: '<path d="M2.5 12S6 6 12 6s9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.8"/>',
+  cc: '<rect x="3" y="6" width="18" height="12" rx="2.2"/><path d="M10.4 10.4a2 2 0 1 0 0 3.2M16.4 10.4a2 2 0 1 0 0 3.2"/>',
+  stats: '<path d="M5 20v-8M10 20V5M15 20v-6M20 20V9"/>',
+  full: '<path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/>',
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  camera: '<rect x="3" y="7" width="12.5" height="10" rx="2"/><path d="M15.5 10.8l5-2.8v8l-5-2.8z"/>',
+  awake: '<rect x="7.5" y="3" width="9" height="18" rx="2"/><path d="M11 18h2M3.5 8.5L5 9.5M3.5 15.5L5 14.5M20.5 8.5L19 9.5M20.5 15.5L19 14.5"/>',
+  quality: '<path d="M12 3.5l2.5 5.2 5.7.8-4.1 4 1 5.6-5.1-2.7-5.1 2.7 1-5.6-4.1-4 5.7-.8z"/>',
+  skip: '<path d="M4 6.5l7 5.5-7 5.5zM12 6.5l7 5.5-7 5.5z" fill="currentColor" stroke-linejoin="round"/>',
+  sonar: '<circle cx="12" cy="12" r="8.5"/><circle cx="12" cy="12" r="4.5"/><path d="M12 12l6-6"/>',
+  arrow: '<path d="M12 3.5l5 7h-3.2v9.5h-3.6v-9.5H7z" fill="currentColor" stroke="none"/>',
+  fish: '<path d="M3 12c3-4.5 9-5.5 13-2l4-2.5v9l-4-2.5c-4 3.5-10 2.5-13-2z"/><circle cx="7.5" cy="11.2" r=".9" fill="currentColor"/>',
+  star: '<path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/>',
+};
+
+// Inline SVG markup for an icon (aria-hidden: buttons carry their own labels).
+export function icon(name, cls = '') {
+  return `<svg class="dk-i ${cls}" viewBox="0 0 24 24" aria-hidden="true" focusable="false" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${P[name] || ''}</svg>`;
+}
