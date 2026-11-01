@@ -1,11 +1,23 @@
-// Sunken city: colonnade avenues, gates spanning the flight path, paved roads, block walls, stepped
-// pyramids with statues on the terraces, amphorae and fallen masonry, all overgrown.
-import { Builder, Batch, T, TAU, sat, sstep, lerp, vn3, fbm3, floorSampler, presence, pointsClear, placedPoints, tubeClear, rotX, rotY, rotZ, mul3, orient, budgetK, bendSpots, vary, tierK, poi } from './core.js';
+// Sunken cities. Every ruins segment is a city in one architectural style (Greco-Roman, Egyptian, Maya,
+// Khmer, Minoan, East Asian or Atlantean; see ruins_styles.js) laid out by ruins_plan.js: a paved street
+// along the camera path with its own street furniture, houses and blocks set back in rows, plazas with a
+// monument, temples, one big set piece, gates and a city wall across the street, an aqueduct or bridge
+// overhead and landmarks on the outside of bends. Every building is generated for its site (ruins_bld.js,
+// ruins_mon.js, ruins_gate.js on the ruins_kit.js masonry kit), fitted to the terrain, decayed, silted and
+// overgrown, so no two are alike. This module keeps the shared startup templates (column orders, drums,
+// amphorae, fragments, paving) and runs the per-chunk layout as budgeted continuation steps.
+import { Builder, Batch, T, TAU, TUBE, sat, sstep, vn3, fbm3, floorSampler, presence, pointsClear, placedPoints, rotY, rotZ, mul3, orient, budgetK, vary, tierK, poi } from './core.js';
 import { stoneInto } from './shapes.js';
-import { statue } from './statues.js';
-import { groundY, putFloor, putAt, pickW, tintFrom, spot, putBend, bendX, microDetail, clusterer, microSteps, steps as inSteps } from './scatter.js';
+import { statueSet } from './statues.js';
+import { groundY, putFloor, pickW, tintFrom, spot, clusterer, microSteps, steps as inSteps } from './scatter.js';
 import { MAT } from './materials.js';
-import { mulberry32, noise1, noise2, hash2i } from '../noise.js';
+import { mulberry32, noise1, hash2i } from '../noise.js';
+import { Bld, Site } from './ruins_kit.js';
+import { STYLES } from './ruins_styles.js';
+import { planFor, itemsNear, slice, blocked, SL } from './ruins_plan.js';
+import { horns } from './ruins_bld.js';
+import { genGate, genCityWall, genWallTowers, genCrossing } from './ruins_gate.js';
+import { genLot, genLandmark, genMonument, genTemple, genBig, figs, statueSteps, statueKinds } from './ruins_mon.js';
 
 const STONE = [0.62, 0.58, 0.5];
 // marble, sandstone, granite, basalt, limestone, travertine (instance tints over STONE)
@@ -25,10 +37,14 @@ const COL_STYLES = {
   minoan: { name: 'Minoan column', base: 'disc', cap: 'cushion', taper: -0.2, slim: 1.05, col: [0.6, 0.24, 0.17] },
   solomonic: { name: 'Solomonic column', flutes: 6, flute: 0.14, twist: 1.6, base: 'attic', cap: 'doric', taper: 0.06, slim: 0.9 },
   octagonal: { name: 'Octagonal pillar', poly: 8, base: 'block', cap: 'block', taper: 0.05, slim: 1 },
+  pagoda: { name: 'Lacquered pillar', base: 'disc', cap: 'block', taper: 0.03, slim: 0.85, col: [0.38, 0.11, 0.07] },
+  khmer: { name: 'Khmer colonnette', poly: 8, carved: true, base: 'block', cap: 'block', taper: 0.04, slim: 0.8 },
+  atlantean: { name: 'Atlantean column', flutes: 6, flute: 0.12, twist: 0.9, base: 'attic', cap: 'cushion', taper: 0.08, slim: 0.95, col: [0.84, 0.84, 0.82] },
 };
 export const COL_STYLE_KEYS = Object.keys(COL_STYLES);
 
-function column(seed, style = 'doric', { H = 6, broken = 0, capital = true, base = true } = {}) {
+// lite: a light version (12-gon, few rows, simpler mouldings) that the kit copies into whole buildings
+function column(seed, style = 'doric', { H = 6, broken = 0, capital = true, base = true, lite = false } = {}) {
   const st = COL_STYLES[style], b = new Builder(), rng = mulberry32(seed);
   const R = 0.36 * st.slim * (0.85 + rng() * 0.35);
   const top = broken ? H * broken : H, key = 6.05 + rng() * 0.9;
@@ -36,20 +52,20 @@ function column(seed, style = 'doric', { H = 6, broken = 0, capital = true, base
   const paintStone = (c) => (v, a, x, y, z, o) => {
     const k = 0.85 + 0.2 * vn3(x * 3, y * 3, z * 3, seed); o[3] = c[0] * k; o[4] = c[1] * k; o[5] = c[2] * k; o[6] = GROW; o[7] = key;
   };
-  const stoneLathe = (nu, nv, prof, rad, c = STONE) => b.lathe(nu, nv, prof, rad, paintStone(c));
+  const stoneLathe = (nu, nv, prof, rad, c = STONE) => b.lathe(lite ? Math.min(nu, 10) : nu, lite ? Math.min(nv, 2) : nv, prof, rad, paintStone(c));
   let y0 = 0.3;
   if (!base) y0 = 0;
   else if (st.base === 'plinth' || st.base === 'block') { b.box(R * 3, 0.35, R * 3, rotY((rng() - 0.5) * 0.05), 0, 0.175, 0, STONE.map((c) => c * 0.9), f); y0 = 0.35; }
   if (base && st.base === 'attic') { b.box(R * 3, 0.25, R * 3, null, 0, 0.125, 0, STONE.map((c) => c * 0.9), f); stoneLathe(16, 4, (v) => [R * (1.32 - 0.25 * v + 0.1 * Math.sin(v * Math.PI * 2)), 0.25 + v * 0.35]); y0 = 0.6; }
   if (base && st.base === 'disc') { stoneLathe(16, 2, (v) => [R * (1.5 - 0.3 * v), v * 0.3]); y0 = 0.3; }
-  const NV = Math.max(3, Math.round((top - y0) / 0.55)), NU = st.square ? 24 : 20;
+  const NV = lite ? Math.max(2, Math.round((top - y0) / 1.8)) : Math.max(3, Math.round((top - y0) / 0.55)), NU = lite ? (st.square ? 16 : st.flutes && st.flutes <= 8 ? 12 : st.lobes ? 12 : 10) : st.square ? 24 : 20;
   const v0 = b.vc;
   b.grid(NU, NV, (u, v, i, j, o) => {
     const a = u * TAU, jag = broken ? 0.4 * vn3(Math.cos(a) * 2, Math.sin(a) * 2, seed, seed) + 0.25 * Math.sin(a * 3 + seed) : 0;
     const y = y0 + v * (top - y0 + (j === NV ? jag : 0)), t = y / H;
     let r = R * (1 - st.taper * t + 0.025 * Math.sin(t * Math.PI));
     const aa = a + (st.twist ? st.twist * y : 0);
-    if (st.flutes) r *= 1 - st.flute * (0.5 + 0.5 * Math.cos(aa * st.flutes));
+    if (st.flutes && (!lite || st.flutes * 2 <= NU)) r *= 1 - st.flute * (0.5 + 0.5 * Math.cos(aa * st.flutes));
     if (st.lobes) r *= 1 + st.lobe * Math.abs(Math.sin(aa * st.lobes / 2)) - st.lobe * 0.5 * sstep(0.85, 1, t);
     if (st.square) r *= 0.95 / Math.pow(Math.pow(Math.abs(Math.cos(a)), 8) + Math.pow(Math.abs(Math.sin(a)), 8), 1 / 8);
     if (st.poly) { const sec = TAU / st.poly, m = ((a % sec) + sec) % sec; r *= Math.cos(Math.PI / st.poly) / Math.cos(m - Math.PI / st.poly); }
@@ -75,7 +91,7 @@ function column(seed, style = 'doric', { H = 6, broken = 0, capital = true, base
         b.tube([[sd * R * 1.15, top + 0.2, -R * 1.1], [sd * R * 1.15, top + 0.2, R * 1.1]], [R * 0.32, R * 0.32], 8, paintStone(STONE), { cap: true });
         for (const fz of [-1, 1]) {
           const sp = [];
-          for (let k = 0; k <= 10; k++) { const th = k / 10 * TAU * 1.6, rr = R * 0.3 * (1 - k / 13); sp.push([sd * R * 1.15 + Math.cos(th) * rr, top + 0.2 + Math.sin(th) * rr, fz * (R * 1.1 + 0.02)]); }
+          for (let k = 0; k <= 10; k++) { const th = k / 10 * TAU * 1.6, rr = R * 0.3 * (1 - k / 13); sp.push([sd * R * 1.15 + Math.cos(th) * rr, top + 0.2 + Math.sin(th) * rr, fz * (R * 1.1 - 0.01)]); } // carved into the volute's face
           b.tube(sp, sp.map(() => 0.03), 3, paintStone(STONE.map((c) => c * 0.8)));
         }
       }
@@ -91,6 +107,7 @@ function column(seed, style = 'doric', { H = 6, broken = 0, capital = true, base
   }
   const t = b.build();
   t.label = broken ? 'Broken ' + st.name.toLowerCase() : st.name;
+  t.colR = R; t.colH = top; t.colStyleCol = scol; // the kit copies these templates into buildings, rescaled
   return t;
 }
 
@@ -129,99 +146,6 @@ function stoneBlock(b, rng, sx, sy, sz, R, x, y, z, col = STONE) {
     b.P[i * 3] += d[0]; b.P[i * 3 + 1] += d[1]; b.P[i * 3 + 2] += d[2];
   }
   b.xform(v0, R || I3, x, y, z);
-}
-
-// gates; origin = arch centre (approx. camera path), local x across the path
-function gateArch(seed, R) {
-  const b = new Builder(), rng = mulberry32(seed), Hp = 10, pw = 1.5;
-  for (const sd of [-1, 1]) {
-    const px = sd * (R + pw / 2);
-    for (let y = -Hp; y < 0; y += 1.0) stoneBlock(b, rng, pw * (0.96 + rng() * 0.08), 0.98, 1.7, rotY((rng() - 0.5) * 0.06), px + (rng() - 0.5) * 0.06, y + 0.5, 0);
-  }
-  const n = 13;
-  for (let k = 0; k < n; k++) {
-    const a = Math.PI * (k + 0.5) / n, rm = R + 0.7;
-    const keystone = k === (n - 1) / 2;
-    stoneBlock(b, rng, keystone ? 1.6 : 1.45, (Math.PI * rm) / n * 0.97 + (keystone ? 0.15 : 0), 1.7, rotZ(a), Math.cos(a) * rm, Math.sin(a) * rm, 0);
-  }
-  for (let x = -R - pw; x < R + pw; x += 1.6) stoneBlock(b, rng, 1.6, 0.8, 1.9, null, x + 0.8, R + 1.85, 0);
-  b.obs = [[-R - 0.75, -10, 0, -R - 0.75, 0, 0, 0.85], [R + 0.75, -10, 0, R + 0.75, 0, 0, 0.85]];
-  for (let k = 0; k < 6; k++) { const a0 = Math.PI * k / 6, a1 = Math.PI * (k + 1) / 6, rm = R + 0.75; b.obs.push([Math.cos(a0) * rm, Math.sin(a0) * rm, 0, Math.cos(a1) * rm, Math.sin(a1) * rm, 0, 0.8]); }
-  b.obs.push([-R - 1.5, R + 1.85, 0, R + 1.5, R + 1.85, 0, 0.55]);
-  b.label = 'Roman arch';
-  return b.build();
-}
-function gateTrilithon(seed, R) {
-  const b = new Builder(), rng = mulberry32(seed), Hp = 10;
-  for (const sd of [-1, 1]) stoneBlock(b, rng, 1.5, Hp + R * 0.95, 1.4, rotZ(sd * 0.02), sd * (R + 0.75), (-Hp + R * 0.95) / 2, 0);
-  stoneBlock(b, rng, 2 * R + 3.8, 1.3, 1.6, rotZ((rng() - 0.5) * 0.03), 0, R * 0.95 + 0.8, 0);
-  b.obs = [[-R - 0.75, -10, 0, -R - 0.75, R * 0.95, 0, 0.85], [R + 0.75, -10, 0, R + 0.75, R * 0.95, 0, 0.85], [-R - 1.9, R * 0.95 + 0.8, 0, R + 1.9, R * 0.95 + 0.8, 0, 0.75]];
-  b.label = 'Trilithon gate';
-  return b.build();
-}
-function gateTorii(seed, R) {
-  const b = new Builder(), Hp = 10, col = [0.45, 0.2, 0.14];
-  for (const sd of [-1, 1]) {
-    const v0 = b.vc;
-    b.lathe(12, 6, (v) => [0.42 - 0.06 * v, -Hp + v * (Hp + R + 1.2)], null, (v, a, x, y, z, o) => { o[3] = col[0]; o[4] = col[1]; o[5] = col[2]; o[6] = GROW; });
-    b.xform(v0, I3, sd * (R + 0.6), 0, 0);
-  }
-  const top = [], W = R + 2.8;
-  for (let k = 0; k <= 10; k++) { const x = -W + (2 * W * k) / 10, t = Math.abs(x) / W; top.push([x, R + 2.0 + 0.5 * t ** 3, 0]); }
-  b.tube(top, top.map((p, k) => 0.42 - 0.08 * Math.abs(k - 5) / 5), 6, (v, a, x, y, z, o) => { o[3] = 0.12; o[4] = 0.1; o[5] = 0.09; o[6] = GROW; }, { cap: true });
-  b.box(2 * R + 2.6, 0.45, 0.5, null, 0, R + 0.9, 0, col, [GROW, 0]);
-  b.obs = [[-R - 0.6, -10, 0, -R - 0.6, R + 2, 0, 0.5], [R + 0.6, -10, 0, R + 0.6, R + 2, 0, 0.5], [-R - 2.8, R + 2.1, 0, R + 2.8, R + 2.1, 0, 0.5]];
-  b.label = 'Torii gate';
-  return b.build();
-}
-
-function wall(seed, len = 8) {
-  const b = new Builder(), rng = mulberry32(seed), courses = 3 + Math.floor(rng() * 3);
-  let below = [[-len, len]]; // x-intervals the course underneath provides (the ground for course 0)
-  const on = (iv, x) => iv.some(([a, c]) => x >= a && x <= c);
-  for (let c = 0; c < courses; c++) {
-    let x = -len / 2 + (c % 2) * 0.5;
-    const cur = [];
-    while (x < len / 2) {
-      const w = 0.9 + rng() * 0.8, bw = Math.min(w, len / 2 - x), x0 = x, x1 = x + bw;
-      const gone = c > 0 && rng() < 0.12 + c * 0.12 + 0.25 * sstep(0, len / 2, Math.abs(x + Math.sin(seed) * 2));
-      // a block survives only if it rests on the course below: under its centre, or under both ends
-      const held = on(below, (x0 + x1) / 2) || (on(below, x0 + 0.15) && on(below, x1 - 0.15));
-      if (!gone && held && bw > 0.2) {
-        const k = 0.85 + 0.2 * rng();
-        b.box(bw - 0.04, 0.7, 0.9, rotY((rng() - 0.5) * 0.04), x + bw / 2, 0.35 + c * 0.7, (rng() - 0.5) * 0.06, STONE.map((v) => v * k), [GROW, 0]);
-        cur.push([x0, x1]);
-      }
-      x += w;
-    }
-    below = cur;
-  }
-  const t = b.build(); t.support = true; return t;
-}
-
-function pyramid(seed) {
-  const b = new Builder(), rng = mulberry32(seed * 53), tiers = 3 + Math.floor(rng() * 5), base = 14 + rng() * 12, th = 1.6 + rng() * 0.9;
-  for (let t = 0; t < tiers; t++) {
-    const w = base * (1 - t / (tiers + 1.3)), y = t * th;
-    const k = 0.8 + 0.2 * rng();
-    b.box(w, th, w, rotY((rng() - 0.5) * 0.02), (rng() - 0.5) * 0.2, y + th / 2, (rng() - 0.5) * 0.2, STONE.map((c) => c * k), [GROW, 0]);
-    // block seams: a ledge course
-    b.box(w + 0.3, 0.25, w + 0.3, null, 0, y + th - 0.12, 0, STONE.map((c) => c * 0.75), [GROW, 0]);
-  }
-  // stairway up the +z face
-  const H = tiers * th, run = base * 0.5;
-  for (let k = 0; k < tiers * 5; k++) {
-    const t = k / (tiers * 5), y = t * H, z = run - t * (run - base / (2 * (tiers + 1.3)) * 1.0);
-    if (rng() < 0.1) continue;
-    b.box(3.2, 0.42, 0.9, rotY((rng() - 0.5) * 0.05), 0, y + 0.21, z, STONE.map((c) => c * 0.95), [GROW, 0]);
-  }
-  // shrine on top
-  const tw = base * (1 - (tiers - 1) / (tiers + 1.3)) * 0.55, ty = H;
-  b.box(tw, 2.6, 0.6, null, 0, ty + 1.3, -tw / 2, STONE, [GROW, 0]);
-  for (const sd of [-1, 1]) b.box(0.6, 2.6, tw, null, sd * tw / 2, ty + 1.3, 0, STONE, [GROW, 0]);
-  for (const sd of [-1, 1]) b.box(tw * 0.32, 2.6, 0.6, null, sd * tw * 0.34, ty + 1.3, tw / 2, STONE, [GROW, 0]);
-  b.box(tw + 0.8, 0.5, tw + 0.8, null, 0, ty + 2.85, 0, STONE.map((c) => c * 0.9), [GROW, 0]);
-  return b.build();
 }
 
 function head(seed) {
@@ -298,31 +222,34 @@ function steps(seed) {
   const t = b.build(); t.label = 'Temple steps'; return t;
 }
 
-// Egyptian obelisk: tapering square shaft with a pyramidion, on a low base
-function obelisk(seed) {
-  const b = new Builder(), rng = mulberry32(seed * 59), H = 7 + rng() * 6, W = H * 0.09, key = 6.05 + rng() * 0.9;
-  b.box(W * 2.2, 0.5, W * 2.2, null, 0, 0.25, 0, STONE.map((c) => c * 0.9), [GROW, key]);
-  const v0 = b.vc;
-  b.lathe(4, 6, (v) => (v < 0.92 ? [W * 0.7071 * (1 - 0.3 * v / 0.92), 0.5 + v * H] : [W * 0.7071 * 0.7 * (1 - v) / 0.08, 0.5 + v * H]),
-    null, (v, a, x, y, z, o) => { const k = 0.85 + 0.15 * vn3(x * 3, y * 0.7, z * 3, seed); o[3] = 0.62 * k; o[4] = 0.42 * k; o[5] = 0.36 * k; o[6] = GROW * 0.6; o[7] = key; });
-  b.xform(v0, rotY(Math.PI / 4), 0, 0, 0);
-  const t = b.build();
-  t.label = 'Obelisk'; t.fact = 'Obelisks were cut from a single block of granite; the tallest ancient one still standing is about 32 m.';
-  return t;
-}
-// Greek temple platform (crepidoma): three steps up to the stylobate the columns stand on
-function templeBase(seed) {
-  const b = new Builder(), rng = mulberry32(seed * 61), W = 13 + rng() * 6, D = 8 + rng() * 4, h = 0.42;
-  for (let k = 0; k < 3; k++) stoneBlock(b, rng, W - k * 1.1, h * (k + 1), D - k * 1.1, null, 0, h * (k + 1) / 2, 0);
-  const t = b.build();
-  t.label = 'Temple platform'; t.fact = 'Greek temples were painted in bright colours; the pure white marble look came much later.';
-  t.support = true; t.top = { y: h * 3, W: W - 2.2, D: D - 2.2 };
-  return t;
-}
-
 function slab(seed, w, d) {
   const b = new Builder(), rng = mulberry32(seed);
   stoneBlock(b, rng, w, 0.25, d, null, 0, 0.04, 0, STONE.map((c) => c * 0.95));
+  return b.build();
+}
+
+// street furniture built once at startup on a flat site (seated per placement): Roman basalt paving
+// polygons, kerbs, stone lanterns, stelae with altars, orichalcum orbs, horned parapets
+const FLAT = { fl: () => 0, range: () => [0, 0] };
+function furniture(kind, seed, S) {
+  const B = new Bld(FLAT, seed, S, { tier: 'high', decay: 0.1, grow: 0.8, silt: 0 });
+  const it = genMonument(B, kind);
+  let r = it.next();
+  while (!r.done) r = it.next();
+  const info = r.value || {};
+  return B.finish(info.label || kind, info.fact || null, { support: false });
+}
+function polySlab(seed) {
+  const b = new Builder(), rng = mulberry32(seed * 97 + 5), n = 5 + ((rng() * 3) | 0), R = 0.42 + rng() * 0.18, pts = [];
+  for (let i = 0; i < n; i++) { const a = (i + rng() * 0.6) / n * TAU, r = R * (0.75 + rng() * 0.4); pts.push([Math.cos(a) * r, Math.sin(a) * r]); }
+  const col = [0.24, 0.24, 0.26], top = b.vc;
+  b.v(0, 0.2, 0, 0, 1, 0, col[0], col[1], col[2], 0.5, 6.35);
+  for (const p of pts) b.v(p[0] * 0.94, 0.17, p[1] * 0.94, 0, 1, 0, col[0] * 0.95, col[1] * 0.95, col[2] * 0.95, 0.5, 6.35);
+  for (let i = 0; i < n; i++) b.t(top, top + 1 + ((i + 1) % n), top + 1 + i);
+  const s0 = b.vc;
+  for (const p of pts) { b.v(p[0] * 0.94, 0.17, p[1] * 0.94, p[0], 0.4, p[1], col[0], col[1], col[2], 0.3, 6.35); b.v(p[0], -0.05, p[1], p[0], 0, p[1], col[0] * 0.8, col[1] * 0.8, col[2] * 0.8, 0.2, 6.35); }
+  for (let i = 0; i < n; i++) { const a = s0 + i * 2, c = s0 + ((i + 1) % n) * 2; b.t(a, c + 1, a + 1); b.t(a, c, c + 1); }
+  b.smooth(0, 0);
   return b.build();
 }
 
@@ -336,24 +263,31 @@ export function initRuins() {
       drum: [drum(sd++, k), drum(sd++, k), drum(sd++, k)],
       cap: [capitalPiece(sd++, k)],
     };
+    T.colStyle[k].lite = {
+      intact: [column(sd++, k, { H: 6, lite: true }), column(sd++, k, { H: 6.8, lite: true })],
+      broken: [0.3, 0.55].map((f) => column(sd++, k, { H: 6.5, broken: f, lite: true })),
+    };
   }
   T.column = COL_STYLE_KEYS.flatMap((k) => T.colStyle[k].intact);
   T.columnBroken = COL_STYLE_KEYS.flatMap((k) => T.colStyle[k].broken);
   T.drum = COL_STYLE_KEYS.flatMap((k) => T.colStyle[k].drum);
-  T.gate = [[4.4, 5.1, 5.8].map((R, i) => gateArch(10 + i, R)), [4.4, 5.1, 5.8].map((R, i) => gateTrilithon(20 + i, R)), [4.6, 5.4].map((R, i) => gateTorii(30 + i, R))];
-  T.wall = [1, 2, 3, 4, 5, 6, 7, 8].map((s) => wall(s, 4 + (s % 4) * 1.6));
-  T.pyramid = [1, 2, 3, 4].map(pyramid);
   T.head = vary([1, 2, 3, 4, 5, 6].map(head), 2, 81, { disp: 0.04, bend: 0.04, twist: 0.1 });
-  T.figure = Array.from({ length: 40 }, (_, i) => statue(i + 1));
+  T.figure = statueSet();
   T.amphora = [1, 2, 3, 4, 5, 6].map(amphora);
   T.amphoraLying = T.amphora.map(lyingAmphora);
   T.urn = [1, 2, 3].map(urn);
   T.pithos = [1, 2].map(pithos);
   T.steps = [1, 2, 3, 4].map(steps);
-  T.slab = [slab(1, 1.1, 0.8), slab(2, 0.8, 0.8), slab(3, 1.4, 0.7)];
-  T.obelisk = [1, 2, 3].map(obelisk);
-  T.templeBase = [1, 2, 3].map(templeBase);
+  T.pave = [slab(1, 1.1, 0.8), slab(2, 0.8, 0.8), slab(3, 1.4, 0.7), slab(4, 1.25, 0.9), slab(5, 0.95, 0.95)]; // unlabelled: no overlay noise
+  T.polySlab = [1, 2, 3, 4, 5, 6].map(polySlab);
+  T.kerb = [1, 2, 3].map((s) => slab(10 + s, 1.3 + s * 0.15, 0.32));
   T.block = [1, 2].map((sd) => { const b = new Builder(); stoneInto(b, { sx: 1.2, sy: 0.7, sz: 0.9, p: 5, rough: 0.08, seed: sd, detail: 2, col: STONE, growth: GROW }); b.xform(0, I3, 0, 0.3, 0); return b.build(); });
+  T.ruinsFurniture = {
+    lantern: [1, 2, 3].map((s) => furniture('lantern', s, STYLES.pagoda)),
+    stela: [1, 2, 3, 4].map((s) => furniture('stela', s * 7, STYLES.maya)),
+    orb: [1, 2].map((s) => furniture('orb', s * 5, STYLES.atlantis)),
+    horns: [1, 2].map((s) => { const B = new Bld(FLAT, s, STYLES.minoan, { tier: 'high', decay: 0, grow: 0.8, silt: 0 }); B.pier(2.4, 0.7, 0, 0, 0.9, null, B.tone(B.stone, 0.05), 0.03, 0.02); horns(B, 0, 0.9, 0, 1.0 + s * 0.15, 0); B.cap(-1, 0.6, 0, 1, 0.6, 0, 0.55); return B.finish('Horns of consecration', 'Stone "horns of consecration", probably bull horns, crowned Minoan shrines.', { support: false }); }),
+  };
 }
 
 // ---------- layout ----------
@@ -379,132 +313,39 @@ function specs() {
     brain: { tpl: T.brain, scale: [0.3, 0.8], follow: 0.7, tint: tintFrom([[0.45, 0.4, 0.25], [0.35, 0.42, 0.25]]) },
   });
   Object.assign(S, {
-    bendCol: { tpl: [...T.column, ...T.figure], scale: [1.0, 1.25], follow: 0.05, tint: st },
     rubble: { tpl: T.rubble, scale: [0.9, 1.8], follow: 1, sink: 0.02, tint: tintFrom([[0.75, 0.72, 0.65], [0.65, 0.62, 0.56]], 0.1) },
     algae: { tpl: T.algae, scale: [0.6, 1.5], follow: 1, sink: 0.01, tint: tintFrom([[0.6, 0.7, 0.4], [0.75, 0.55, 0.45]], 0.12) },
     lump: { tpl: T.spongeLump, scale: [0.8, 1.6], follow: 0.7, tint: tintFrom([[0.85, 0.5, 0.15], [0.7, 0.25, 0.55], [0.8, 0.75, 0.2]]) },
   });
+  // overgrowth on walls and roofs (small, seated on the building's top surfaces)
+  S.growth = [
+    { w: 2, spec: { ...S.lump, scale: [0.5, 1.0], follow: 0.2 } }, { w: 1.6, spec: { ...S.sponge, scale: [0.35, 0.7], follow: 0.2 } }, { w: 1.5, spec: { ...S.soft, scale: [0.35, 0.7], follow: 0.2 }, sway: true },
+    { w: 1.0, spec: { ...S.fan, scale: [0.4, 0.75] }, sway: true }, { w: 0.8, spec: { ...S.anem, scale: [0.4, 0.7], follow: 0.3 }, sway: true }, { w: 1.2, spec: { ...S.brain, scale: [0.2, 0.4], follow: 0.3 } },
+  ];
   S.micro = [{ w: 3, spec: S.rubble }, { w: 1.6, spec: S.algae }, { w: 1.2, spec: S.lump }];
   S.scatter = [
-    { w: 2.5, k: 'block' }, { w: 0.9, k: 'urn' }, { w: 0.5, k: 'steps' }, { w: 1.5, k: 'drum' }, { w: 2, k: 'amphora' }, { w: 1.2, k: 'rock' }, { w: 1.5, k: 'sponge' },
+    { w: 2.5, k: 'block' }, { w: 0.9, k: 'urn' }, { w: 0.5, k: 'steps' }, { w: 1.2, k: 'drum' }, { w: 2, k: 'amphora' }, { w: 1.2, k: 'rock' }, { w: 1.5, k: 'sponge' },
     { w: 1.2, k: 'soft', sway: true }, { w: 1.2, k: 'fan', sway: true }, { w: 0.8, k: 'anem', sway: true }, { w: 1, k: 'urchin' }, { w: 1, k: 'brain' },
-    { w: 0.25, k: 'head' }, { w: 0.3, k: 'figure' },
+    { w: 0.25, k: 'head' }, { w: 0.35, k: 'figure' },
   ];
   return S;
 }
 
+const tag = (n, f) => { f.tag = n; return f; }; // step names for profiling (window.__stageTrace / tools)
+const PAVE = { poly: [1.3, 1.1], slab: [1.25, 0.95], sacbe: [1.5, 1.15], laterite: [1.05, 0.8], granite: [0.95, 1.9], rings: [1.2, 1.2] };
 const pathYaw = (ctx, s) => Math.atan2(-(ctx.pathX(s + 3) - ctx.pathX(s - 3)), 6);
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+const now = () => performance.now();
 
-// ---------- per-segment communities: architecture, stone, gates, temples, statuary ----------
-const COMMUNITIES = [
-  { name: 'Greek sanctuary', cols: ['doric', 'ionic', 'corinthian'], stones: [0, 4, 2], gates: [0, 1], temple: 'greek', statues: ['kouros', 'kore', 'roman', 'orator', 'fragment'] },
-  { name: 'Egyptian temple', cols: ['papyrus', 'lotus'], stones: [1, 4, 5], gates: [1], temple: 'pyramid', obelisks: true, statues: ['pharaoh', 'sphinx', 'fragment'] },
-  { name: 'Maya city', cols: ['maya', 'octagonal'], stones: [4, 5, 1], gates: [1], temple: 'pyramid', heads: true, statues: ['meso'] },
-  { name: 'mixed ruins', cols: null, stones: null, gates: [0, 1, 2], temple: null, statues: null },
-];
-function community(ctx) {
-  const seg = ctx.segments.find((g) => g.key === 'ruins');
-  return seg ? COMMUNITIES[Math.floor(mulberry32(seg.seed ^ 0x9a1)() * COMMUNITIES.length)] : COMMUNITIES[3];
-}
-const figuresOf = (comm) => comm._fig || (comm._fig = comm.statues ? T.figure.filter((t) => comm.statues.includes(t.style)) : T.figure);
-const FACTS = {
-  'Roman arch': 'The wedge-shaped keystone locks a Roman arch: every stone leans on its neighbours.',
-  'Trilithon gate': 'Two uprights and a lintel: the oldest way to frame a doorway in stone.',
-  'Torii gate': 'A torii marks the threshold between the everyday world and sacred ground.',
-};
-
-const layouts = new Map();
-function segmentLayout(ctx, seg, comm) {
-  let L = layouts.get(seg.id);
-  if (L && L.seed === seg.seed) return L;
-  const rng = mulberry32(seg.seed ^ 0x2a1), fl = { at: (x, s) => ctx.floorAt(x, s) };
-  const gates = [], temples = [];
-  for (let s = seg.start + 120 + rng() * 60; s < seg.end - 100; s += 85 + rng() * 110) {
-    const fam = T.gate[comm.gates[(rng() * comm.gates.length) | 0]], tpl = fam[(rng() * fam.length) | 0];
-    const R = mul3(rotY(pathYaw(ctx, s)), rotZ((rng() - 0.5) * 0.04));
-    const x = ctx.pathX(s), y = ctx.pathY(s) - 0.15;
-    if (groundY(fl, x, s, tpl, R, 1, 1, 1) < y + 0.3) continue; // both piers must reach well into the floor
-    if (!pointsClear(ctx, placedPoints(tpl, x, y, s, R, 1, 1, 1, 300), 0.45)) continue;
-    gates.push({ tpl, x, y, s, R, sMax: s + 1.5 });
-  }
-  for (let s = seg.start + 160 + rng() * 100; s < seg.end - 140; s += 180 + rng() * 200) {
-    const side = rng() < 0.5 ? -1 : 1, d = 30 + rng() * 14;
-    const kind = comm.temple || (rng() < 0.5 ? 'greek' : 'pyramid');
-    temples.push({ s, side, d: kind === 'greek' ? d - 6 : d, kind, seed: (rng() * 1e9) | 0, sMax: s + 16 });
-  }
-  L = { seed: seg.seed, gates, temples };
-  layouts.set(seg.id, L);
-  if (layouts.size > 24) layouts.delete(layouts.keys().next().value);
-  return L;
-}
-
-// a statue (figure or colossal head) on the ground or on whatever support is there; registers a POI
-function statueAt(ctx, fs, st, comm, x, s, rng, head = false) {
-  if (s < ctx.s0 || s >= ctx.s1) return null; // occupancy is per chunk: keep statues inside their own chunk
-  const sp = specs(), spec = head ? sp.head : { ...sp.figure, tpl: figuresOf(comm) };
+// a statue of the city's style on the ground or on whatever support is there; registers a POI
+function statueAt(ctx, fs, st, list, x, s, rng, head = false, yaw = undefined) {
+  if (s < ctx.s0 || s >= ctx.s1 || !list.length) return null; // occupancy is per chunk: keep statues inside their own chunk
+  const sp = specs(), t = rng.pick(list); // bronze keeps its own patina; stone takes the city's stone tints
+  const spec = head ? sp.head : { ...sp.figure, tpl: t, yaw, yawJ: 0.5, tint: t.bronze ? tintFrom([[1, 1, 1]], 0.05) : sp.figure.tint };
   if (!putFloor(ctx, fs, st, spec, x, s, rng)) return null;
   const it = st.last, h = (it.tpl.box[4] - it.tpl.box[1]) * it.sy;
   poi(ctx, 'statue', it.x, it.y + h * 0.6, s, Math.max(1.5, h * 0.7), { name: it.tpl.label });
   return it;
-}
-
-// A temple as continuation steps: the platform or pyramid first (a support), then its columns and statues
-// a few at a time. All draws come from the temple's own rng, so the result does not depend on the split.
-function templeSteps(ctx, fs, st, mid, t, comm) {
-  const rng = mulberry32(t.seed), sp = specs(), S = {};
-  const x = ctx.pathX(t.s) + t.side * t.d, yawT = pathYaw(ctx, t.s);
-  if (t.kind === 'greek') { // stepped platform with a ring of columns standing on it, some broken or fallen
-    const out = [() => {
-      const tpl = rng.pick(T.templeBase), R = rotY(yawT + (rng() - 0.5) * 0.2), gy = groundY(fs, x, t.s, tpl, R, 1, 1, 1) - 0.25;
-      if (!pointsClear(ctx, placedPoints(tpl, x, gy, t.s, R, 1, 1, 1, 200), 1) || !st.add(tpl, x, gy, -(t.s - ctx.s0), R, 1, 1, 1, 1, 1, 1, 1)) return;
-      const it = st.last;
-      it.g = 1;
-      fs.addSupport(it, t.s); fs.occupy(x, t.s, Math.min(tpl.top.W, tpl.top.D) * 0.5, 0);
-      const keys = comm.cols || ['doric', 'ionic', 'corinthian'];
-      S.set = T.colStyle[keys[(rng() * keys.length) | 0]];
-      const sc = STONES[comm.stones ? comm.stones[(rng() * comm.stones.length) | 0] : (rng() * STONES.length) | 0];
-      S.tint = tintFrom([sc], 0.06);
-      const { W, D } = tpl.top, nW = 5 + Math.floor(W / 4), nD = 3 + Math.floor(D / 4);
-      S.at = (lx, lz) => [x + R[0] * lx + R[2] * lz, t.s - (R[6] * lx + R[8] * lz)];
-      S.ring = [];
-      for (let i = 0; i < nW; i++) for (const sd of [-1, 1]) S.ring.push([lerp(-W / 2, W / 2, i / (nW - 1)), sd * D / 2]);
-      for (let j = 1; j < nD - 1; j++) for (const sd of [-1, 1]) S.ring.push([sd * W / 2, lerp(-D / 2, D / 2, j / (nD - 1))]);
-    }];
-    for (let q = 0; q < 24; q += 4) out.push(() => { // up to 24 ring positions, four per step
-      if (!S.ring) return;
-      for (const [lx, lz] of S.ring.slice(q, q + 4)) {
-        const f = rng(), [px, ps] = S.at(lx * 0.86, lz * 0.78), set = S.set, tint = S.tint;
-        if (f < 0.45) putFloor(ctx, fs, st, { tpl: rng.pick(set.intact), scale: [1, 1], ys: [0.9, 1.1], follow: 0, tilt: 0.02, sink: 0.04, tint }, px, ps, rng);
-        else if (f < 0.75) putFloor(ctx, fs, st, { tpl: rng.pick(set.broken), scale: [1, 1], follow: 0, tilt: 0.02, sink: 0.04, tint }, px, ps, rng);
-        else if (f < 0.9) putFloor(ctx, fs, mid, { tpl: rng.pick(set.drum), scale: [1, 1], yaw: rng() * TAU, follow: 0.6, sink: 0.08, tint }, px + (rng() - 0.5) * 2, ps + (rng() - 0.5) * 2, rng);
-      }
-    });
-    out.push(() => { if (S.at) { const [cx, cs] = S.at(0, 0); statueAt(ctx, fs, st, comm, cx, cs, rng); } });
-    return out;
-  }
-  // stepped pyramid with a shrine; statues on its terraces and along the approach
-  return [() => {
-    const tpl = rng.pick(T.pyramid), sc = 0.75 + rng() * 0.45;
-    const R = rotY(yawT + (t.side > 0 ? Math.PI / 2 : -Math.PI / 2) + (rng() - 0.5) * 0.3);
-    const gy = groundY(fs, x, t.s, tpl, R, sc, sc, sc) - 0.35;
-    if (pointsClear(ctx, placedPoints(tpl, x, gy, t.s, R, sc, sc, sc, 200), 1) && st.add(tpl, x, gy, -(t.s - ctx.s0), R, sc, sc, sc, 1, 1, 1, 1)) {
-      const it = st.last;
-      it.g = 1;
-      if (comm.name === 'Maya city') it.fact = 'Maya pyramids were often built over older ones, like nesting dolls.';
-      fs.addSupport(it, t.s);
-    }
-  }, () => {
-    for (let k = 0; k < 4; k++) {
-      const along = (k % 2 ? -1 : 1) * (5 + rng() * 3), toward = -t.side * (8 + k * 3.5);
-      statueAt(ctx, fs, st, comm, x + toward, t.s + along, rng, comm.heads ? rng() < 0.7 : comm.statues ? false : rng() < 0.6);
-    }
-  }, () => {
-    if (comm.obelisks) for (const sd of [-1, 1]) putFloor(ctx, fs, st, { tpl: T.obelisk, scale: [0.9, 1.15], follow: 0, tilt: 0.03, sink: 0.08, tint: tintFrom([[1, 1, 1], [1.1, 0.95, 0.85]], 0.06) }, x - t.side * 13, t.s + sd * 9, rng);
-    else for (let k = 0; k < 8; k++) {
-      const sx = x - t.side * (10 + (k >> 1) * 4), ss = t.s + (k % 2 ? -9 : 9);
-      putFloor(ctx, fs, st, rng() < 0.5 ? { tpl: T.column, scale: [1, 1], follow: 0.05, tint: tintFrom([[1, 1, 1]]) } : sp.colB, sx, ss, rng);
-    }
-  }];
 }
 
 // an octopus den: a spill of amphorae lying on their sides, one with its mouth toward the open water
@@ -521,9 +362,9 @@ function lyingAmphora(t) {
   return L;
 }
 
-function amphoraDen(ctx, fs, st, rng) {
+function amphoraDen(ctx, fs, st, rng, items) {
   const p = spot(ctx, rng, 5, 16, 1);
-  if (rng() > ctx.weightOf(p.s, 'ruins')) return;
+  if (rng() > ctx.weightOf(p.s, 'ruins') || blocked(items, p.x, p.s, 2.5, true)) return;
   const n = 3 + Math.floor(rng() * 4);
   for (let k = 0; k < n; k++) {
     const tpl = rng.pick(T.amphoraLying), yaw = rng() * TAU, sc = 0.95 + rng() * 0.3;
@@ -541,114 +382,324 @@ function amphoraDen(ctx, fs, st, rng) {
   }
 }
 
+// plans of every ruins city touching the chunk (cross-fade chunks may see two)
+function plansOf(ctx) {
+  const out = [];
+  const add = (g) => { if (g && g.key === 'ruins' && !out.some((p) => p.seg === g)) out.push(planFor(g)); };
+  for (const g of ctx.segments) add(g);
+  for (const s of [ctx.s0, ctx.s0 + 32, ctx.s1]) for (const e of ctx.weights(s)) add(e.g);
+  return out;
+}
+
+const GATE_NAMES = { arch: 'Roman arch', triumph: 'Triumphal arch', trilithon: 'Trilithon gate', pylon: 'Temple pylon', corbelArch: 'Corbel arch', gopura: 'Gopura (gate tower)', propylon: 'Propylon', paifang: 'Paifang (memorial archway)', torii: 'Torii gate', gateTower: 'Gate tower', organic: 'Atlantean arch' };
+const GATE_FACTS = {
+  arch: 'The wedge-shaped keystone locks a Roman arch: every stone leans on its neighbours.',
+  triumph: 'Roman triumphal arches celebrated victories; generals paraded through them with their spoils.',
+  trilithon: 'Two uprights and a lintel: the oldest way to frame a doorway in stone.',
+  pylon: 'A temple pylon imitates the hieroglyph for horizon: two hills with the sun rising between them.',
+  corbelArch: 'The Maya never used the true arch: their vaults step inward course by course until a capstone closes the gap.',
+  gopura: 'Khmer gate towers were crowned with lotus-bud towers, or with giant faces gazing in four directions.',
+  propylon: 'A propylon is a monumental columned gateway into a sacred precinct or palace.',
+  paifang: 'A paifang is a ceremonial archway, often raised to honour a person or mark the gate of a town.',
+  torii: 'A torii marks the threshold between the everyday world and sacred ground.',
+  gateTower: 'Shi Cheng, China\'s "Lion City", was flooded for a reservoir in 1959; its gate towers still stand underwater.',
+  organic: 'Plato said the inner wall of Atlantis was clad in orichalcum, which glittered like fire.',
+};
+const CROSS = { aqueduct: ['Aqueduct', 'Roman aqueducts ran on gravity alone, some dropping only about 25 cm per kilometre.'], bridge: ['Stone bridge', 'Some Roman stone bridges still carry traffic after nearly 2,000 years.'], moonBridge: ['Moon bridge', 'Hump-backed moon bridges are so steep that with their reflection they make a full circle.'] };
+
 export function layoutRuins(ctx) {
   if (presence(ctx, 'ruins') <= 0) return null;
-  const sp = specs(), rng = ctx.rng, fs = floorSampler(ctx), comm = community(ctx), bk = budgetK(ctx, 'ruins'), tk = tierK(ctx);
-  const st = new Batch(MAT.static, 80000 * bk);                                                  // architecture, statues
-  const mid = new Batch(MAT.static, 40000 * bk * tk, 'mid'), msw = new Batch(MAT.sway, 18000 * bk * tk, 'mid'); // scatter, growth
-  const near = new Batch(MAT.static, 16000 * bk * tk, 'near');                                    // floor micro detail
-  const idx = Math.floor(ctx.s0 / 64), temples = [];
-  for (const seg of ctx.segments) {
-    if (seg.key !== 'ruins') continue;
-    const L = segmentLayout(ctx, seg, comm);
-    for (const g of L.gates) if (Math.floor(g.sMax / 64) === idx && st.add(g.tpl, g.x, g.y, -(g.s - ctx.s0), g.R, 1, 1, 1, 0.95 + rng() * 0.1, 0.95 + rng() * 0.1, 0.95 + rng() * 0.1, 1)) {
-      const it = st.last;
-      it.g = 1; it.fact = FACTS[g.tpl.label] || null;
-      poi(ctx, 'arch', g.x, g.y, g.s, 5, { kind: g.tpl.label });
-    }
-    for (const t of L.temples) if (Math.floor(t.sMax / 64) === idx) temples.push(t);
-  }
-  // colonnade avenue lining the path + paved road: a step per pillar slot (each side of a row) and per paving row
-  const step = 4.6, off = 6.6, keys = comm.cols || COL_STYLE_KEYS, stones = comm.stones || STONES.map((_, i) => i);
-  const colonnade = (s, sd) => {
-    const w = ctx.weightOf(s, 'ruins');
-    if (w <= 0 || noise1(s / 160, 711) <= -0.15) return;
-    const px = ctx.pathX(s), yaw = pathYaw(ctx, s);
-    const h = noise1(s / 7.3 + sd * 11, 712);
-    if (rng() > w || h < -0.55) return;
-    const x = px + sd * (off + (rng() - 0.5) * 0.3);
-    // style changes every ~24 m, and individual pillars are often salvaged from other orders/stone
-    const blk = Math.floor(s / 24);
-    const set = T.colStyle[keys[((rng() < 0.35 ? rng() : hash2i(blk, 0, 715)) * keys.length) | 0]];
-    const sc = STONES[stones[((rng() < 0.3 ? rng() : hash2i(blk, 1, 716)) * stones.length) | 0]];
-    const k = 0.85 + rng() * 0.28, hs = 0.75 + rng() * 0.5, ws = 0.8 + rng() * 0.45, tint = tintFrom([[sc[0] * k, sc[1] * k, sc[2] * k]], 0.08);
-    const fate = rng();
-    if (fate < 0.32) { // toppled: 2-4 drums in a line along the fall, capital lying apart
-      const fa = yaw + sd * Math.PI / 2 + (rng() - 0.5) * 1.6 + (rng() < 0.3 ? Math.PI / 2 : 0), n = 2 + Math.floor(rng() * 3);
-      let d = 0.6;
-      for (let q = 0; q < n; q++) {
-        const dt = rng.pick(set.drum), L = (dt.box[3] - dt.box[0]) * ws;
-        d += L * 0.5;
-        const px2 = x + Math.cos(fa) * d, ps2 = s + Math.sin(fa) * d;
-        d += L * 0.5 + 0.05 + rng() * 0.6;
-        putFloor(ctx, fs, st, { tpl: dt, scale: [ws, ws], ys: [0.95, 1.05], xz: 0.1, yaw: fa, yawJ: 0.35, follow: 0.85, tilt: 0.06, sink: 0.12 + rng() * 0.12, tint, grow: [0.3, 1.6] }, px2, ps2, rng);
+  const sp = specs(), rng = ctx.rng, fs = floorSampler(ctx), bk = budgetK(ctx, 'ruins'), tk = tierK(ctx), lo = ctx.tier === 'low';
+  const st = new Batch(MAT.static, (lo ? 110000 : 170000) * bk);                                          // architecture, statues
+  const mid = new Batch(MAT.static, 42000 * bk * tk, 'mid'), msw = new Batch(MAT.sway, 20000 * bk * tk, 'mid'); // scatter, growth
+  const near = new Batch(MAT.static, 18000 * bk * tk, 'near');                                            // floor micro detail
+  const idx = Math.floor(ctx.s0 / 64), plans = plansOf(ctx), items = [], more = [], placed = [];
+  for (const P of plans) itemsNear(P, ctx, ctx.s0 - 1, ctx.s1 + 1, items);
+  const P0 = plans[0] || null, S0 = P0 ? P0.S : STYLES.greco;
+  // the city's statues are made first (one per step), so every structure below can use them
+  if (P0) for (const f of statueSteps(statueKinds(S0), [], P0.seed)) more.push(tag('statue', f));
+  const statues0 = () => figs(S0.statues);
+  // ---- structures owned by this chunk: one continuation step each (a few for city walls)
+  const place = (it, P, B, info, cross) => {
+    if (!B.b.vc) { B.release(); return null; }
+    const tpl = B.finish(info.label, info.fact ?? null);
+    const site = B.site;
+    if (!pointsClear(ctx, placedPoints(tpl, it.x, site.y0, it.s, site.R, 1, 1, 1, cross ? 2400 : 900), cross ? 0.3 : 0.4)) return null;
+    if (!st.add(tpl, it.x, site.y0, -(it.s - ctx.s0), site.R, 1, 1, 1, 1, 1, 1, 1)) return null;
+    const item = st.last;
+    item.g = 1;
+    if (tpl.supProxy) fs.addSupport({ tpl: tpl.supProxy, x: item.x, y: item.y, R: item.R, sx: 1, sy: 1, sz: 1 }, it.s); // top surfaces only
+    placed.push({ it, tpl, site, P });
+    return item;
+  };
+  const bld = (it, P, salt, coarse = false) => {
+    const site = new Site(fs, it.x, it.s, it.yaw);
+    const h = mulberry32((it.seed ^ salt) >>> 0);
+    const decay = clamp01(P.decay + it.decayK + (h() - 0.5) * 0.55);
+    const show = (ctx.tier === 'high' || ctx.tier === 'ultra') && it.gen === 'gate' && salt === 3; // the gates the camera passes through
+    const big = it.gen === 'crossing' || it.gen === 'big' || salt >= 10; // long arcades, city walls, towers: big blocks
+    return new Bld(site, it.seed + salt, it.S, { tier: ctx.tier, decay, grow: P.grow * (0.6 + 0.8 * h()), silt: P.silt, coarse: coarse || big, bev: show ? 0.055 : 0 });
+  };
+  // A structure is built by a resumable generator: one step per time slice (the step re-queues itself in
+  // front until done), then finished and placed. start() returns [Bld, iterator] or null to skip.
+  const drive = (name, start, done) => {
+    let B = null, iter = null, res = null;
+    const step = tag(name, () => {
+      if (!res) {
+        if (!iter) { const r = start(); if (!r) return; [B, iter] = r; }
+        B.t0 = now();
+        const r = iter.next();
+        if (!r.done) { B.detach(); more.unshift(step); return; }
+        res = r.value || {};
+      } else B.t0 = now();
+      if (!B.prep(2.5) || B.over(1.0)) { B.detach(); more.unshift(step); return; } // silt and growth colouring, resumable
+      done(B, res); // template, clearance and placement
+    });
+    return step;
+  };
+  for (const it of items) {
+    if (Math.floor(it.s / 64) !== idx) continue;
+    const P = it.plan, S = it.S, w0 = it.cross ? 0.45 : 0.3;
+    const ok = () => ctx.weightOf(it.s, 'ruins') >= w0;
+    if (it.gen === 'lot') more.push(drive('lot:' + it.kind, () => {
+      if (!ok()) return null;
+      const B = bld(it, P, 1, it.row === 2 || (lo && it.row === 1 && it.W * it.D > 150));
+      return [B, genLot(B, it.kind, it.W, it.D)];
+    }, (B, info) => {
+      const item = place(it, P, B, { label: info.label || (S.names && S.names[it.kind]) || 'Ruined building', fact: info.fact || (S.facts && S.facts[it.kind]) || null });
+      if (item && rng() < 0.12) poi(ctx, 'treasure', it.x + (rng() - 0.5) * it.W * 0.6, B.site.y0 + 0.4, it.s + (rng() - 0.5) * 2, 2, { ruin: true });
+    }));
+    else if (it.gen === 'landmark' || it.gen === 'monument' || it.gen === 'temple' || it.gen === 'big') more.push(drive(it.gen + ':' + it.kind, () => {
+      if (!ok()) return null;
+      const B = bld(it, P, 2);
+      return [B, it.gen === 'landmark' ? genLandmark(B, it.kind) : it.gen === 'monument' ? genMonument(B, it.kind) : it.gen === 'temple' ? genTemple(B, it.kind, it.W, it.D) : genBig(B, it.kind, it.W / 2)];
+    }, (B, info) => {
+      const item = place(it, P, B, info);
+      if (item) { // in open water in front of it (toward the street), where a school can mill without entering the stone
+        const lat = it.side * Math.max(TUBE + 1, it.off - (it.D || 6) / 2 - 1.8), y = B.site.y0 + Math.min(6, Math.max(2, (info.h || 4) * 0.45));
+        poi(ctx, info.poi || 'giant', ctx.pathX(it.s) + lat, y, it.s, Math.max(2, Math.min(9, (info.h || 4) * 0.45)), { name: info.label });
       }
-      putFloor(ctx, fs, st, { tpl: set.cap, scale: [ws, ws], yaw: rng() * TAU, follow: 0.8, tilt: 0.2, sink: 0.1, tint, grow: [0.3, 1.6] }, x + Math.cos(fa) * (d + 0.8), s + Math.sin(fa) * (d + 0.8), rng);
-      putFloor(ctx, fs, st, { tpl: rng.pick(set.broken), scale: [ws, ws], ys: [0.25, 0.45], follow: 0.1, tilt: 0.05, tint }, x, s, rng); // stump
-      return;
+    }));
+    else if (it.gen === 'gate' || it.gen === 'citywall') {
+      const hp = () => ctx.pathY(it.s) - fs.floor(it.x, it.s);
+      const g = { x0: -1 };
+      const name = it.gen === 'citywall' ? 'City gate of ' + P.city : GATE_NAMES[it.gate] || 'Gate';
+      more.push(drive('gate:' + it.gate, () => {
+        if (!ok()) return null;
+        const B = bld(it, P, 3);
+        B.decay *= 0.6;
+        return [B, genGate(B, it.gate, hp(), it.Rg)];
+      }, (B, x0) => {
+        const item = place(it, P, B, { label: name, fact: it.gen === 'citywall' ? S.facts.city : GATE_FACTS[it.gate] }, true);
+        if (item) { poi(ctx, 'arch', it.x, B.site.y0 + hp(), it.s, 5, { kind: name }); g.x0 = x0; }
+      }));
+      if (it.gen === 'citywall') for (const sd of [-1, 1]) {
+        const w = {};
+        more.push(drive('citywall', () => {
+          if (g.x0 < 0) return null;
+          const B = bld(it, P, 10 + sd);
+          return [B, genCityWall(B, sd, g.x0 - 0.3, it.span)];
+        }, (B, r) => { Object.assign(w, r); place(it, P, B, { label: 'City wall', fact: 'City gates were the weak point of a wall, so they were flanked by towers.' }, true); }));
+        more.push(drive('walltowers', () => {
+          if (g.x0 < 0 || !w.t) return null;
+          const B = bld(it, P, 20 + sd);
+          return [B, genWallTowers(B, sd, g.x0, it.span, w.t, w.Hw)];
+        }, (B) => place(it, P, B, { label: 'Wall tower', fact: null }, true)));
+      }
+    } else if (it.gen === 'crossing') {
+      const [label, fact] = CROSS[it.kind] || ['Bridge', null];
+      more.push(drive('crossing:' + it.kind, () => {
+        if (!ok()) return null;
+        const B = bld(it, P, 4);
+        B.decay *= 0.6;
+        return [B, genCrossing(B, it.kind, ctx.pathY(it.s) - B.site.y0, it.span)];
+      }, (B) => {
+        const item = place(it, P, B, { label, fact }, true);
+        if (item) poi(ctx, 'arch', it.x, B.site.y0 + ctx.pathY(it.s) - B.site.y0, it.s, 5, { kind: label });
+      }));
     }
-    const tpl = h > 0.1 || fate < 0.45 ? rng.pick(set.intact) : rng.pick(set.broken);
-    let R = rotY(yaw + (rng() - 0.5) * 0.4), sink = 0.15;
-    if (fate < 0.45) { // leaning 10-30 deg, away from the path, partly sunk
-      R = mul3(rotY(yaw + (rng() - 0.5) * 0.3), rotZ(-sd * (0.17 + rng() * 0.35)));
-      sink = 0.3 + rng() * 0.5;
-    }
-    const gy = groundY(fs, x, s, tpl, R, ws, hs, ws) - sink;
-    if (!pointsClear(ctx, placedPoints(tpl, x, gy, s, R, ws, hs, ws, 120), 0.4)) return;
-    if (!st.add(tpl, x, gy, -(s - ctx.s0), R, ws, hs, ws, sc[0] * k, sc[1] * k, sc[2] * k, rng() * 1.6)) return;
-    st.last.g = 1;
-    fs.occupy(x, s, 0.7 * ws, 0);
-    if (h < 0.1 && rng() < 0.5) putFloor(ctx, fs, mid, sp.drum, x + sd * (1.5 + rng() * 2), s + (rng() - 0.5) * 3, rng);
-  };
+  }
+  // ---- the street: paving (per style), kerbs, avenue furniture; plazas widen the paving
+  const step = 4.0;
+  const styleAt = (s) => { for (const P of plans) if (s >= P.seg.start - 90 && s < P.seg.end + 90) return P; return P0; };
   const paving = (s) => {
-    if (ctx.weightOf(s, 'ruins') <= 0 || noise1(s / 120, 713) <= -0.25) return;
-    const yaw = pathYaw(ctx, s), roadOff = 1.5 * noise1(s / 60, 714);
-    for (let k = -2; k <= 2; k++) for (let q = 0; q < 5; q++) {
-      if (rng() < 0.18 + 0.2 * Math.abs(k) / 2) continue;
-      const ss = s + (q / 5) * step + (rng() - 0.5) * 0.15, x = ctx.pathX(ss) + roadOff + k * 0.95 + (q % 2) * 0.45;
-      const tpl = rng.pick(T.slab), y = fs.at(x, ss);
-      if (fs.onSupport(x, ss) || (ctx.pathY(ss) - y < 3.9 && Math.abs(x - ctx.pathX(ss)) < 4.5)) continue; // paving lies on the floor
-      const R = orient(fs.nx, fs.ny, fs.nz, 1, yaw + (rng() - 0.5) * 0.15, (rng() - 0.5) * 0.04, (rng() - 0.5) * 0.04);
-      const gy = groundY(fs, x, ss, tpl, R, 0.95, 1, 0.95) - 0.05;
-      if (st.add(tpl, x, gy, -(ss - ctx.s0), R, 0.95, 1, 0.95, 0.85 + rng() * 0.2, 0.85 + rng() * 0.2, 0.82 + rng() * 0.2, 1)) st.last.g = 1;
+    const P = styleAt(s);
+    if (!P || ctx.weightOf(s, 'ruins') < 0.25 || noise1(s / 140, 713) < -0.45) return;
+    const yaw = pathYaw(ctx, s), half = P.streetHalf, kind = P.S.paving, L = slice(P, ctx, Math.floor((s - P.seg.start) / SL));
+    const pl = L && L.plaza && Math.abs(s - L.plaza.s) < L.plaza.half ? L.plaza : null;
+    const ext = pl ? pl.x0 + 2 : half, dense = (kind === 'sacbe' ? 1.08 : 1) - 0.35 * sat((P.decay - 0.4) * 2);
+    // cells across (cx) and along (cs) the street: running-bond rows of slabs that fill their cells
+    const lk = lo ? 1.3 : 1, [cx, cs] = (PAVE[kind] || PAVE.slab).map((v) => v * lk), poly = kind === 'poly';
+    const col = kind === 'sacbe' ? [1.3, 1.27, 1.16] : kind === 'laterite' ? [0.85, 0.55, 0.4] : kind === 'granite' ? [0.85, 0.86, 0.9] : kind === 'rings' ? null : [1.05, 1.0, 0.92];
+    const ys = kind === 'sacbe' ? 1.9 : kind === 'laterite' ? 1.4 : 1;
+    for (let q = 0; q < step / cs; q++) {
+      const ss = s + (q + 0.5) * cs + (poly ? (rng() - 0.5) * 0.12 : 0);
+      if (ss < ctx.s0 || ss >= ctx.s1) continue;
+      const px = ctx.pathX(ss), row = Math.floor(ss / cs);
+      for (let x = -ext + cx / 2 + (row % 2) * cx * 0.5; x < ext; x += cx) {
+        if (rng() > dense * (0.92 - 0.25 * sat((Math.abs(x) - half + 0.5) / 3))) continue; // gaps: silt and lost stones
+        const wx = px + x;
+        if (blocked(items, wx, ss, 0.5)) continue;
+        fs.at(wx, ss);
+        if (fs.onSupport(wx, ss)) continue;
+        const tpl = rng.pick(poly ? T.polySlab : T.pave), R = orient(fs.nx, fs.ny, fs.nz, 1, yaw + (poly ? rng() * TAU : (rng() - 0.5) * 0.05), (rng() - 0.5) * 0.04, (rng() - 0.5) * 0.04);
+        const b = tpl.box, sx = poly ? cx * (1.05 + rng() * 0.2) : cx * 0.99 / (b[3] - b[0]), sz = poly ? sx : cs * 0.99 / (b[5] - b[2]);
+        const gy = groundY(fs, wx, ss, tpl, R, sx, ys, sz) - 0.05;
+        const c = col || P.S.bands[(row >> 1) % 3].map((v) => v * 1.25);
+        const k = 0.85 + rng() * 0.25;
+        if (st.add(tpl, wx, gy, -(ss - ctx.s0), R, sx, ys, sz, c[0] * k, c[1] * k, c[2] * k, 0.4 + rng() * 0.6)) st.last.g = 1;
+      }
+    }
+    if (pl) return;
+    for (const sd of [-1, 1]) { // kerbs
+      if (rng() < 0.25 + P.decay * 0.3) continue;
+      const ss = s + rng() * 1.5, x = ctx.pathX(ss) + sd * (half + 0.2);
+      if (blocked(items, x, ss, 0.4) || ss >= ctx.s1) continue;
+      putFloor(ctx, fs, st, { tpl: T.kerb, scale: [1, 1.15], ys: [1.4, 2], yaw: yaw + Math.PI / 2, yawJ: 0.06, follow: 0.9, tilt: 0.04, sink: 0.12, tint: tintFrom([col || [1, 1, 1]], 0.05) }, x, ss, rng);
     }
   };
-  const more = temples.flatMap((t) => templeSteps(ctx, fs, st, mid, t, comm));
-  for (let s = Math.ceil(ctx.s0 / step) * step; s < ctx.s1; s += step) more.push(() => colonnade(s, -1), () => colonnade(s, 1), () => paving(s));
-  // building foundations on the terraces: rectangles of walls (others may rest on them), two per step
-  more.push(...inSteps(6, 2, () => {
-    const p = spot(ctx, rng, 12, 45, 1);
-    if (rng() > ctx.weightOf(p.s, 'ruins')) return;
-    const yaw = pathYaw(ctx, p.s) + (rng() < 0.5 ? 0 : 0.5) * (rng() - 0.5), W = 7 + rng() * 5, D = 6 + rng() * 5;
-    const sides = [[0, D / 2, 0], [0, -D / 2, 0], [W / 2, 0, Math.PI / 2], [-W / 2, 0, Math.PI / 2]];
-    for (const [ox, oz, ry] of sides) {
-      if (rng() < 0.25) continue;
-      const c = Math.cos(yaw), s2 = Math.sin(yaw);
-      const x = p.x + c * ox + s2 * oz, s = p.s - (-s2 * ox + c * oz);
-      if (s < ctx.s0 - 8 || s > ctx.s1 + 8) continue;
-      const y = fs.at(x, s), tpl = rng.pick(T.wall);
-      if (!tubeClear(ctx, x, s, y, y + 4, 4.5)) continue;
-      const R = rotY(yaw + ry), hs = 0.9 + rng() * 0.3, gy = groundY(fs, x, s, tpl, R, 1, hs, 1) - 0.25;
-      if (!st.add(tpl, x, gy, -(s - ctx.s0), R, 1, hs, 1, 0.9 + rng() * 0.15, 0.9 + rng() * 0.15, 0.88 + rng() * 0.15, 1)) continue;
-      st.last.g = 1;
-      fs.addSupport(st.last, s);
-    }
-  }));
-  more.push(() => {
-    if (rng() < 0.3 * presence(ctx, 'ruins')) amphoraDen(ctx, fs, st, rng);
-    for (const b of bendSpots(ctx)) if (rng() < ctx.weightOf(b.s, 'ruins') * 0.75) {
-      if (rng() < 0.4) { const x = bendX(ctx, b, 0.9, rng); statueAt(ctx, fs, st, comm, x, b.s, rng); }
-      else putBend(ctx, fs, st, { ...sp.bendCol, tpl: comm.cols ? comm.cols.flatMap((c) => T.colStyle[c].intact) : T.column }, b, rng);
-    }
-  });
+  const avenue = (s, sd) => {
+    const P = styleAt(s);
+    if (!P || ctx.weightOf(s, 'ruins') < 0.4 || s < ctx.s0 || s >= ctx.s1) return;
+    const kind = P.S.avenue, half = P.streetHalf, yaw = pathYaw(ctx, s);
+    const L = slice(P, ctx, Math.floor((s - P.seg.start) / SL));
+    if (L && L.plaza && Math.abs(s - L.plaza.s) < L.plaza.half) return;
+    const x = ctx.pathX(s) + sd * (half + 1.1);
+    if (blocked(items, x, s, 1.2)) return;
+    const face = yaw - sd * Math.PI / 2;
+    if (kind === 'colonnade') return colonnade(ctx, fs, st, mid, P, s, sd, x, yaw, rng, items);
+    if (kind === 'sphinx') return statueAt(ctx, fs, st, figs(['sphinx']), x, s, rng, false, face); // dromos: sphinxes facing the street
+    const F = T.ruinsFurniture;
+    const spec = kind === 'lantern' ? F.lantern : kind === 'stela' ? F.stela : kind === 'orb' ? F.orb : kind === 'horns' ? F.horns : null;
+    if (spec) putFloor(ctx, fs, st, { tpl: spec, scale: [0.9, 1.15], yaw: face, yawJ: 0.2, follow: 0.1, tilt: 0.04, sink: 0.25, occ: 0.6, tint: tintFrom([[1, 1, 1]], 0.06) }, x, s, rng);
+  };
+  const aStep = { colonnade: 4.6, sphinx: 7, naga: 64, lantern: 11, stela: 17, orb: 12, horns: 9 }[(P0 && P0.S.avenue) || 'colonnade'] || 8;
+  for (let s = Math.ceil(ctx.s0 / step) * step; s < ctx.s1; s += step) more.push(tag('paving', () => paving(s)));
+  if (P0 && P0.S.avenue === 'naga') more.push(tag('naga', () => nagaRails(ctx, fs, st, P0, items)));
+  else for (let s = Math.ceil(ctx.s0 / aStep) * aStep; s < ctx.s1; s += aStep) more.push(tag('avenue', () => { avenue(s + rng() * 1.5, -1); avenue(s + rng() * 1.5, 1); }));
+  // ---- life and debris: statues, amphorae, fallen blocks, corals and sponges between the buildings
+  more.push(() => { if (rng() < 0.3 * presence(ctx, 'ruins')) amphoraDen(ctx, fs, st, rng, items); });
   more.push(...microSteps(ctx, fs, near, rng, 'ruins', sp.micro, 140, 30, 28));
-  const nextP466 = clusterer(ctx, rng, 0, 42, 1.2);
-  more.push(...inSteps(Math.round(150 * tk), 15, () => {
-    const p = nextP466();
+  const nextP = clusterer(ctx, rng, 0, 42, 1.2);
+  more.push(...inSteps(Math.round(130 * tk), 13, () => {
+    const p = nextP();
     if (!p || rng() > ctx.weightOf(p.s, 'ruins')) return;
     const e = pickW(rng, sp.scatter);
-    if (e.k === 'head' || e.k === 'figure') { if (!comm.statues || e.k === 'figure' || comm.heads) statueAt(ctx, fs, st, comm, p.x, p.s, rng, e.k === 'head'); return; }
+    if (blocked(items, p.x, p.s, e.k === 'figure' || e.k === 'head' ? 1.4 : 0.8, true)) return;
+    if (e.k === 'steps' && Math.abs(p.x - ctx.pathX(p.s)) < (P0 ? P0.streetHalf : 3) + 1) return; // stair fragments lie beside the street, not across it
+    if (e.k === 'head' || e.k === 'figure') { if (S0.key === 'maya' || e.k === 'figure') statueAt(ctx, fs, st, statues0(), p.x, p.s, rng, e.k === 'head'); return; }
     putFloor(ctx, fs, e.sway ? msw : mid, sp[e.k], p.x, p.s, rng);
   }));
+  // ---- overgrowth on the buildings placed above (runs after them)
+  more.push(tag('growth', () => { for (const pl of placed) growthSteps(ctx, fs, mid, msw, pl, rng, more); }));
   return { batches: [st, mid, msw, near], more };
+}
+
+// corals, sponges and algae seated on a building's wall tops, cornices and roofs
+function growthSteps(ctx, fs, mid, msw, pl, rng, more) {
+  const sp = specs(), it = pl.it, P = pl.P, n = Math.round(Math.min(18, Math.max(3, (it.W || 8) * (it.D || 8) / 9)) * P.grow * tierK(ctx));
+  const hx = (it.cross ? it.span : it.W / 2) + 0.5, hz = (it.cross ? it.depth / 2 : it.D / 2) + 0.5;
+  more.push(tag('growth1', () => {
+    let got = 0;
+    for (let k = 0; k < n * 3 && got < n; k++) {
+      const lx = (rng() * 2 - 1) * hx, lz = (rng() * 2 - 1) * hz;
+      const x = pl.site.wx(lx, lz), s = pl.site.ws(lx, lz);
+      if (s < ctx.s0 || s >= ctx.s1 || !fs.onSupport(x, s, 0.3)) continue;
+      const y0 = fs.h(x, s); // only on flat tops (wall crowns, roofs, steps), never astride an edge
+      if (Math.abs(fs.h(x + 0.35, s) - y0) > 0.06 || Math.abs(fs.h(x - 0.35, s) - y0) > 0.06 || Math.abs(fs.h(x, s + 0.35) - y0) > 0.06 || Math.abs(fs.h(x, s - 0.35) - y0) > 0.06) continue;
+      const e = pickW(rng, sp.growth);
+      if (putFloor(ctx, fs, e.sway ? msw : mid, e.spec, x, s, rng)) got++;
+    }
+  }));
+}
+
+// Greek / Roman colonnaded street: a column per slot, standing, leaning, broken or toppled into drums
+function colonnade(ctx, fs, st, mid, P, s, sd, x, yaw, rng, items) {
+  const sp = specs(), w = ctx.weightOf(s, 'ruins');
+  if (rng() > w || noise1(s / 160, 711) <= -0.25) return;
+  const h = noise1(s / 7.3 + sd * 11, 712);
+  if (h < -0.55) return;
+  const blk = Math.floor(s / 24), keys = P.S.cols.filter((k) => COL_STYLES[k]);
+  const set = T.colStyle[keys[((rng() < 0.35 ? rng() : hash2i(blk, 0, 715)) * keys.length) | 0]];
+  const sc = P.S.stones[((rng() < 0.3 ? rng() : hash2i(blk, 1, 716)) * P.S.stones.length) | 0];
+  const k = 0.95 + rng() * 0.25, hs = 0.75 + rng() * 0.5, ws = 0.8 + rng() * 0.45, tint = tintFrom([[sc[0] / 0.62 * k, sc[1] / 0.58 * k, sc[2] / 0.5 * k]], 0.08);
+  const fate = rng() + P.decay * 0.25 - 0.1;
+  if (fate < 0.32) { // toppled: 2-4 drums in a line along the fall, capital lying apart
+    const fa = yaw + sd * Math.PI / 2 + (rng() - 0.5) * 1.6 + (rng() < 0.3 ? Math.PI / 2 : 0), n = 2 + Math.floor(rng() * 3);
+    let d = 0.6;
+    for (let q = 0; q < n; q++) {
+      const dt = rng.pick(set.drum), L = (dt.box[3] - dt.box[0]) * ws;
+      d += L * 0.5;
+      const px2 = x + Math.cos(fa) * d, ps2 = s + Math.sin(fa) * d;
+      d += L * 0.5 + 0.05 + rng() * 0.6;
+      if (!blocked(items, px2, ps2, 0.6)) putFloor(ctx, fs, st, { tpl: dt, scale: [ws, ws], ys: [0.95, 1.05], xz: 0.1, yaw: fa, yawJ: 0.35, follow: 0.85, tilt: 0.06, sink: 0.12 + rng() * 0.12, tint, grow: [0.3, 1.6] }, px2, ps2, rng);
+    }
+    putFloor(ctx, fs, st, { tpl: set.cap, scale: [ws, ws], yaw: rng() * TAU, follow: 0.8, tilt: 0.2, sink: 0.1, tint, grow: [0.3, 1.6] }, x + Math.cos(fa) * (d + 0.8), s + Math.sin(fa) * (d + 0.8), rng);
+    putFloor(ctx, fs, st, { tpl: rng.pick(set.broken), scale: [ws, ws], ys: [0.25, 0.45], follow: 0.1, tilt: 0.05, tint }, x, s, rng); // stump
+    return;
+  }
+  const tpl = h > 0.1 || fate < 0.45 ? rng.pick(set.intact) : rng.pick(set.broken);
+  let R = rotY(yaw + (rng() - 0.5) * 0.4), sink = 0.15;
+  if (fate < 0.45) { // leaning 10-30 deg, away from the path, partly sunk
+    R = mul3(rotY(yaw + (rng() - 0.5) * 0.3), rotZ(-sd * (0.17 + rng() * 0.35)));
+    sink = 0.3 + rng() * 0.5;
+  }
+  const gy = groundY(fs, x, s, tpl, R, ws, hs, ws) - sink;
+  if (!pointsClear(ctx, placedPoints(tpl, x, gy, s, R, ws, hs, ws, 120), 0.4)) return;
+  const c = tint(rng);
+  if (!st.add(tpl, x, gy, -(s - ctx.s0), R, ws, hs, ws, c[0], c[1], c[2], rng() * 1.6)) return;
+  st.last.g = 1;
+  fs.occupy(x, s, 0.7 * ws, 0);
+  if (h < 0.1 && rng() < 0.5) putFloor(ctx, fs, mid, sp.drum, x + sd * (1.5 + rng() * 2), s + (rng() - 0.5) * 3, rng);
+}
+
+// a seven-headed naga rearing at the end of a balustrade: neck, hood fan facing the approach, heads on its rim
+function nagaHead(B, end, nxt) {
+  let nx = nxt[0] - end[0], nz = nxt[2] - end[2];
+  const l = Math.hypot(nx, nz) || 1; nx /= l; nz /= l;
+  const fx = -nx, fz = -nz, lx = fz, lz = -fx, col = B.tone(B.trim, 0.05); // (lat, up, f) is right-handed
+  const top = [end[0] + fx * 0.25, end[1] + 1.25, end[2] + fz * 0.25];
+  B.tube([[end[0] - fx * 0.3, end[1], end[2] - fz * 0.3], [end[0], end[1] + 0.35, end[2]], [top[0], top[1], top[2]]], [0.25, 0.24, 0.21], 7, col, false);
+  const rad = 1.05, c = [top[0] + fx * 0.05, top[1] + 0.45, top[2] + fz * 0.05];
+  const R = [lx, 0, fx, 0, 1, 0, lz, 0, fz];
+  const fan = [];
+  for (let k = 0; k <= 8; k++) { const a = -Math.PI / 2 + Math.PI * k / 8; fan.push([Math.sin(a) * rad, Math.cos(a) * rad * 0.95]); }
+  B.prism(fan, 0.2, c[0], c[1], c[2], R, col);
+  for (let k = 0; k < 7; k++) {
+    const a = -Math.PI * 0.42 + Math.PI * 0.84 * k / 6, u = Math.sin(a) * rad * 0.95, v = Math.cos(a) * rad * 0.9;
+    const p = [c[0] + lx * u + fx * 0.05, c[1] + v, c[2] + lz * u + fz * 0.05];
+    const o = [Math.sin(a) * 0.12, Math.cos(a) * 0.12];
+    B.tube([p, [p[0] + fx * 0.42 + lx * o[0], p[1] + o[1] + 0.04, p[2] + fz * 0.42 + lz * o[0]]], [0.13, 0.1], 6, col, true);
+  }
+  B.cap(c[0], c[1] - 0.6, c[2], c[0], c[1] + 0.4, c[2], rad + 0.15);
+}
+
+// Khmer causeway: naga serpents along both sides of the street, their bodies on short posts, rearing up in
+// a fan of seven hooded heads at each end of a run
+function nagaRails(ctx, fs, st, P, items) {
+  const S = P.S;
+  for (const sd of [-1, 1]) {
+    const x0 = ctx.pathX(ctx.s0), site = new Site(fs, x0, ctx.s0, 0);
+    const B = new Bld(site, P.seed + sd * 31 + Math.floor(ctx.s0), S, { tier: ctx.tier, decay: P.decay * 0.6, grow: P.grow, silt: P.silt });
+    const off = P.streetHalf + 0.9, runs = [];
+    let cur = [];
+    for (let s = ctx.s0; s <= ctx.s1; s += 2) {
+      const x = ctx.pathX(s) + sd * off, ok = ctx.weightOf(s, 'ruins') > 0.45 && !blocked(items, x, s, 1.2);
+      const L = slice(P, ctx, Math.floor((s - P.seg.start) / SL));
+      const brk = !ok || (L && L.plaza && Math.abs(s - L.plaza.s) < L.plaza.half) || noise1(s / 23 + sd * 5, 911) < -0.35 + P.decay * 0.3;
+      if (brk) { if (cur.length > 3) runs.push(cur); cur = []; continue; }
+      cur.push([x - x0, s]);
+    }
+    if (cur.length > 3) runs.push(cur);
+    for (const run of runs) {
+      const pts = run.map(([lx, s]) => [lx, site.fl(lx, -(s - ctx.s0)) + 1.0, -(s - ctx.s0)]);
+      B.tube(pts, pts.map(() => 0.24), B.lo ? 6 : 8, B.tone(B.trim, 0.05), true);
+      for (let i = 0; i < pts.length; i += 1) { const p = pts[i]; B.pier(0.4, 0.4, p[0], p[2], p[1] - 0.15, null, B.tone(B.trim, 0.05), 0.02, 0.02); }
+      for (let i = 0; i + 4 < pts.length; i += 4) B.cap(pts[i][0], pts[i][1] - 0.4, pts[i][2], pts[i + 4][0], pts[i + 4][1] - 0.4, pts[i + 4][2], 0.6);
+      if (run[0][1] > ctx.s0 + 1) nagaHead(B, pts[0], pts[1]); // the serpent rears up where its run begins
+    }
+    if (!B.b.vc) { B.release(); continue; }
+    const tpl = B.finish('Naga balustrade', 'The many-headed naga serpents along Khmer causeways form a rainbow bridge between the world of humans and the gods.', { support: false });
+    if (st.add(tpl, x0, site.y0, 0, site.R, 1, 1, 1, 1, 1, 1, 1)) st.last.g = 1;
+  }
 }
