@@ -1,6 +1,6 @@
 // Biome catalogue + endless seeded sequence along the travel distance `s` (metres).
 // Each biome defines water optics, camera depth and a terrain shape relative to the path.
-import { mulberry32, noise1, noise2, fbm2, ridge2, smoothstep, hash1 } from './noise.js';
+import { mulberry32, noise1, noise2, fbm2, ridge2, smoothstep, hash1, hash2i } from './noise.js';
 
 const C = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
@@ -192,6 +192,167 @@ export const BIOMES = {
     },
   },
 };
+
+// ---------- Seven more oceanscapes (added 2026-10-31) ----------
+// Cone-ish peaks scattered on a jittered grid (0..1), used for seamount pinnacles.
+function peaks(x, s, cell, seed, rMin, rMax, keep) {
+  let best = 0;
+  const cx0 = Math.floor(x / cell), cy0 = Math.floor(s / cell);
+  for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) {
+    const cx = cx0 + i, cy = cy0 + j;
+    if (hash2i(cx, cy, seed + 3) > keep) continue;
+    const px = (cx + hash2i(cx, cy, seed)) * cell, ps = (cy + hash2i(cx, cy, seed + 1)) * cell;
+    const r = rMin + (rMax - rMin) * hash2i(cx, cy, seed + 2);
+    const d = Math.hypot(x - px, s - ps) / r;
+    if (d < 1) best = Math.max(best, Math.pow(1 - d, 1.4));
+  }
+  return best;
+}
+// Floating sargassum mat density near the surface (0..1); props place mats where this is high.
+export function sargassumCover(x, s) {
+  const n = noise2(x / 22, s / 22, 181) * 0.7 + noise2(x / 7, s / 7, 182) * 0.3;
+  return smoothstep(0.05, 0.45, n);
+}
+// The blue hole of a segment: a circular sinkhole centred on the path mid-segment.
+export function blueHoleOf(g) {
+  if (!g || g.key !== 'bluehole') return null;
+  if (g._hole) return g._hole;
+  const sc = g.start + (g.end - g.start) * (0.45 + 0.1 * sv(g, 2));
+  g._hole = { x: pathXAt(sc), s: sc, R: 32 + 20 * sv(g, 1), depth: 140 + 30 * sv(g, 3) };
+  return g._hole;
+}
+Object.assign(BIOMES, {
+  seamount: {
+    label: 'Seamount', camY: -18, clearance: 6, len: [600, 950], weight: 0.85,
+    sigma: [0.085, 0.026, 0.018], lightSigma: [0.04, 0.014, 0.011],
+    deep: C(0x033566), up: C(0x2f8fd8), sun: 1.05, caustic: 0.6, shafts: 1.3, ambient: 1.0, glow: 0, snow: 0.6,
+    sand: [0.36, 0.34, 0.33], rock: [0.32, 0.3, 0.29],
+    floor(x, s, ad, g) {
+      const base = -40 + fbm2(x / 40, s / 40, 3, 171) * 6;
+      const pk = peaks(x, s, 70, 172 + ((g ? g.seed : 0) & 15), 18, 34, 0.6);
+      const spire = Math.pow(pk, 1.25) * (52 + 10 * sv(g, 1)) * (1 + 0.25 * fbm2(x / 8, s / 8, 3, 173));
+      return Math.min(base + spire, 15);
+    },
+  },
+  sargassum: {
+    label: 'Sargassum Sea', camY: -4.5, clearance: 260, len: [550, 850], weight: 0.8,
+    sigma: [0.08, 0.024, 0.017], lightSigma: [0.04, 0.014, 0.011],
+    deep: C(0x0a3d78), up: C(0x4aa8e0), sun: 1.15, caustic: 0.9, shafts: 1.4, ambient: 1.0, glow: 0, snow: 0.6,
+    sand: [0.3, 0.3, 0.32], rock: [0.2, 0.2, 0.22],
+    floor(x, s) { return fbm2(x / 60, s / 60, 3, 183) * 20; },
+    // shade under the golden floating mats
+    canopy(x, s) { return 1 - 0.62 * sargassumCover(x, s); },
+  },
+  champagne: {
+    label: 'Champagne Reef', camY: -6, clearance: 3.2, len: [500, 800], weight: 0.85,
+    sigma: [0.1, 0.03, 0.025], lightSigma: [0.045, 0.016, 0.013],
+    deep: C(0x0c6390), up: C(0x5ccbea), sun: 1.15, caustic: 1.25, shafts: 1.0, ambient: 1.05, glow: 0, snow: 0.6,
+    sand: [0.46, 0.43, 0.41], rock: [0.33, 0.31, 0.3],
+    floor(x, s, ad, g) {
+      return fbm2(x / 14, s / 14, 4, 191) * 1.4 + Math.max(0, noise2(x / 6, s / 6, 192)) ** 2 * 2.5 * smoothstep(4, 9, ad)
+        + smoothstep(25, 70, ad) * 7 * (0.6 + 0.8 * sv(g, 1));
+    },
+  },
+  jellylake: {
+    label: 'Jellyfish Lake', camY: -4, clearance: 4, len: [450, 700], weight: 0.7,
+    sigma: [0.16, 0.07, 0.09], lightSigma: [0.06, 0.03, 0.04],
+    deep: C(0x2f6a4f), up: C(0x9ccf86), sun: 1.15, caustic: 1.1, shafts: 1.2, ambient: 1.05, glow: 0, snow: 1.2,
+    sand: [0.52, 0.5, 0.4], rock: [0.62, 0.6, 0.52],
+    floor(x, s, ad, g) {
+      return fbm2(x / 18, s / 18, 3, 201) * 1.0 + smoothstep(18, 45, ad) * (9 + 4 * fbm2(x / 15, s / 15, 3, 202)) * (0.8 + 0.4 * sv(g, 1));
+    },
+  },
+  sunkenforest: {
+    label: 'Sunken Forest', camY: -7, clearance: 4.5, len: [500, 800], weight: 0.75,
+    sigma: [0.11, 0.04, 0.045], lightSigma: [0.05, 0.018, 0.02],
+    deep: C(0x0e5a5a), up: C(0x6fc7b8), sun: 1.05, caustic: 0.9, shafts: 1.45, ambient: 1.0, glow: 0, snow: 1.1,
+    sand: [0.5, 0.47, 0.38], rock: [0.4, 0.37, 0.32],
+    floor(x, s, ad) { return fbm2(x / 20, s / 20, 3, 211) * 1.2 + smoothstep(35, 90, ad) * 6; },
+  },
+  anemone: {
+    label: 'Anemone Fields', camY: -6.5, clearance: 3, len: [500, 800], weight: 0.85,
+    sigma: [0.1, 0.03, 0.026], lightSigma: [0.045, 0.016, 0.013],
+    deep: C(0x0b5f8c), up: C(0x5ccbe9), sun: 1.15, caustic: 1.2, shafts: 1.0, ambient: 1.05, glow: 0, snow: 0.6,
+    sand: [0.82, 0.77, 0.62], rock: [0.5, 0.44, 0.4],
+    floor(x, s, ad) {
+      return fbm2(x / 10, s / 10, 4, 221) * 1.6 + Math.max(0, noise2(x / 7, s / 7, 222)) ** 1.5 * 2.2 * smoothstep(4, 8, ad)
+        + smoothstep(30, 80, ad) * 6;
+    },
+  },
+  bluehole: {
+    label: 'Blue Hole', camY: -12, clearance: 4, len: [600, 900], weight: 0.7,
+    sigma: [0.085, 0.025, 0.017], lightSigma: [0.04, 0.013, 0.01],
+    deep: C(0x02305f), up: C(0x3a9fe0), sun: 1.1, caustic: 1.0, shafts: 1.3, ambient: 1.0, glow: 0, snow: 0.5,
+    sand: [0.84, 0.8, 0.68], rock: [0.62, 0.58, 0.5],
+    // a shallow reef plateau with a vast circular sinkhole the path crosses
+    floor(x, s, ad, g) {
+      let f = fbm2(x / 14, s / 14, 4, 231) * 1.4 + Math.max(0, noise2(x / 9, s / 9, 232)) ** 2 * 3 * smoothstep(5, 12, ad);
+      const H = blueHoleOf(g);
+      if (H) {
+        const dx = x - H.x, ds = s - H.s, d = Math.hypot(dx, ds) || 1e-6, cx = dx / d, cs = ds / d;
+        const R = H.R * (1 + 0.07 * noise2(cx * 1.6, cs * 1.6, 233));
+        const wall = smoothstep(R, R - 10, d);
+        const ledges = Math.floor(fbm2(x / 12, s / 12, 2, 234) * 3 + 3) * 0.8 * smoothstep(R - 2, R - 10, d) * smoothstep(R * 0.2, R - 12, d);
+        f -= wall * (H.depth + 20 * fbm2(x / 30, s / 30, 2, 235)) - ledges;
+      }
+      return f;
+    },
+  },
+});
+
+// Per-biome metadata: HUD subtitle, nominal surface temperature (degC), sand ripple strength,
+// and an optional floorTint(x, s, nn, T) that edits [sandR, sandG, sandB, rockR, rockG, rockB] (linear).
+const META = {
+  reef: { subtitle: 'shallow tropical reef', tempC: 27 },
+  softcoral: { subtitle: 'a garden of soft corals', tempC: 26 },
+  wall: { subtitle: 'along the edge of the abyss', tempC: 26, ripple: 0.6 },
+  kelp: { subtitle: 'temperate forest of giant kelp', tempC: 14 },
+  seagrass: { subtitle: 'sunlit meadow', tempC: 25 },
+  mangrove: { subtitle: 'a nursery among the roots', tempC: 28, ripple: 0.25 },
+  sandflat: { subtitle: 'rippled plains of rays and garden eels', tempC: 26, ripple: 1.6 },
+  pelagic: { subtitle: 'the blue — open water', tempC: 24, ripple: 0.2 },
+  cave: { subtitle: 'flooded limestone passages', tempC: 24 },
+  wreck: { subtitle: 'graveyard of ships', tempC: 22 },
+  ruins: { subtitle: 'a drowned civilisation', tempC: 23 },
+  vents: { subtitle: 'black smokers of the deep', tempC: 4, ripple: 0.2 },
+  deepplain: { subtitle: 'the abyssal plain, lit only by our lamps', tempC: 3, ripple: 0.15 },
+  tidepool: { subtitle: 'where the sea meets the shore', tempC: 18, ripple: 0.2 },
+  abyss: { subtitle: 'the midnight zone', tempC: 4, ripple: 0.2 },
+  polar: { subtitle: 'beneath the sea ice', tempC: -1.6 },
+  seamount: { subtitle: 'a mountain rising from the blue', tempC: 21, ripple: 0.3 },
+  sargassum: { subtitle: 'golden rafts adrift on the open sea', tempC: 25, ripple: 0.2 },
+  champagne: { subtitle: 'volcanic bubbles stream from the sand', tempC: 27, ripple: 0.7 },
+  jellylake: { subtitle: 'a lake of a million jellyfish', tempC: 29, ripple: 0.3 },
+  sunkenforest: { subtitle: 'a forest the sea reclaimed', tempC: 12, ripple: 0.4 },
+  anemone: { subtitle: 'carpets of anemones and their clownfish', tempC: 27 },
+  bluehole: { subtitle: 'a sinkhole falling into deep blue', tempC: 26 },
+};
+for (const [k, v] of Object.entries(META)) Object.assign(BIOMES[k], v);
+// Seabed tints (applied after the sRGB->linear conversion of sand/rock; values are linear offsets).
+BIOMES.tidepool.floorTint = (x, s, nn, T) => { const p = smoothstep(0.1, 0.5, nn); T[3] += 0.25 * p; T[4] += 0.05 * p; T[5] += 0.12 * p; };
+BIOMES.vents.floorTint = (x, s, nn, T) => {
+  const p = smoothstep(0.35, 0.7, fbm2(x / 11, s / 11, 2, 9));
+  T[3] += 0.35 * p; T[4] += 0.18 * p; T[5] += 0.02 * p; T[0] += 0.2 * p; T[1] += 0.1 * p;
+};
+const greenish = (x, s, nn, T) => { const p = smoothstep(0.2, 0.6, nn); T[3] -= 0.06 * p; T[4] += 0.04 * p; };
+BIOMES.kelp.floorTint = BIOMES.reef.floorTint = BIOMES.softcoral.floorTint = BIOMES.anemone.floorTint = greenish;
+BIOMES.wall.floorTint = (x, s, nn, T) => { const p = smoothstep(0.1, 0.55, fbm2(x / 5, s / 5, 2, 17)); T[3] += 0.22 * p; T[4] += 0.06 * p; T[5] += 0.08 * p; };
+BIOMES.mangrove.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.7, fbm2(x / 3, s / 3, 2, 19)); T[0] -= 0.12 * p; T[1] -= 0.1 * p; T[2] -= 0.07 * p; };
+BIOMES.deepplain.floorTint = (x, s, nn, T) => { const p = smoothstep(0.3, 0.7, fbm2(x / 13, s / 13, 2, 23)); T[0] -= 0.1 * p; T[1] -= 0.1 * p; T[2] -= 0.08 * p; };
+BIOMES.seamount.floorTint = (x, s, nn, T) => { // encrusting orange/purple life on volcanic rock
+  const p = smoothstep(0.15, 0.6, fbm2(x / 6, s / 6, 2, 29)), q = smoothstep(0.3, 0.7, fbm2(x / 9, s / 9, 2, 31));
+  T[3] += 0.2 * p + 0.06 * q; T[4] += 0.05 * p; T[5] += 0.03 * p + 0.12 * q;
+};
+BIOMES.champagne.floorTint = (x, s, nn, T) => { // iron-stained volcanic sand, pale bacterial film
+  const p = smoothstep(0.35, 0.75, fbm2(x / 8, s / 8, 2, 37)), q = smoothstep(0.55, 0.85, fbm2(x / 3, s / 3, 2, 41));
+  T[0] += 0.12 * p + 0.15 * q; T[1] += 0.05 * p + 0.15 * q; T[2] += 0.12 * q;
+};
+BIOMES.jellylake.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.6, nn); T[0] -= 0.08 * p; T[1] += 0.02 * p; T[2] -= 0.08 * p; };
+BIOMES.sunkenforest.floorTint = (x, s, nn, T) => { // silt with leaf litter
+  const p = smoothstep(0.25, 0.7, fbm2(x / 4, s / 4, 2, 43)); T[0] -= 0.1 * p; T[1] -= 0.08 * p; T[2] -= 0.1 * p;
+};
+BIOMES.bluehole.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.6, nn); T[3] -= 0.05 * p; T[4] += 0.03 * p; };
+
 // Colours above are authored in sRGB; shaders work in linear light.
 const toLin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 for (const b of Object.values(BIOMES)) for (const k of ['deep', 'up', 'sand', 'rock']) b[k] = b[k].map(toLin);

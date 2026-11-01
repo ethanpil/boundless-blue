@@ -36,6 +36,7 @@ export class CameraDirector {
     this.seen = new Set();        // set pieces already watched once (rare ones get a novelty boost)
     this.focusPos = new THREE.Vector3();
     this.hasSubject = false;
+    this.curiosity = 1;           // 0 = steady forward view, 1 = documentary camera that watches things
     this._f = new THREE.Vector3(); this._d = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
     this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
@@ -134,13 +135,13 @@ export class CameraDirector {
       const d = D.length(); D.divideScalar(d);
       const yawS = Math.atan2(F.z * D.x - F.x * D.z, F.x * D.x + F.z * D.z); // signed angle F->D about +Y
       const pitchS = Math.asin(clamp(D.y, -1, 1)) - Math.asin(clamp(F.y, -1, 1));
-      const w = smoothstep(0, 1.2, this.watchTime) * 0.8;
+      const w = smoothstep(0, 1.2, this.watchTime) * 0.8 * this.curiosity;
       yawT = yawT * (1 - w) + clamp(yawS, -0.95, 0.95) * w;
       pitchT = pitchT * (1 - w) + clamp(pitchS, -0.5, 0.45) * w;
       focusT = d;
       this.focusPos.set(e.x, e.y, e.z);
-      if (e.interest >= 0.7 && d < 45) speedT = 0.5;            // linger on highlights
-      else if (e.interest >= 0.5 && d < 30) speedT = 0.75;
+      if (e.interest >= 0.7 && d < 45) speedT = 1 - 0.5 * this.curiosity;            // linger on highlights
+      else if (e.interest >= 0.5 && d < 30) speedT = 1 - 0.25 * this.curiosity;
     }
     spring(this.yaw, yawT, 1.1, dt);
     spring(this.pitch, pitchT, 1.1, dt);

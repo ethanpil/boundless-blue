@@ -3,7 +3,7 @@
 import * as THREE from 'three';
 import { BIOMES } from './biomes.js';
 import { applyWater, U } from './water.js';
-import { mulberry32, noise2, fbm2, smoothstep, clamp } from './noise.js';
+import { mulberry32, noise2, smoothstep, clamp } from './noise.js';
 import { obstacles } from './obstacles.js';
 
 export const CHUNK = 64;          // metres of travel per chunk
@@ -14,8 +14,6 @@ const AHEAD = 330, BEHIND = 40;
 const NO_CEIL = 60;
 // Distance (m ahead of the camera) up to which tagged prop LOD classes are drawn, per GPU tier.
 const LOD = { high: { near: 70, mid: 150 }, low: { near: 45, mid: 100 } };
-// Sand-ripple strength per biome (1 = default)
-const RIPPLE = { pelagic: 0.2, abyss: 0.2, vents: 0.2, tidepool: 0.2, sandflat: 1.6, mangrove: 0.25, deepplain: 0.15, wall: 0.6 };
 
 function floorMaterial() {
   const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.92, metalness: 0 });
@@ -93,6 +91,8 @@ function ceilingMaterial() {
     },
   });
 }
+
+const TINT = new Float32Array(6);
 
 export class Terrain {
   constructor(world, shape, seq, tier = 'high') {
@@ -259,18 +259,14 @@ export class Terrain {
             else { cr += b.rock[0] * 0.8 * e.w; cg += b.rock[1] * 0.8 * e.w; cb += b.rock[2] * 0.8 * e.w; }
             continue;
           }
-          let sr = b.sand[0], sg = b.sand[1], sb = b.sand[2];
-          let rr = b.rock[0], rg = b.rock[1], rb = b.rock[2];
-          if (e.key === 'tidepool') { const p = smoothstep(0.1, 0.5, nn); rr += 0.25 * p; rg += 0.05 * p; rb += 0.12 * p; }
-          if (e.key === 'vents') { const p = smoothstep(0.35, 0.7, fbm2(x / 11, r.s / 11, 2, 9)); rr += 0.35 * p; rg += 0.18 * p; rb += 0.02 * p; sr += 0.2 * p; sg += 0.1 * p; }
-          if (e.key === 'kelp' || e.key === 'reef' || e.key === 'softcoral') { const p = smoothstep(0.2, 0.6, nn); rr -= 0.06 * p; rg += 0.04 * p; }
-          if (e.key === 'wall') { const p = smoothstep(0.1, 0.55, fbm2(x / 5, r.s / 5, 2, 17)); rr += 0.22 * p; rg += 0.06 * p; rb += 0.08 * p; }
-          if (e.key === 'mangrove') { const p = smoothstep(0.2, 0.7, fbm2(x / 3, r.s / 3, 2, 19)); sr -= 0.12 * p; sg -= 0.1 * p; sb -= 0.07 * p; }
-          if (e.key === 'deepplain') { const p = smoothstep(0.3, 0.7, fbm2(x / 13, r.s / 13, 2, 23)); sr -= 0.1 * p; sg -= 0.1 * p; sb -= 0.08 * p; }
-          cr += (sr + (rr - sr) * rocky) * e.w;
-          cg += (sg + (rg - sg) * rocky) * e.w;
-          cb += (sb + (rb - sb) * rocky) * e.w;
-          rip += (RIPPLE[e.key] ?? 1) * e.w;
+          // biome seabed colours plus its optional tint (see floorTint in biomes.js)
+          const T = TINT;
+          T[0] = b.sand[0]; T[1] = b.sand[1]; T[2] = b.sand[2]; T[3] = b.rock[0]; T[4] = b.rock[1]; T[5] = b.rock[2];
+          if (b.floorTint) b.floorTint(x, r.s, nn, T);
+          cr += (T[0] + (T[3] - T[0]) * rocky) * e.w;
+          cg += (T[1] + (T[4] - T[1]) * rocky) * e.w;
+          cb += (T[2] + (T[5] - T[2]) * rocky) * e.w;
+          rip += (b.ripple ?? 1) * e.w;
         }
         const v = 0.9 + 0.2 * nn;
         col[k * 3] = cr * ao * v; col[k * 3 + 1] = cg * ao * v; col[k * 3 + 2] = cb * ao * v;

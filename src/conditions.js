@@ -11,6 +11,7 @@ const WEATHER = {
   surge:    { w: 0.05, dur: [240, 600], sun: 1, shafts: 1.1, caustic: 1.25, ambient: 1, sigma: [1.2, 1.2, 1.2], tint: [1, 1, 1], snow: 2.2, rain: 0, surge: 1, label: 'a heavy surge' },
 };
 export const WEATHER_KEYS = Object.keys(WEATHER);
+export const TIME_KEYS = ['dawn', 'morning', 'day', 'afternoon', 'dusk', 'night'];
 const NUM = ['sun', 'shafts', 'caustic', 'ambient', 'snow', 'rain', 'surge'];
 const TRANSITION = 90; // seconds to cross-fade weather
 
@@ -55,6 +56,26 @@ export class Conditions {
     this.prev = this.cur; this.cur = this._pick(this.cur); this.fade = 0; this.timer = this._duration(this.cur);
   }
   skipTime(fraction) { this.t += fraction * this.cycle; }
+  // Jump to a named part of the day (dawn, morning, day, afternoon, dusk, night), keeping the day count.
+  setPhase(name) {
+    if (PHASES[name] == null) return;
+    const day = Math.floor(this.t / this.cycle), p = PHASES[name];
+    this.t = (day + (p < this.phase ? 1 : 0)) * this.cycle + p * this.cycle;
+  }
+  setWeather(key) {
+    if (!WEATHER[key] || key === this.cur) return;
+    this.prev = this.cur; this.cur = key; this.fade = 0; this.timer = this._duration(key);
+  }
+  // Clock time (hours, 0..24) for the current phase: night 20:00-05:00, dawn 05:00-06:30, day to 18:30, dusk to 20:00.
+  get clockHours() {
+    const p = this.phase;
+    const seg = (a, b, h0, h1, x) => h0 + (h1 - h0) * ((x - a) / (b - a));
+    if (p >= 0.05 && p < 0.68) return seg(0.05, 0.68, 6.5, 18.5, p);
+    if (p >= 0.68 && p < 0.8) return seg(0.68, 0.8, 18.5, 20, p);
+    if (p >= 0.8 && p < 0.97) return (seg(0.8, 0.97, 20, 29, p)) % 24;
+    const q = p < 0.5 ? p + 1 : p;
+    return seg(0.97, 1.05, 5, 6.5, q);
+  }
   get phase() { return ((this.t / this.cycle) % 1 + 1) % 1; }
 
   update(dt) {
