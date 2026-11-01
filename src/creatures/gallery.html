@@ -32,7 +32,7 @@ U.uWaterDeep.value.set(0x0b5f80); U.uWaterUp.value.set(0x52d2ea);
 const sun = new THREE.DirectionalLight(0xffffff, 2.6); sun.position.set(0.3, 1, 0.6); scene.add(sun);
 scene.add(new THREE.HemisphereLight(0x88ccff, 0x0a2030, 1.1));
 const world = new THREE.Group(); scene.add(world);
-const flat = { pathX: () => 0, pathY: () => -10, floorAt: () => -60, ceilingAt: () => 60, floorNormal: () => ({ x: 0, y: 1, z: 0 }) };
+const flat = { pathX: () => 0, pathY: () => -10, floorAt: () => -60, ceilingAt: () => 60, floorNormal: () => ({ x: 0, y: 1, z: 0 }), hasCeiling: () => false };
 const sys = { cache: new GeoCache(64), mats: makeMaterials(), world, shape: flat };
 const cw = 1.5, ch = 1.1, view = qs.get('view') || 'side';
 const bends = (qs.get('bend') || '').split(',').map(Number);

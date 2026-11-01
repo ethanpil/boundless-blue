@@ -6,6 +6,12 @@ import { mulberry32 } from '../noise.js';
 import { buildSpecies } from './build.js';
 import { interestOf } from './species.js';
 import { Obstacles } from '../obstacles.js';
+import { bodyShape } from './sep.js';
+
+// Max terrain slope assumed by the terrain-clearance budget (blue-hole and cave walls are near vertical):
+// moving `b` metres can raise the floor / lower the ceiling under any extremity by at most SLOPE * b.
+const SLOPE = 12;
+const _B = new Float64Array(9); // body basis scratch (X, Y, Z columns)
 
 const _n = { x: 0, y: 0, s: 0 };
 const _hit = { nx: 0, ny: 1, nz: 0 };   // outward normal of the closest obstacle (render-relative x, y, z)
@@ -69,7 +75,7 @@ export class GeoCache {
         if (Math.abs(g.pos[v * 3]) > maxX) maxX = Math.abs(g.pos[v * 3]);
       }
       e = {
-        key, refs: 0, tris: g.tris, bodyR: Math.min(br, 1.2), belly, minY, maxX,
+        key, refs: 0, tris: g.tris, bodyR: Math.min(br, 1.2), belly, minY, maxX, shape: bodyShape(sp, g),
         index: new THREE.BufferAttribute(g.idx, 1), pos: new THREE.BufferAttribute(g.pos, 3),
         nor: new THREE.BufferAttribute(g.nor, 3), g: new THREE.BufferAttribute(g.g, 4),
       };
@@ -106,7 +112,7 @@ function jitter(hex, r, amt) {
 const bytes = (a, b, c) => Math.round(clamp(a, 0, 1) * 255) * 65536 + Math.round(clamp(b, 0, 1) * 255) * 256 + Math.round(clamp(c, 0, 1) * 255);
 
 const STATIC_KINDS = new Set(['colony', 'peek', 'bed']);
-const NOEVADE = new Set(['swirl', 'play', 'circle', 'curious', 'strike', 'lunge']);
+const NOEVADE = new Set(['swirl', 'play', 'circle', 'curious', 'strike', 'lunge', 'majestic']);
 const smooth = (x) => (x <= 0 ? 0 : x >= 1 ? 1 : x * x * (3 - 2 * x));
 const INST_NAMES = ['aCol', 'aCol2', 'aPat', 'aPat2', 'aMot', 'aVar', 'aVar2'];
 const d0ok = (e) => e.baseSize >= 0.06 && e.kind !== 'attach' && e.fade > 0.3;
@@ -174,7 +180,7 @@ export class Encounter {
     const indiv = ceph ? 1.6 : sp.det === 0 || n > 20 ? 0.5 : 0.9;
     const cs = sp.cs || [0, 0.1], pat = sp.pat || [0, 1, 0], pat2 = sp.pat2 || [0, 1, 0], mot = sp.mot;
     const packed2z = bytes(sp.finEdge ?? 0, sp.finRays ?? 0.4, sp.iris ?? 0.5);
-    const packed2w = bytes((cs[0] + 1) / 2, cs[1], (sp.glowMode ?? 0) / 255);
+    const packed2w = bytes((cs[0] + 1) / 2, cs[1], ((sp.glowMode ?? 0) + (sp.gill === false ? 8 : 0)) / 255);
     const scaleJ = 1 + (vr() - 0.5) * 0.2;
     const roughGlow = Math.floor((sp.glow ?? 0) * 10) + clamp(sp.rough ?? 0.42, 0.02, 0.98);
     for (let i = 0; i < n; i++) {
@@ -216,6 +222,16 @@ export class Encounter {
     this.CLR = new Float32Array(n);          // conservative clearance budget (skip exact tests while positive)
     this.BF = new Float32Array(n);           // current tail-beat frequency (coasting frames keep the beat smooth)
     this.ACC = new Float32Array(n);          // time coasted since the last full steering step (agent LOD)
+    // personal space (see sep.js): capsule centre / axis / half length / radius / mass, accumulated push
+    this.SC = new Float32Array(n * 3); this.SA = new Float32Array(n * 3); this.SH = new Float32Array(n);
+    this.SR = new Float32Array(n); this.SM = new Float32Array(n); this.SD = new Float32Array(n * 3);
+    this.SF = new Uint8Array(n); this.SV = null; // on-floor flags, array view used by the pair loop
+    this.SO = new Uint16Array(n); for (let i = 0; i < n; i++) this.SO[i] = i; // agents sorted along x (sweep and prune)
+    this.SOI = new Uint16Array(n); this.SK = new Uint8Array(n); this.SMV = new Uint16Array(n); this.nMoved = 0; // inverse order, marks, moved list
+    this.sepExt = 0; this.stepped = false; this.sepMoved = false;
+    this.TCL = new Float32Array(n);          // terrain clearance budget of the body extremities (exact check when used up)
+    this.ceilOn = false; this.terrainOn = false; this.topCap = -0.03;
+    this.inspect = -1; this.inspT = 0; this.inspX = 0; this.inspY = 0; this.inspZ = 0; // one curious individual (shoals)
     this.fc = 0;
     this.bankBase = beh.side ? Math.PI / 2 : 0; // flatfish lie and swim on their side
     this.mot = sp.mot; this.browse = !!beh.browse;
@@ -247,9 +263,12 @@ export class Encounter {
     this.turnRate = clamp(3.2 / Math.sqrt(this.baseSize + 0.2), 0.5, 6);
     this.surfY = beh.zone === 'surface' || beh.zone === 'ceiling' ? -0.35 - this.baseSize * 0.1 : -0.8 - this.baseSize * 0.35;
     if (beh.skim) this.surfY = -0.1; // crocodiles cruise with the back just under the surface
+    // highest point any part of the body may reach (crocodile backs and porpoising mammals break the surface)
+    this.topCap = beh.skim ? 0.3 : (beh.zone === 'surface' || beh.zone === 'ceiling') && (mot.mode === 1 || mot.mode === 3) ? 0.12 : -0.03;
     this.mFloor = 0.25 + this.baseSize * (sp.plan === 'jelly' ? 2.5 : 0.35);
     this.mCeil = beh.skim ? 0.05 : 0.3 + this.baseSize * 0.3;
-    this.hardR = 2.6 + this.baseSize * (sp.plan === 'jelly' ? 1.5 : 0.55);
+    // camera bubble (centre distance): no part of the body comes within ~1.5 m of the lens (jellies: tentacles too)
+    this.hardR = sp.plan === 'jelly' ? 1.8 + this.baseSize * (0.6 + 0.5 * (sp.jelly.tl ?? 0)) : 1.5 + this.baseSize * 0.55;
     this.rr = 0;
     this.bounds = { x: 0, y: 0, z: 0, r: 1 };
     this.obs = []; this.obsFrame = Math.floor(rng() * 3); // staggered refresh across groups
@@ -315,13 +334,15 @@ export class Encounter {
           SL[o] = r; SL[o + 1] = rng() * TAU;
           const hh = plan.route === 'swirl' ? 1.6 : kind === 'mill' ? R * 1.3 : Math.sqrt(Math.max(0, R * R - r * r)) * 0.9;
           SL[o + 2] = (rng() * 2 - 1) * hh;
-          SL[o + 3] = this.speed * (0.85 + 0.3 * rng()) / Math.max(r, 0.3);
+          SL[o + 3] = this.speed * (0.95 + 0.1 * rng()) / Math.max(r, 0.3);
         } else if (kind === 'pod') {
           const a = rng() * TAU, r = i === 0 ? 0 : spacing * (0.45 + Math.sqrt(rng()) * Math.sqrt(n) * 0.35);
           SL[o] = Math.cos(a) * r; SL[o + 1] = (rng() - 0.5) * size * (this.zone === 'surface' ? 0.8 : 1.6); SL[o + 2] = Math.sin(a) * r - r * 0.3;
           if (plan.calf && i === 1) { SL[o] = -size * 0.42; SL[o + 1] = size * 0.12; SL[o + 2] = size * 0.12; } // tucked in by the mother's flipper
         } else if (kind === 'solo') {
-          SL[o] = 0; SL[o + 1] = 0; SL[o + 2] = 0;
+          // a pair or trio of big animals travels in a loose echelon, never on one spot (no stacked mantas)
+          const k = Math.ceil(i / 2), sd = i & 1 ? 1 : -1;
+          SL[o] = i ? sd * spacing * (0.9 + 0.3 * rng()) * k : 0; SL[o + 1] = i ? (rng() - 0.5) * size * 0.3 : 0; SL[o + 2] = i ? -spacing * (0.4 + 0.4 * rng()) * k : 0;
         } else {
           let x, y, z; do { x = rng() * 2 - 1; y = rng() * 2 - 1; z = rng() * 2 - 1; } while (x * x + y * y + z * z > 1);
           const ps = 0.85 + rng() * 0.3; // personal spacing
@@ -338,6 +359,26 @@ export class Encounter {
         F[i * 3] = hx; F[i * 3 + 1] = 0; F[i * 3 + 2] = hz;
         V[i * 3] = hx * this.speed; V[i * 3 + 2] = hz * this.speed;
       }
+      if (kind !== 'bait' && kind !== 'mill' && n > 1 && n <= 160 && !plan.calf) {
+        // spread the formation slots so neighbours never start inside each other (nor fight the separation pass)
+        const bs = this.entry.shape, minD = size * (2 * bs.r + bs.h + 0.15) * 1.05;
+        for (let it = 0; it < 5; it++) {
+          let moved = false;
+          for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) {
+            const a = i * 4, b = j * 4;
+            let dx = SL[b] - SL[a], dy = SL[b + 1] - SL[a + 1], dz = SL[b + 2] - SL[a + 2];
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 >= minD * minD) continue;
+            let d = Math.sqrt(d2);
+            if (d < 1e-4) { dx = rng() - 0.5; dy = (rng() - 0.5) * 0.3; dz = rng() - 0.5; d = h3(dx, dy, dz) || 1; }
+            const k = (minD - d) * 0.5 / d;
+            SL[a] -= dx * k; SL[a + 1] -= dy * k; SL[a + 2] -= dz * k; SL[b] += dx * k; SL[b + 1] += dy * k; SL[b + 2] += dz * k;
+            moved = true;
+          }
+          if (!moved) break;
+        }
+        for (let i = 0; i < n; i++) { const t = this._slotTarget(i, 0); P[i * 3] = t[0]; P[i * 3 + 1] = t[1]; P[i * 3 + 2] = t[2]; }
+      }
       if (this.DLY) { // turn waves: fish further back pick up a change of heading later
         let zmax = -1e9; for (let i = 0; i < n; i++) zmax = Math.max(zmax, SL[i * 4 + 2]);
         const vw = Math.max(1.5, this.speed * 3);
@@ -345,7 +386,7 @@ export class Encounter {
       }
     } else if (kind === 'shoal' || kind === 'hover') {
       // aggregations are tighter for small fish: radius ~ sqrt(n) body lengths
-      const spread = Math.min(beh.spread ?? 4, Math.max(1.2, Math.sqrt(n) * size * 3.5));
+      const spread = plan.spread ?? Math.min(beh.spread ?? 4, Math.max(1.2, Math.sqrt(n) * size * 3.5));
       this.spread = spread; this.homeX = x0; this.homeZ = z0;
       const am = plan.altMul ?? 1, alt = (beh.alt || [0.5, 2]).map((a) => a * am);
       for (let i = 0; i < n; i++) {
@@ -376,8 +417,7 @@ export class Encounter {
       const spread = beh.spread ?? 5;
       const ca = rng() * TAU; this.curDir = [Math.cos(ca), 0, Math.sin(ca)];
       for (let i = 0; i < n; i++) {
-        const a = rng() * TAU, r = Math.sqrt(rng()) * spread;
-        const [x, z] = this._freeSpot(x0 + Math.cos(a) * r, z0 + Math.sin(a) * r, 0.06, true);
+        const [x, z] = this._spaced(i, () => { const a = rng() * TAU, r = Math.sqrt(rng()) * spread; return [x0 + Math.cos(a) * r, z0 + Math.sin(a) * r]; }, 0.06, Math.max(0.22, this.SZ[i] * 0.4), SL, 4);
         const s = -(z + this.anchorZ);
         SL[i * 4] = x; SL[i * 4 + 1] = sh.floorAt(x, s) - 0.02; SL[i * 4 + 2] = z;
         SL[i * 4 + 3] = 0.35 + 0.35 * rng();
@@ -387,8 +427,11 @@ export class Encounter {
       for (let i = 0; i < n; i++) {
         // pick the steepest of a few nearby floor points (a rock face)
         let best = null;
-        for (let k = 0; k < 6; k++) {
+        for (let k = 0; k < 10; k++) {
           const x = x0 + (rng() - 0.5) * 6, z = z0 + (rng() - 0.5) * 6, s = -(z + this.anchorZ);
+          let crowd = false; // never two in one spot: keep a body length from the others
+          for (let j = 0; j < i; j++) if (h2(SL[j * 4] - x, SL[j * 4 + 2] - z) < this.SZ[i] * 0.9) { crowd = true; break; }
+          if (crowd && k < 9) continue;
           const nn = sh.floorNormal(x, s), steep = 1 - nn.y;
           if (!best || steep > best.steep) best = { x, z, s, nn, steep };
         }
@@ -402,8 +445,9 @@ export class Encounter {
             const fy = sh.floorAt(best.x, best.s); Obstacles.dist(bo, best.x, fy, best.s, _n);
             const h = h2(_n.x, _n.s) || 1, ox = _n.x / h, os = _n.s / h;
             const bx = best.x - ox * (bd - 0.12), bs = best.s - os * (bd - 0.12); // just outside the rock surface
-            best.x = bx; best.s = bs; best.z = -bs - this.anchorZ;
-            nn = { x: ox, y: 0.3, z: -os };
+            let crowd = false;
+            for (let j = 0; j < i; j++) if (h2(SL[j * 4] - bx, SL[j * 4 + 2] + bs + this.anchorZ) < this.SZ[i] * 0.9) { crowd = true; break; }
+            if (!crowd) { best.x = bx; best.s = bs; best.z = -bs - this.anchorZ; nn = { x: ox, y: 0.3, z: -os }; }
           }
         }
         let zx = nn.x * 0.9, zy = 0.55 + nn.y * 0.3, zz = nn.z * 0.9;
@@ -420,7 +464,8 @@ export class Encounter {
       this.perchY = plan.restY ?? null; this.perched = this.perchY !== null ? new Uint8Array(n).fill(1) : null;
       if (kind === 'octo' && plan.den) this.den = true;
       for (let i = 0; i < n; i++) {
-        const [x, z] = this.perched && i === 0 ? [x0, z0] : this._freeSpot(x0 + (rng() - 0.5) * spread, z0 + (rng() - 0.5) * spread * 1.4, this.rbU * this.SZ[i] + 0.1, true);
+        const bs = this.entry.shape;
+        const [x, z] = this.perched && i === 0 ? [x0, z0] : this._spaced(i, () => [x0 + (rng() - 0.5) * spread, z0 + (rng() - 0.5) * spread * 1.4], this.rbU * this.SZ[i] + 0.1, (2 * bs.r + bs.h + 0.4) * size * 1.1, P, 3);
         if (this.perched && i > 0) this.perched[i] = 0;
         const s = -(z + this.anchorZ);
         const nn = sh.floorNormal(x, s), a = rng() * TAU;
@@ -449,7 +494,8 @@ export class Encounter {
         if (walk === 'queue') { x = x0 - this.herdX * gap * i + (rng() - 0.5) * 0.08; z = z0 - this.herdZ * gap * i + (rng() - 0.5) * 0.08; }
         else if (plan.ring) { const a = rng() * TAU; x = x0 + Math.cos(a) * plan.ring * (0.95 + 0.1 * rng()); z = z0 + Math.sin(a) * plan.ring * (0.95 + 0.1 * rng()); }
         else { const a = rng() * TAU, r = Math.sqrt(rng()) * spread; x = x0 + Math.cos(a) * r; z = z0 + Math.sin(a) * r; }
-        [x, z] = this._freeSpot(x, z, this.rbU * this.SZ[i] * 1.6 + 0.08, true);
+        if (walk === 'queue') [x, z] = this._freeSpot(x, z, this.rbU * this.SZ[i] * 1.6 + 0.08, true);
+        else { const x1 = x, z1 = z; [x, z] = this._spaced(i, (t) => t ? [x1 + (rng() - 0.5) * spread * 0.5, z1 + (rng() - 0.5) * spread * 0.5] : [x1, z1], this.rbU * this.SZ[i] * 1.6 + 0.08, (2 * this.entry.shape.r + 0.15) * size * 1.1, P, 3); }
         const s = -(z + this.anchorZ), nn = sh.floorNormal(x, s);
         P[i * 3] = x; P[i * 3 + 1] = sh.floorAt(x, s); P[i * 3 + 2] = z;
         this.NRM[i * 3] = nn.x; this.NRM[i * 3 + 1] = nn.y; this.NRM[i * 3 + 2] = nn.z;
@@ -464,8 +510,7 @@ export class Encounter {
       // upside-down jellyfish carpeting the mud, pulsing in place
       const spread = beh.spread ?? 4;
       for (let i = 0; i < n; i++) {
-        const a = rng() * TAU, r = Math.sqrt(rng()) * spread;
-        const [x, z] = this._freeSpot(x0 + Math.cos(a) * r, z0 + Math.sin(a) * r * 1.3, this.SZ[i] * 0.45, true);
+        const [x, z] = this._spaced(i, () => { const a = rng() * TAU, r = Math.sqrt(rng()) * spread; return [x0 + Math.cos(a) * r, z0 + Math.sin(a) * r * 1.3]; }, this.SZ[i] * 0.45, this.SZ[i] * 1.08 + 0.02, P, 3);
         P[i * 3] = x; P[i * 3 + 1] = sh.floorAt(x, -(z + this.anchorZ)) + 0.006 * this.SZ[i]; P[i * 3 + 2] = z;
         const h = rng() * TAU; F[i * 3] = Math.sin(h); F[i * 3 + 2] = Math.cos(h);
       }
@@ -634,6 +679,20 @@ export class Encounter {
     }
     return best;
   }
+  // Placement with personal space: up to 8 candidates from gen(t); returns the first that is at least minD
+  // (horizontally) from every earlier member (A[j * stride], A[j * stride + 2]), else the most spacious one.
+  _spaced(i, gen, rad, minD, A, stride) {
+    let bx = 0, bz = 0, bd = -1;
+    for (let t = 0; t < 8; t++) { // spacing is tested on the raw candidates; only the chosen one is moved off rocks
+      const g = gen(t), x = g[0], z = g[1];
+      let dm = 1e18;
+      for (let j = 0; j < i; j++) { const dx = A[j * stride] - x, dz = A[j * stride + 2] - z, d = dx * dx + dz * dz; if (d < dm) dm = d; }
+      dm = Math.sqrt(dm);
+      if (dm >= minD) { bx = x; bz = z; break; }
+      if (dm > bd) { bd = dm; bx = x; bz = z; }
+    }
+    return this._freeSpot(bx, bz, rad, true);
+  }
   // Move a point (relative coords) out of nearby obstacles horizontally, keeping it on the floor.
   _freeSpot(x, z, rad, onFloor) {
     const reg = this.sys.env && this.sys.env.obstacles, sh = this.sys.shape;
@@ -670,7 +729,15 @@ export class Encounter {
       for (let k = 0; k < 50 && sh.floorAt(xx, s) < yF - 0.2; k++) xx += plan.face * 0.5;
       x = xx - plan.face * (0.8 + this.rng() * 1.6);
     }
-    const fl = sh.floorAt(x, s), ce = Math.min(sh.ceilingAt(x, s), 0);
+    let fl = sh.floorAt(x, s), ce = Math.min(sh.ceilingAt(x, s), 0);
+    // no room here (inside a cave wall / under a low roof): walk the home toward the open passage at the path
+    const need = this.mFloor * 0.6 + this.mCeil + this.baseSize * 0.6 + 0.3;
+    for (let k = 0; k < 24 && Math.min(ce, this.surfY + this.mCeil) - fl < need; k++) {
+      const px = sh.pathX(s), dx = px - x;
+      if (Math.abs(dx) < 0.3) break;
+      x += Math.sign(dx) * Math.min(Math.abs(dx), 0.75);
+      fl = sh.floorAt(x, s); ce = Math.min(sh.ceilingAt(x, s), 0);
+    }
     let y = yF !== null ? yF : plan && plan.homeY !== undefined ? plan.homeY + alt * 0.5 : this.zone === 'mid' ? sh.pathY(s) + (plan?.h0 ?? 0) + alt * 0.3 : fl + alt;
     const lo = fl + this.mFloor * 0.6, hi = Math.min(ce - this.mCeil, this.surfY);
     y = hi > lo ? clamp(y, lo, hi) : (lo + hi) * 0.5;
@@ -751,6 +818,7 @@ export class Encounter {
 
   // ======================================================================
   update(dt, c) {
+    this.stepped = false;
     if (this.kind === 'attach') { // remoras ride their host (updated just before us)
       const h = this.host;
       if (h.done) { this.done = true; return; }
@@ -782,6 +850,14 @@ export class Encounter {
     if (this.recheckT < 0) { this.recheckT = 0.5; this.recheck = true; }
     if (!STATIC_KINDS.has(k)) this._obsRefresh();
     else if (this.recheck && rc) this._revalidateBases();
+    // terrain under / over the group: extremity checks run unless a flock is out in open water
+    if (!STATIC_KINDS.has(k)) {
+      this.stepped = true;
+      this.ceilOn = this.sys.shape.hasCeiling(-(this.anchorZ + this.bounds.z));
+      const was = this.terrainOn;
+      this.terrainOn = k !== 'walk' && !(FLOCK_KINDS.has(k) && this.openWater);
+      if (this.terrainOn && !was) this.TCL.fill(0); // budgets went stale while out in open water
+    }
     if (FLOCK_KINDS.has(k)) { this._leader(dt, c); this._steer(dt, c, true); }
     else if (k === 'shoal' || k === 'hover') this._steer(dt, c, false);
     else if (k === 'drift') this._drift(dt, c);
@@ -824,15 +900,17 @@ export class Encounter {
       // turtles & co: swim to a spot just ahead of the camera, glide slowly past it looking at it, then leave
       const ev = this.event; ev.t += dt;
       const ds = this.ls - c.s, side = ev.side, camL = c.x - sh.pathX(this.ls), camH = c.y - sh.pathY(this.ls);
+      // pass 2.5-4 m from the lens (groups: their nearest members), never inside the camera bubble
+      const L = Math.max(ev.lat ?? 2.2, this.hardR + 0.4) + (this.R ? this.R * 0.6 : 0);
       if (ev.ph === 0) {
         const want = c.speed + clamp((7 - ds) * 0.35, -1.5, 1.2);
         this.vs += (want - this.vs) * Math.min(1, dt * 0.8);
-        this.ll += (camL + side * 1.8 - this.ll) * Math.min(1, dt * 0.5);
+        this.ll += (camL + side * L * 1.15 - this.ll) * Math.min(1, dt * 0.5);
         this.lh += (camH + 0.2 - this.lh) * Math.min(1, dt * 0.5);
-        if ((Math.abs(ds - 7) < 2.5 && Math.abs(this.ll - camL - side * 1.8) < 1.5) || ev.t > 14) { ev.ph = 1; ev.t = 0; }
+        if ((Math.abs(ds - 7) < 2.5 && Math.abs(this.ll - camL - side * L * 1.15) < 1.5) || ev.t > 14) { ev.ph = 1; ev.t = 0; }
       } else if (ev.ph === 1) {
         this.vs += (-0.35 - this.vs) * Math.min(1, dt * 0.7);
-        this.ll += (camL + side * 1.5 - this.ll) * Math.min(1, dt * 0.6);
+        this.ll += (camL + side * L - this.ll) * Math.min(1, dt * 0.6);
         this.lh += (camH - this.lh) * Math.min(1, dt * 0.6);
         this.lookCam = Math.min(1, this.lookCam + dt * 0.8);
         if (ds < -5 || ev.t > 12) { ev.ph = 2; ev.t = 0; }
@@ -929,7 +1007,7 @@ export class Encounter {
     // keep clear of the camera tube
     const k0 = this.kind;
     const R = k0 === 'school' || k0 === 'bait' ? this.hardR : // the camera may pass through schools; fish part around it
-      this.hardR + (this.R ? this.R * (k0 === 'pod' ? 0.35 : 0.8) : 0) + this.baseSize * 0.5 + 2;
+      this.hardR + (this.R ? this.R * (k0 === 'pod' ? 0.35 : 0.8) : 0) + this.baseSize * 0.5 + 1.2;
     const ds = this.ls - c.s;
     const wl = this.wA * Math.sin(this.age * this.wF + this.wP);
     const wh = this.wA * 0.25 * Math.sin(this.age * this.wF * 1.37 + this.wP * 2);
@@ -1000,7 +1078,7 @@ export class Encounter {
     const maxS = flock ? Math.max(spd0 * 2.2, h2(this.Cvx, this.Cvz) * 1.5 + 0.5) : spd0 * 4 + 0.6;
     const kp = flock ? (kind === 'solo' ? 0.6 : kind === 'pod' ? 0.7 : 1.1) : 0.5;
     const ka = flock ? (this.baseSize > 3 ? 0.8 : 2.5) : 2.2;
-    const avR = this.hardR + (flock ? 3 + this.baseSize : 2.5) + this.alertR;
+    const avR = this.hardR + (flock ? 1.6 + this.baseSize * 0.6 : 1.3) + this.alertR; // calm fish let the camera within ~3 m
     // per-agent floor/ceiling sampling (round-robin)
     const needFloor = !flock || !this.openWater;
     if (needFloor) {
@@ -1020,7 +1098,7 @@ export class Encounter {
     // others every 2nd frame (every 3rd when smaller than ~12 px), coasting in between (staggered across agents)
     const fastObs = this.fast && this.obs.length > 0;
     const coastOK = n >= 4 && !this.event && !fastObs, fc = ++this.fc, PH = this.PH, BF = this.BF, ACC = this.ACC, nearR2 = (avR + 1.5) * (avR + 1.5);
-    const ceilClamp = this.fast && sh.hasCeiling(-(this.bounds.z + az)), hh0 = Math.max(-this.entry.minY, 0.04);
+    const ceilClamp = this.fast && sh.hasCeiling(-(this.bounds.z + az)), hh0 = Math.max(-this.entry.minY, 0.04), terr = this.terrainOn;
     this._cx = cx; this._cy = cy; this._cz = cz;
     // predators in or around a bait ball (double-buffered: written by the hunters each frame)
     if (this.threatsNext) { const t = this.threats; this.threats = this.threatsNext; this.threatsNext = t; this.nThreat = this.nThreatNext; this.nThreatNext = 0; }
@@ -1059,6 +1137,7 @@ export class Encounter {
               this.CLR[i] = Math.min(this._clear(i, P[i3], P[i3 + 1], P[i3 + 2], 1, this._obsList(P[i3], P[i3 + 2])), 1.8) - (this.elong ? this.SZ[i] * 0.45 : 0);
             }
           }
+          if (terr) this._terrainTick(i, h3(vx, vy, vz) * dt, 0);
           continue;
         }
       }
@@ -1071,6 +1150,13 @@ export class Encounter {
         const w = this.age * (0.08 + RP[o] * 0.12) + RP[o + 1] * TAU;
         const rw = kind === 'hover' ? 0.35 : (0.6 + RP[o + 2] * 0.8) * clamp(this.baseSize * 8, 0.5, 2.5);
         tx = SL[o] + Math.sin(w) * rw; ty = SL[o + 1] + Math.sin(w * 1.7) * rw * 0.25; tz = SL[o + 2] + Math.cos(w * 0.77) * rw;
+        if (i === this.inspect) { // the curious one: up beside the camera's line, 2.5-4 m from the lens as it passes
+          const sf = -(P[i3 + 2] + az), off = c.x - sh.pathX(c.s);
+          tx = sh.pathX(sf) + off + this.inspX; ty = c.y + this.inspY; tz = P[i3 + 2];
+          this.inspT -= dts;
+          if (sf < c.s - 2.5 && this.inspT > 1.2) this.inspT = 1.2;
+          if (this.inspT <= 0) this.inspect = -1;
+        }
         RP[o + 3] -= dts;
         if (RP[o + 3] < 0 && kind === 'shoal') { // drift to a new spot within the patch
           RP[o + 3] = 6 + this.rng() * 20;
@@ -1079,7 +1165,7 @@ export class Encounter {
           this._setHome(i, this.homeX + Math.cos(a) * r, this.homeZ + Math.sin(a) * r * 1.4, alt[0] + (alt[1] - alt[0]) * this.rng(), this.plan);
         }
       }
-      const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2];
+      const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2], f0x = F[i3], f0y = F[i3 + 1], f0z = F[i3 + 2];
       let dvx = (tx - px) * kp + tvx, dvy = (ty - py) * kp + tvy, dvz = (tz - pz) * kp + tvz;
       let dl = h3(dvx, dvy, dvz);
       const mS = strike && this.MODE[i] === 1 ? maxS * 2.6 : maxS;
@@ -1116,7 +1202,7 @@ export class Encounter {
         }
         dvx += OA[i3]; dvy += OA[i3 + 1]; dvz += OA[i3 + 2];
       }
-      if (ed < avR && ed > 1e-4) {
+      if (ed < avR && ed > 1e-4 && i !== this.inspect) {
         const push = (avR - ed) / avR * (2.5 + spd0 * 2) * (flock ? 1.6 : 2.4) * (1 + STL[i]);
         dvx += ex / ed * push; dvy += ey / ed * push * 0.7; dvz += ez / ed * push;
         if (ed < avR * 0.75 && this.baseSize < 2) STL[i] = 1; // startle: a quick dart away
@@ -1156,6 +1242,7 @@ export class Encounter {
       P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
       if (kind === 'bait' || kind === 'mill') // a drifting ball: fish face their milling direction, not the drift
         this._orient(i, dts, vx - this.Cvx * 0.85, vy - this.Cvy * 0.85, vz - this.Cvz * 0.85, dt);
+      else if (i === this.inspect) { const lk = this.lookCam; this.lookCam = 0.85; this._orient(i, dts, vx, vy, vz, dt); this.lookCam = lk; }
       else this._orient(i, dts, vx, vy, vz, dt);
       if (this.cork) { // sea lions: playful corkscrew rolls
         if (this.SPIN[i] > 0 || (this.speed > 0.5 && this.rng() < dts * 0.06)) {
@@ -1170,8 +1257,27 @@ export class Encounter {
           this.CLR[i] = Math.min(this._clear(i, P[i3], P[i3 + 1], P[i3 + 2], 1, this._obsList(P[i3], P[i3 + 2])), 1.8) - (this.elong ? this.SZ[i] * 0.45 : 0);
         }
       }
+      if (terr) this._terrainTick(i, h3(P[i3] - px, P[i3 + 1] - py, P[i3 + 2] - pz), h3(F[i3] - f0x, F[i3 + 1] - f0y, F[i3 + 2] - f0z));
     }
     this._writeAll(dt);
+  }
+
+  // One individual of a shoal comes up to inspect the camera (director close encounters): the member
+  // nearest to the camera's line ahead, holding 2.5-4 m to its own side of the line.
+  startInspect(c) {
+    const sh = this.sys.shape, P = this.P, az = this.anchorZ;
+    let bi = -1, bd = 1e9;
+    for (let i = 0; i < this.n; i++) {
+      const s = -(P[i * 3 + 2] + az);
+      if (s < c.s + 6) continue;
+      const d = Math.abs(P[i * 3] - sh.pathX(s)) + Math.abs(P[i * 3 + 1] - sh.pathY(s)) * 0.7;
+      if (d < bd) { bd = d; bi = i; }
+    }
+    if (bi < 0) return false;
+    const s = -(P[bi * 3 + 2] + az), side = P[bi * 3] >= sh.pathX(s) ? 1 : -1;
+    this.inspect = bi; this.inspT = 16;
+    this.inspX = side * Math.max(2.5 + this.rng() * 1.3, this.hardR + 0.5); this.inspY = this.rng() * 0.9 - 0.6;
+    return true;
   }
 
   // heading, bank, body bend and tail-beat phase from velocity
@@ -1276,6 +1382,7 @@ export class Encounter {
         if (dA < 0.8) { V[i3] += _hit.nx * (0.8 - dA) * dt * 4; V[i3 + 1] += Math.max(_hit.ny, 0.4) * (0.8 - dA) * dt * 4; V[i3 + 2] += _hit.nz * (0.8 - dA) * dt * 4; }
         this._pushOut(i, P, V);
       }
+      if (this.terrainOn) this._terrainTick(i, h3(P[i3] - px, P[i3 + 1] - py, P[i3 + 2] - pz), 0.05);
       this.STL[i] = Math.max(0, this.STL[i] - dt * 0.3);
       TMR[i] -= dt;
       if (MODE[i] === 1 && (TMR[i] < 0 || dl < 1)) {
@@ -1349,6 +1456,7 @@ export class Encounter {
           const [hx, hz] = this._freeSpot(P[i3], P[i3 + 2], this.rbU * this.SZ[i] + 0.2, true); HOME[i * 2] = hx; HOME[i * 2 + 1] = hz;
         }
       }
+      if (MODE[i] !== 0 && this.terrainOn) this._terrainTick(i, h3(P[i3] - px, P[i3 + 1] - py, P[i3 + 2] - pz), 0.05);
       const hv = h2(V[i3], V[i3 + 2]);
       if (hv > 0.03) { const k = Math.min(1, dt * 2); F[i3] += (V[i3] / hv - F[i3]) * k; F[i3 + 2] += (V[i3 + 2] / hv - F[i3 + 2]) * k; const l = h2(F[i3], F[i3 + 2]) || 1; F[i3] /= l; F[i3 + 2] /= l; }
       let ph = this.PH[i] + TAU * (0.4 + hv * 2 + JET[i] * 1.2) * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph;
@@ -1390,8 +1498,10 @@ export class Encounter {
       const ex = nx - cx, ey = ny - cy, ez = nz - cz, ed = h3(ex, ey, ez), hr = this.hardR + 1;
       if (ed < hr + 2 && ed > 1e-4) { const pu = (hr + 2 - ed) * dt * 0.8; nx += ex / ed * pu; ny += ey / ed * pu * 0.5; nz += ez / ed * pu; }
       if (ed < hr && ed > 1e-4) { nx = cx + ex / ed * hr; ny = cy + ey / ed * hr; nz = cz + ez / ed * hr; }
+      const ox = P[i3], oy = P[i3 + 1], oz = P[i3 + 2];
       P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
       if (this.obs.length) this._pushOut(i, P, null);
+      if (this.terrainOn) this._terrainTick(i, h3(P[i3] - ox, P[i3 + 1] - oy, P[i3 + 2] - oz), 0.02);
       const m = this.sp.mot;
       let p2 = ph + TAU * m.idle * (0.8 + 0.4 * this.RP[i * 4 + 1]) * dt; if (p2 > PH_WRAP) p2 -= PH_WRAP; this.PH[i] = p2;
       this.AMP[i] = 1;
@@ -1453,6 +1563,167 @@ export class Encounter {
     this._writeAll(dt);
   }
 
+  // ---------- terrain & personal space ----------
+  // Body basis of agent i as drawn by _writeAll: B = [X, Y, Z] (columns, unit length).
+  _frame(i, B) {
+    const F = this.F, i3 = i * 3, plan = this.sp.plan;
+    if (plan === 'jelly' || plan === 'dumbo') {
+      const Yx = F[i3], Yy = F[i3 + 1], Yz = F[i3 + 2];
+      let Xx = Yy, Xy = -Yx; const l = h2(Xx, Xy) || 1; Xx /= l; Xy /= l;
+      B[0] = Xx; B[1] = Xy; B[2] = 0; B[3] = Yx; B[4] = Yy; B[5] = Yz; B[6] = Xy * Yz; B[7] = -Xx * Yz; B[8] = Xx * Yy - Xy * Yx;
+      return;
+    }
+    if (this.sp.beh.upright) {
+      const l = h2(F[i3], F[i3 + 2]) || 1, zx = F[i3] / l, zz = F[i3 + 2] / l;
+      B[0] = zz; B[1] = 0; B[2] = -zx; B[3] = 0; B[4] = 1; B[5] = 0; B[6] = zx; B[7] = 0; B[8] = zz;
+      return;
+    }
+    if (this.kind === 'octo') {
+      const J = this.JET[i], V = this.V, N = this.NRM, vl = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1;
+      let Yx = N[i3] * (1 - J) + V[i3] / vl * J, Yy = N[i3 + 1] * (1 - J) + V[i3 + 1] / vl * J, Yz = N[i3 + 2] * (1 - J) + V[i3 + 2] / vl * J;
+      const yl = h3(Yx, Yy, Yz) || 1; Yx /= yl; Yy /= yl; Yz /= yl;
+      const zx = F[i3] * (1 - J) - N[i3] * J, zz = F[i3 + 2] * (1 - J) - N[i3 + 2] * J, d = zx * Yx + zz * Yz;
+      let Zx = zx - d * Yx, Zy = -d * Yy, Zz = zz - d * Yz; const l = h3(Zx, Zy, Zz) || 1; Zx /= l; Zy /= l; Zz /= l;
+      B[0] = Yy * Zz - Yz * Zy; B[1] = Yz * Zx - Yx * Zz; B[2] = Yx * Zy - Yy * Zx; B[3] = Yx; B[4] = Yy; B[5] = Yz; B[6] = Zx; B[7] = Zy; B[8] = Zz;
+      return;
+    }
+    const Zx = F[i3], Zy = F[i3 + 1], Zz = F[i3 + 2];
+    let rx = Zz, rz = -Zx; const rl = h2(rx, rz) || 1; rx /= rl; rz /= rl;
+    const ux = Zy * rz, uy = Zz * rx - Zx * rz, uz = -Zy * rx;
+    const b = this.BANK[i] + (this.SPIN ? this.SPIN[i] : 0), cb = Math.cos(b), sb = Math.sin(b);
+    B[0] = rx * cb - ux * sb; B[1] = -uy * sb; B[2] = rz * cb - uz * sb;
+    B[3] = ux * cb + rx * sb; B[4] = uy * cb; B[5] = uz * cb + rz * sb;
+    B[6] = Zx; B[7] = Zy; B[8] = Zz;
+  }
+
+  // Keep every extremity of agent i (8 extreme points of its geometry: nose, tail, fin tips, back, belly)
+  // out of the sea floor, cave walls, ceilings / ice and above-surface space. Corrections go along the
+  // surface normal by the planar depth (beside a vertical wall a fish slides away from it instead of
+  // climbing it), the velocity into the rock is turned away and a pitched nose / tail levels out. When
+  // squeezed (floor and roof both in the way) the animal heads back toward the open passage at the path.
+  // Returns the new clearance budget (metres of motion before the next exact check is needed).
+  _terrainFix(i) {
+    const sh = this.sys.shape, P = this.P, V = this.V, F = this.F, i3 = i * 3, az = this.anchorZ, sz = this.SZ[i];
+    const sup = this.entry.shape.sup, B = _B, top0 = this.topCap, ceil = this.ceilOn, m = 0.03 + 0.035 * sz; // + tail beat
+    let moved = 0; // corrections also use up the obstacle clearance budget
+    for (let it = 0; it < 6; it++) {
+      this._frame(i, B);
+      let worst = 0, wF = true, wx = 0, wz = 0, wk = 0, gap = 1e9;
+      let f0 = 1e9, f1 = -1e9, c0 = 1e9, c1 = -1e9, x0 = 1e9, x1 = -1e9, z0 = 1e9, z1 = -1e9;
+      for (let k = 0; k < 8; k++) {
+        const lx = sup[k * 3] * sz, ly = sup[k * 3 + 1] * sz, lz = sup[k * 3 + 2] * sz;
+        const x = P[i3] + B[0] * lx + B[3] * ly + B[6] * lz, y = P[i3 + 1] + B[1] * lx + B[4] * ly + B[7] * lz, z = P[i3 + 2] + B[2] * lx + B[5] * ly + B[8] * lz;
+        const s = -(z + az), fl = sh.floorAt(x, s);
+        let ce = top0;
+        if (ceil) { const cc = sh.ceilingAt(x, s); if (cc < ce) ce = cc; }
+        const pf = fl + m - y, pc = y + m - ce;
+        if (pf > worst) { worst = pf; wF = true; wx = x; wz = z; wk = k; }
+        if (pc > worst) { worst = pc; wF = false; wx = x; wz = z; wk = k; }
+        const g = (y - fl < ce - y ? y - fl : ce - y) - m;
+        if (g < gap) gap = g;
+        if (fl < f0) f0 = fl; if (fl > f1) f1 = fl; if (ce < c0) c0 = ce; if (ce > c1) c1 = ce;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (z < z0) z0 = z; if (z > z1) z1 = z;
+      }
+      if (worst <= 0) {
+        if (moved > 0) this.CLR[i] -= moved;
+        // budget: how far it may move before something can reach an extremity, from the slope measured across
+        // the body (a steeper face beyond it can intrude by at most that distance before the next check)
+        // (at least 3:1, 10:1 under roofs and ice, whose openings, leads and keels are cliffs; at most 1 m between checks)
+        const span = h2(x1 - x0, z1 - z0) + 0.2, slope = Math.min(SLOPE, Math.max(f1 - f0, c1 - c0, 0) / span);
+        return gap > 0 ? Math.min(1, gap / (1 + 2 * Math.max(slope, ceil ? 10 : 3))) : 0;
+      }
+      if (it >= 3) { // squeezed or wedged: back toward the open passage around the path
+        const s = -(P[i3 + 2] + az), dx = sh.pathX(s) - P[i3], dy = sh.pathY(s) - P[i3 + 1], dl = h2(dx, dy) || 1, st = Math.min(dl, 0.2 + Math.min(worst, 2));
+        P[i3] += dx / dl * st; P[i3 + 1] += dy / dl * st; moved += st;
+        V[i3] *= 0.5; V[i3 + 1] *= 0.5; V[i3 + 2] *= 0.5;
+        if (this.elong) { F[i3 + 1] *= 0.5; const hh = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / hh; F[i3] *= sc; F[i3 + 2] *= sc; }
+        continue;
+      }
+      const ws = -(wz + az), e = 0.5;
+      let nx = 0, ny = -1, nz = 0; // the sea surface
+      if (wF) { const hx = sh.floorAt(wx + e, ws) - sh.floorAt(wx - e, ws), hs = sh.floorAt(wx, ws + e) - sh.floorAt(wx, ws - e); nx = -hx; ny = 2 * e; nz = hs; }
+      else if (ceil && sh.ceilingAt(wx, ws) < top0) { const hx = sh.ceilingAt(wx + e, ws) - sh.ceilingAt(wx - e, ws), hs = sh.ceilingAt(wx, ws + e) - sh.ceilingAt(wx, ws - e); nx = hx; ny = -2 * e; nz = -hs; }
+      const nl = h3(nx, ny, nz) || 1; nx /= nl; ny /= nl; nz /= nl;
+      const d = worst * Math.max(Math.abs(ny), 0.12) + 0.02 + 0.01 * sz; // a little slack: no re-check every frame
+      P[i3] += nx * d; P[i3 + 1] += ny * d; P[i3 + 2] += nz * d; moved += d;
+      const vn = V[i3] * nx + V[i3 + 1] * ny + V[i3 + 2] * nz;
+      if (vn < 0.2) { const k2 = 0.2 - vn; V[i3] += nx * k2; V[i3 + 1] += ny * k2; V[i3 + 2] += nz * k2; } // turn away from the rock
+      if (this.elong && wk !== 2 && wk !== 3 && Math.abs(F[i3 + 1]) > 0.05) { // nose or tail pitched into it: level out
+        F[i3 + 1] *= 0.6; const hh = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / hh; F[i3] *= sc; F[i3 + 2] *= sc;
+      }
+    }
+    this.CLR[i] -= moved;
+    return 0;
+  }
+  // Terrain budget bookkeeping after agent i moved by `disp` (and turned by `turn`, |dF|): exact check when used up.
+  _terrainTick(i, disp, turn) {
+    const t = this.TCL[i] - disp - turn * this.SZ[i] * 0.55 - 0.002;
+    this.TCL[i] = t < 0 ? this._terrainFix(i) : t;
+  }
+
+  // A pushed animal takes its place in the formation with it (formation offset, orbit radius / angle /
+  // height, or shoal home), so the group settles into a non-overlapping arrangement instead of fighting.
+  _slotShift(i, dx, dy, dz) {
+    const k = this.kind, SL = this.SL, o = i * 4;
+    if (k === 'bait' || k === 'mill') {
+      const a = SL[o + 1], r = SL[o], ca = Math.cos(a), sa = Math.sin(a);
+      const r2 = Math.max(0.3, r + dx * ca + dz * sa);
+      SL[o + 1] = a + (-dx * sa + dz * ca) / Math.max(r, 0.3); SL[o] = r2; SL[o + 2] += dy;
+      SL[o + 3] *= r / r2; // same swimming speed on the new radius
+    } else if (k === 'school' || k === 'pod' || k === 'solo') { // offsets live in the heading frame (sin psi = cvx, cos psi = cvz)
+      const c = this.cvz, sn = this.cvx;
+      SL[o] += dx * c - dz * sn; SL[o + 1] += dy; SL[o + 2] += dx * sn + dz * c;
+    } else if (k === 'shoal' || k === 'hover') { SL[o] += dx; SL[o + 1] += dy; SL[o + 2] += dz; }
+  }
+
+  // Apply the separation pass's correction (sep.js) and re-establish the hard constraints for moved animals.
+  _applySep(c) {
+    const n = this.n, D = this.SD, P = this.P, V = this.V, sh = this.sys.shape, az = this.anchorZ, k = this.kind;
+    const M = this.mesh.instanceMatrix.array, cx = c.x, cy = c.y, cz = c.z - az, MV = this.SMV;
+    let cnt = 0;
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      let dx = D[i3], dy = D[i3 + 1], dz = D[i3 + 2];
+      if (dx === 0 && dy === 0 && dz === 0) continue;
+      MV[cnt] = i; // moved: re-checked by the follow-up rounds
+      let dl = h3(dx, dy, dz);
+      if (dl > 1.5) { const f = 1.5 / dl; dx *= f; dy *= f; dz *= f; dl = 1.5; }
+      P[i3] += dx; P[i3 + 1] += dy; P[i3 + 2] += dz;
+      D[i3] = 0; D[i3 + 1] = 0; D[i3 + 2] = 0;
+      const s = -(P[i3 + 2] + az);
+      if (k === 'walk') P[i3 + 1] = sh.floorAt(P[i3], s);
+      else if (k === 'bed') P[i3 + 1] = sh.floorAt(P[i3], s) + 0.006 * this.SZ[i];
+      else if ((k === 'rest' || k === 'octo') && this.MODE[i] === 0) {
+        P[i3 + 1] = (this.perched && this.perched[i] ? this.perchY : sh.floorAt(P[i3], s)) + this._restLift(i);
+        if (this.HOME) { this.HOME[i * 2] += dx; this.HOME[i * 2 + 1] += dz; }
+      } else {
+        const vn = (V[i3] * dx + V[i3 + 1] * dy + V[i3 + 2] * dz) / dl;
+        if (vn < 0) { V[i3] -= dx / dl * vn; V[i3 + 1] -= dy / dl * vn; V[i3 + 2] -= dz / dl * vn; }
+        this._slotShift(i, dx, dy, dz);
+        const ex = P[i3] - cx, ey = P[i3 + 1] - cy, ez = P[i3 + 2] - cz, ed = h3(ex, ey, ez), hr = this.hardR + this.SZ[i] * 0.2;
+        if (ed < hr && ed > 1e-4) { P[i3] = cx + ex / ed * hr; P[i3 + 1] = cy + ey / ed * hr; P[i3 + 2] = cz + ez / ed * hr; dl += hr - ed; }
+        if (this.terrainOn) this._terrainTick(i, dl, 0);
+      }
+      this.CLR[i] -= dl;
+      if (this.obs.length && this.CLR[i] < 0.05) { this._pushOut(i, P, V); this.CLR[i] = 0; }
+      const o = i * 16; // the drawn instance moves with it
+      if (M[o + 15] === 1) { M[o + 12] = P[i3]; M[o + 13] = P[i3 + 1]; M[o + 14] = P[i3 + 2]; }
+      else if (this.nearCount) {
+        for (let q = 0; q < this.nearCount; q++) {
+          if (this.nearIdx[q] !== i) continue;
+          const NM = this.nearMesh.instanceMatrix.array, C = this.nearCopy, b = q * 16;
+          C[b + 12] = NM[b + 12] = P[i3]; C[b + 13] = NM[b + 13] = P[i3 + 1]; C[b + 14] = NM[b + 14] = P[i3 + 2];
+          this.nearMesh.instanceMatrix.needsUpdate = true;
+          break;
+        }
+      }
+      cnt++;
+    }
+    this.nMoved = cnt;
+    if (cnt) { this.sepMoved = true; if (this.visible) this.mesh.instanceMatrix.needsUpdate = true; else this._mUp = true; }
+    return cnt;
+  }
+
   // ---------- geometry LOD ----------
   _makeGeo(entry) {
     const g = new THREE.BufferGeometry();
@@ -1479,12 +1750,12 @@ export class Encounter {
     this._nearTick(c);
   }
   _nearTick(c) {
-    const NMAX = 10, sys = this.sys;
-    const ok = this.visible && d0ok(this) && this.dist < 9;
+    const NMAX = 12, sys = this.sys;
+    const ok = this.visible && d0ok(this) && this.dist < 11;
     if (!ok) { if (this.nearCount) this._nearSet(0); return; }
     if (!this.nearMesh) {
       if (!sys.cache.has(this.sp, 1)) { sys.wantLod(this.sp, 1); return; }
-      if (sys.nearActive >= 4) return; // draw-call budget
+      if (sys.nearActive >= sys.maxNear) return; // draw-call budget
       const entry = sys.cache.acquire(this.sp, 1), g = new THREE.BufferGeometry();
       g.setIndex(entry.index); g.setAttribute('position', entry.pos); g.setAttribute('normal', entry.nor); g.setAttribute('aG', entry.g);
       this.nearAttrs = [];
@@ -1497,19 +1768,19 @@ export class Encounter {
       this.nearMesh = m; this.nearEntry = entry; this.nearGeo = g; this.nearIdx = new Int16Array(NMAX).fill(-1); this.nearCount = 0;
       this.nearMark = new Uint8Array(this.n); this.nearCopy = new Float32Array(NMAX * 16);
     }
-    if (!this.nearCount && sys.nearActive >= 4) return; // draw-call budget: at most four twins at a time
+    if (!this.nearCount && sys.nearActive >= sys.maxNear) return; // draw-call budget: a few twins at a time
     const P = this.P, n = this.n, cx = c.x, cy = c.y, cz = c.z - this.anchorZ, mark = this.nearMark, idx = this.nearIdx;
     // keep agents still within 8 m, add new ones within 7 m (nearest first is not needed: few agents qualify)
     let cnt = 0, changed = false;
     for (let k = 0; k < this.nearCount; k++) {
       const i = idx[k], dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz;
-      if (dx * dx + dy * dy + dz * dz < 64) { if (k !== cnt) { idx[cnt] = i; this.nearCopy.copyWithin(cnt * 16, k * 16, k * 16 + 16); changed = true; } cnt++; }
+      if (dx * dx + dy * dy + dz * dz < 100) { if (k !== cnt) { idx[cnt] = i; this.nearCopy.copyWithin(cnt * 16, k * 16, k * 16 + 16); changed = true; } cnt++; }
       else { mark[i] = 0; changed = true; if (STATIC_KINDS.has(this.kind)) this.matrixDirty = true; }
     }
     for (let i = 0; i < n && cnt < NMAX; i++) {
       if (mark[i]) continue;
       const dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz;
-      if (dx * dx + dy * dy + dz * dz < 49) { mark[i] = 1; idx[cnt] = i; cnt++; changed = true; this.nearCopy.fill(0, (cnt - 1) * 16, cnt * 16); }
+      if (dx * dx + dy * dy + dz * dz < 81) { mark[i] = 1; idx[cnt] = i; cnt++; changed = true; this.nearCopy.fill(0, (cnt - 1) * 16, cnt * 16); }
     }
     if (changed) { // static per-instance attributes follow the selection
       for (let k = 0; k < 7; k++) {

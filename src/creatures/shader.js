@@ -368,7 +368,9 @@ vec3 cD = crLin(crUnpack(vCol.x)), cB = crLin(crUnpack(vCol.y)), cP = crLin(crUn
 vec3 cP2 = crLin(crUnpack(vCol2.x)), cA = crLin(crUnpack(vCol2.y));
 vec3 pk = crUnpack(vCol2.z);
 vec3 pk2 = crUnpack(vCol2.w);
-float glowMode = floor(pk2.z * 255.0 + 0.5);
+float crGm = floor(pk2.z * 255.0 + 0.5);
+float crNoGill = step(7.5, crGm);          // +8: no bony gill cover (sharks, rays, seals, eels...)
+float glowMode = crGm - 8.0 * crNoGill;
 float crT = 0.5 - vLoc.z;
 float vN = vGv.y;
 vec2 q = vec2(-vLoc.z, vLoc.y);
@@ -444,6 +446,12 @@ if (crMode == 0.0 && crPart == 0.0 && vPat2.z > 0.12) {
   crSheen *= 0.75 + 0.5 * scl;
   float lline = (1.0 - smoothstep(0.0, 0.022, abs(vN - (0.32 - 0.16 * crT)))) * smoothstep(0.12, 0.2, crT) * smoothstep(0.86, 0.76, crT);
   crCol = mix(crCol, crCol * 1.3 + 0.015, lline * 0.35);
+}
+if (crMode == 0.0 && crPart == 0.0 && crNoGill < 0.5) { // gill cover: a fine curved edge behind the eye, the cheek a touch lighter
+  float tg = 0.205 + 0.04 * vN * vN;
+  float gEdge = (1.0 - smoothstep(0.0025, 0.008, abs(crT - tg))) * (1.0 - smoothstep(0.55, 0.85, abs(vN)));
+  crCol *= 1.0 - 0.3 * gEdge;
+  crCol = mix(crCol, crCol * 1.1 + 0.006, (1.0 - smoothstep(tg - 0.07, tg - 0.01, crT)) * smoothstep(0.03, 0.08, crT) * 0.35 * (1.0 - smoothstep(0.5, 0.8, abs(vN))));
 }
 if (crMode == 6.0) { // blanching when alarmed; a dark flush of the chromatophores at the moment of the startle
   crCol = mix(crCol, cB * 1.15, clamp(vExc - 1.0, 0.0, 1.0) * 0.55);

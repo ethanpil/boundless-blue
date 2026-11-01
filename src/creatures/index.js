@@ -7,6 +7,7 @@ import { GeoCache, Encounter } from './encounter.js';
 import { Director } from './director.js';
 import { commonName, FACTS } from './species.js';
 import { FX } from './fx.js';
+import { Separation } from './sep.js';
 
 const _v = new THREE.Vector3();
 const TAU = Math.PI * 2;
@@ -23,15 +24,17 @@ export class Creatures {
     this.mats = makeMaterials();
     this.cache = new GeoCache(96);
     this.enc = [];
-    const low = env.tier === 'low'; // ~0.6x instance budgets on low-end devices
-    this.tierScale = low ? 0.6 : 1;
-    this.maxEnc = low ? 26 : 34; this.maxInstances = low ? 1500 : 2500; this.maxTris = low ? 250000 : 420000;
+    // per-tier budgets: groups (= draw calls), instances, triangles, high-detail close-up twins (extra draw calls)
+    const T = { low: [0.6, 26, 1800, 260000, 3], medium: [0.85, 30, 2500, 360000, 4], high: [1, 34, 3000, 460000, 5], ultra: [1.15, 40, 3600, 600000, 8] }[env.tier] || [1, 34, 3000, 460000, 5];
+    this.tierScale = T[0];
+    this.maxEnc = T[1]; this.maxInstances = T[2]; this.maxTris = T[3]; this.maxNear = T[4];
     this.instances = 0; this.trisTotal = 0;
     this.nearActive = 0; this.lodQueue = new Map();
     this.forceSpecies = qs.get('cr');
     this.logStats = qs.get('crstats') === '1';
     this.fx = new FX(world, env.U);
     this.director = new Director(this);
+    this.sep = new Separation(this);
     this.frustum = new THREE.Frustum();
     this._pm = new THREE.Matrix4();
     this.lastS = null; this.camSpeed = 3; this.fogD = 130;
@@ -248,6 +251,7 @@ export class Creatures {
       }
       if (e.visible) { vis++; visTris += e.tris + (e.nearCount ? e.nearEntry.tris * e.nearCount : 0); }
     }
+    if (dt > 0) this.sep.run(c); // personal space: no two animals inside each other
     this._ambientFx(dt, c);
     this.fx.update(dt, c.s);
     if (!this._idleQueued && typeof requestIdleCallback === 'function') { this._idleQueued = true; requestIdleCallback(this._idleCb, { timeout: 1500 }); }

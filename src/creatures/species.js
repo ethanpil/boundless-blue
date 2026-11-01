@@ -12,7 +12,7 @@ export function merge(a, b) {
 }
 
 // ---------- behaviour presets ----------
-const SHOAL = { kind: 'shoal', n: [6, 14], speed: [0.25, 0.6], zone: 'floor', alt: [0.4, 2.5], spread: 5 };
+const SHOAL = { kind: 'shoal', n: [8, 18], speed: [0.25, 0.6], zone: 'floor', alt: [0.4, 2.5], spread: 5 };
 const SCHOOL = { kind: 'school', n: [40, 110], speed: [0.6, 1.1], zone: 'mid', routes: { hold: 3, cross: 1, along: 1 } };
 const SOLO = { kind: 'solo', n: [1, 1], speed: [0.4, 0.9], zone: 'floor', alt: [0.8, 3], dist: [5, 22], routes: { hold: 2, cross: 1, along: 1, oncoming: 1 } };
 const CRUISE = { kind: 'solo', n: [1, 1], speed: [0.8, 1.5], zone: 'mid', dist: [10, 40], routes: { cross: 2, oncoming: 2, along: 1, overtake: 0.5 } };
@@ -476,16 +476,18 @@ export const SPECIES = {
     beh: { ...GIANT, n: [1, 2], speed: [1.2, 2], dist: [30, 80] }, size: [12, 15], hl: true, flukeId: 0.95, barnacles: 0.35, scars: 0.6,
   }),
   blueWhale: merge(CETACEAN, {
-    body: ST([0, 0.02, 0.06, 0.12, 0.2, 0.32, 0.45, 0.58, 0.7, 0.8, 0.87, 0.92, 0.94],
-      [0, 0.012, 0.025, 0.04, 0.05, 0.056, 0.058, 0.055, 0.045, 0.03, 0.018, 0.01, 0],
-      [0, 0.02, 0.035, 0.048, 0.055, 0.06, 0.058, 0.05, 0.038, 0.025, 0.014, 0.008, 0],
-      [0, 0.035, 0.05, 0.058, 0.062, 0.064, 0.062, 0.055, 0.042, 0.026, 0.012, 0.006, 0],
-      [-0.01, -0.008, -0.005, -0.003, 0, 0, 0, 0, 0, 0, 0, 0, 0]),
-    fins: { dorsal: [{ t0: 0.76, t1: 0.79, h: 0.012, shape: 'falcate', sweep: 1 }], flip: { t: 0.22, span: 0.03, a: -0.5, h: 0.1, dip: 0.6, sweep: 0.8, shape: 'wing', thick: 0.08, part: 7 }, caudal: { shape: 'fluke', size: 0.1 } },
-    eye: { t: 0.11, v: -0.1, r: 0.004 },
-    col: C(0x4a6278, 0x7a8ea0, 0x9aaebe, 0x4a6278), pat: [6, 5, 0.58], pat2: [16, 34, 0], cs: [-0.6, 0.1],
+    // broad, flat U-shaped head over a deep pleated throat, splashguard ridge, slender body peaking at the
+    // flippers, a tiny dorsal fin far back and a laterally keeled tail stock to wide flukes
+    body: { ...ST([0, 0.02, 0.05, 0.1, 0.16, 0.22, 0.3, 0.4, 0.5, 0.6, 0.7, 0.78, 0.85, 0.9, 0.93],
+      [0.004, 0.012, 0.018, 0.026, 0.036, 0.046, 0.054, 0.056, 0.052, 0.044, 0.034, 0.026, 0.018, 0.011, 0],
+      [0.006, 0.022, 0.034, 0.046, 0.056, 0.062, 0.064, 0.06, 0.05, 0.038, 0.028, 0.02, 0.014, 0.009, 0],
+      [0.01, 0.034, 0.046, 0.054, 0.058, 0.062, 0.066, 0.064, 0.056, 0.044, 0.03, 0.018, 0.01, 0.006, 0],
+      [-0.012, -0.012, -0.01, -0.007, -0.004, -0.002, 0, 0, 0, 0.002, 0.004, 0.004, 0.004, 0.003, 0.002]), bumps: [['t', 0.17, 0.015, 0.14]] },
+    fins: { dorsal: [{ t0: 0.74, t1: 0.775, h: 0.016, shape: 'falcate', sweep: 1.1, thick: 0.1 }], flip: { t: 0.24, span: 0.03, a: -0.55, h: 0.12, dip: 0.6, sweep: 0.75, shape: 'wing', thick: 0.08, part: 7 }, caudal: { shape: 'fluke', size: 0.13 } },
+    eye: { t: 0.115, v: -0.15, r: 0.004 },
+    col: C(0x4a6278, 0x7a8ea0, 0xa8bccc, 0x4a6278), pat: [6, 9, 0.52], pat2: [16, 34, 0], cs: [-0.6, 0.1], sheen: 0.18,
     mot: { amp: 0.035, waves: 0.55, beat: 0.6, idle: 0.08 },
-    beh: { ...GIANT, speed: [1.5, 2.4], dist: [40, 90] }, size: [20, 26], hl: true,
+    beh: { ...GIANT, speed: [1.5, 2.4], dist: [40, 90] }, size: [20, 26], hl: true, scars: 0.5, barnacles: 0.1,
   }),
   spermWhale: merge(CETACEAN, {
     body: { ...ST([0, 0.01, 0.05, 0.15, 0.28, 0.35, 0.42, 0.55, 0.66, 0.76, 0.84, 0.9, 0.92],
@@ -1124,6 +1126,166 @@ S.seaLion.beh = { ...S.seaLion.beh, corkscrew: true };
 S.greatWhite.interest = 0.85;
 S.siphonophore.interest = 0.6;
 
+// ---------- seven more oceanscapes: seamount, sargassum, champagne reef, jellyfish lake, sunken forest,
+// anemone fields, blue hole — and more of the vivid reef cast ----------
+const CLOWN_BODY = S.clownfish;
+Object.assign(SPECIES, {
+  // ---- seamount ----
+  silkyShark: merge(SHARK, {
+    body: { depth: 0.15, nose: 1.15, tm: 0.35, ped: 0.18 },
+    fins: { dorsal: [{ t0: 0.37, t1: 0.48, h: 0.11, shape: 'shark', sweep: 0.9, thick: 0.06 }, { t0: 0.64, t1: 0.67, h: 0.02, shape: 'shark', sweep: 1.2 }],
+      pect: { h: 0.25, shape: 'falcate', sweep: 1.05, dip: 0.3 } },
+    col: { d: 0x6e6a60, b: 0xf2f0ea }, cs: [-0.06, 0.4], sheen: 0.4, scars: 0.7,
+    beh: { ...POD, n: [2, 6], speed: [0.9, 1.5], dist: [8, 30], routes: { cross: 2, oncoming: 1, along: 1 } }, size: [1.8, 2.5],
+  }),
+  bluefinTrevally: merge(S.jack, {
+    col: C(0x56688a, 0xe2e8ee, 0x1c2a44, 0x2a6ae8, 0, 0x101010), pat: [3, 42, 0.12], finEdge: 0.3, sheen: 0.9,
+    beh: { kind: 'school', n: [3, 12], speed: [0.8, 1.4], zone: 'mid', routes: { cross: 1, along: 1, hold: 1, lead: 1 } }, size: [0.5, 0.8],
+  }),
+  fusilier: fish({
+    det: 0,
+    body: { depth: 0.26, width: 0.48, tm: 0.38, nose: 0.85, tail: 1.5, ped: 0.08, tEnd: 0.82 },
+    fins: { dorsal: [{ t0: 0.3, t1: 0.66, h: 0.055, shape: 'long' }], anal: [{ t0: 0.55, t1: 0.68, h: 0.05 }], caudal: { shape: 'forked', size: 0.27 } },
+    col: C(0x2a68d8, 0xeaf2fa, 0xf8d22a, 0xf8d22a, 0xf8d22a, 0x101010), pat: [23, 0.6, 1], pat2: [12, 0.78, 0.13], cs: [0.1, 0.35], sheen: 0.7,
+    beh: { ...SCHOOL, n: [40, 120], speed: [0.6, 1.1], zone: 'mid', routes: { hold: 2, cross: 1, along: 1 } }, size: [0.2, 0.3],
+  }),
+  // ---- sargassum ----
+  sargassumfish: fish({
+    det: 2,
+    body: { depth: 0.56, width: 0.85, tm: 0.34, nose: 0.35, tail: 1.0, ped: 0.22, n: 2.0, snout: -0.22, bumps: [['a', 0.25, 0.08, 0.12], ['t', 0.5, 0.07, 0.14]] },
+    fins: { dorsal: [{ t0: 0.07, t1: 0.15, h: 0.13, shape: 'spiny', spikes: 3, sweep: -0.2 }, { t0: 0.4, t1: 0.72, h: 0.11, shape: 'round', sweep: 0.3 }],
+      anal: [{ t0: 0.52, t1: 0.72, h: 0.1, shape: 'round' }], pect: { t: 0.42, span: 0.05, a: -0.5, h: 0.17, dip: 0.85, sweep: 0.45, shape: 'paddle', thick: 0.08 },
+      pelv: { t: 0.3, h: 0.11, dip: 1.25, sweep: 0.4, shape: 'paddle', thick: 0.07 }, caudal: { shape: 'rounded', size: 0.2 } },
+    extra: { tassels: { n: 22, len: 0.07 } },
+    eye: { r: 0.022, v: 0.45 },
+    col: C(0xa8862a, 0xdcc478, 0x5a3a10, 0xb89040, 0xf6eedc, 0x2a2010), pat: [6, 9, 0.5], pat2: [25, 34, 0.5], cs: [-0.6, 0.1], sheen: 0.05, rough: 0.7, iris: 0.8,
+    mot: { amp: 0.03, beat: 0.8, idle: 0.5 }, beh: { ...HOVER, n: [1, 2], speed: [0.03, 0.12], alt: [0.1, 0.5], spread: 1.5 }, size: [0.1, 0.17], interest: 0.65,
+  }),
+  juvJack: merge(S.jack, {
+    col: C(0xc8b058, 0xf4ecc4, 0x3a3020, 0xe0c870), pat: [1, 6, 0.32], sheen: 0.6,
+    beh: { kind: 'school', n: [12, 40], speed: [0.35, 0.7], zone: 'surface', routes: { hold: 3, along: 1 } }, size: [0.06, 0.12],
+  }),
+  juvTrigger: fish({
+    body: { depth: 0.5, width: 0.3, tm: 0.38, nose: 0.85, snout: 0.15, ped: 0.11 },
+    fins: { dorsal: [{ t0: 0.22, t1: 0.27, h: 0.1, shape: 'tri' }, { t0: 0.5, t1: 0.75, h: 0.1, shape: 'falcate', sweep: 0.6 }], anal: [{ t0: 0.5, t1: 0.75, h: 0.1, shape: 'falcate', sweep: 0.6 }],
+      caudal: { shape: 'lunate', size: 0.18 } },
+    col: C(0x6a7a52, 0xcac8a0, 0x2a3020, 0x7a8a62, 0xe8e4c8), pat: [6, 7, 0.5], pat2: [25, 30, 0.6], sheen: 0.2,
+    beh: { ...SHOAL, n: [3, 10], speed: [0.2, 0.5], alt: [0.2, 1], spread: 3 }, size: [0.06, 0.12],
+  }),
+  flyingFish: fish({
+    det: 1,
+    body: { depth: 0.16, width: 0.7, tm: 0.35, nose: 0.75, tail: 1.4, ped: 0.08, tEnd: 0.82, snout: -0.05 },
+    fins: { dorsal: [{ t0: 0.55, t1: 0.66, h: 0.05 }], anal: [{ t0: 0.58, t1: 0.68, h: 0.04 }],
+      pect: { t: 0.2, span: 0.02, a: 0.25, aSpan: 0, h: 0.42, dip: 0.12, sweep: 0.95, shape: 'wing', thick: 0.012 },
+      pelv: { t: 0.48, h: 0.16, dip: 0.3, sweep: 1.2, shape: 'wing', thick: 0.012 }, caudal: { shape: 'hetero', size: 0.25, tilt: -0.2 } },
+    col: C(0x1e3a7a, 0xeef2f6, 0x6ab0ff, 0x7a96c8), sheen: 0.95, cs: [0.2, 0.5], eye: { r: 0.05 }, finRays: 0.95,
+    mot: { amp: 0.05, beat: 1.6, idle: 0.8 }, beh: { ...SCHOOL, n: [6, 20], speed: [1.2, 2.2], zone: 'surface', routes: { cross: 2, along: 1, overtake: 1 } }, size: [0.2, 0.32],
+  }),
+  loggerhead: merge(S.greenTurtle, {
+    body: { bumps: [['t', 0.08, 0.05, 0.35], ['w', 0.08, 0.05, 0.3]] },
+    col: C(0x7a4622, 0xe8c890, 0xa86a34, 0x6a4022, 0x3a2410, 0x3a2410), pat2: [6, 6, 0.5], size: [0.8, 1.05], barnacles: 0.6,
+  }),
+  // ---- champagne reef / anemone fields / vivid reef ----
+  trumpetfish: fish({
+    det: 1,
+    body: { depth: 0.075, width: 0.9, tm: 0.45, nose: 1.6, tail: 1.6, ped: 0.16, tEnd: 0.86 },
+    extra: { bill: { len: 0.13, r: 0.011, part: 0, blunt: 1 } },
+    fins: { dorsal: [{ t0: 0.3, t1: 0.56, h: 0.012, shape: 'spiny', spikes: 10 }, { t0: 0.68, t1: 0.79, h: 0.05, shape: 'round' }], anal: [{ t0: 0.68, t1: 0.79, h: 0.05 }],
+      pect: { h: 0.04 }, pelv: { t: 0.6, h: 0.04 }, caudal: { shape: 'rounded', size: 0.1 } },
+    eye: { t: 0.16, r: 0.011 },
+    col: C(0x9a6a3a, 0xd0b080, 0x2a1a10, 0xa07040, 0xffffff, 0x101010), pat: [1, 18, 0.22], pat2: [25, 40, 0.75], sheen: 0.25,
+    mot: { amp: 0.035, waves: 1.1, c0: 0.2, beat: 1.0, idle: 0.4 }, beh: { ...HOVER, n: [1, 2], speed: [0.05, 0.25], alt: [0.5, 2.5], spread: 3 }, size: [0.45, 0.75],
+  }),
+  pinkSkunkClown: merge(CLOWN_BODY, { col: C(0xf6a284, 0xffc0a2, 0xffffff, 0xf8ae8e, 0xffffff, 0xffffff), pat: [12, 0.96, 0.06], pat2: [8, 0.17, 0.012], finEdge: 0.15 }),
+  tomatoClown: merge(CLOWN_BODY, { col: C(0xd02a10, 0xe85020, 0xffffff, 0xd8381a, 0, 0x101010), pat: [8, 0.17, 0.028], pat2: [0, 1, 0], finEdge: 0.1, size: [0.09, 0.13] }),
+  blackClown: merge(CLOWN_BODY, { col: C(0x17110c, 0x241a12, 0xf8f8f4, 0x1c1610, 0, 0xf0f0ec), finEdge: 0.9 }),
+  clarkClown: merge(CLOWN_BODY, { col: C(0x1c140c, 0xe89020, 0xffffff, 0xf0a020, 0, 0x101010), cs: [-0.15, 0.12], finEdge: 0.2, size: [0.09, 0.13] }),
+  dominoDamsel: fish({
+    det: 0,
+    body: { depth: 0.6, width: 0.3, tm: 0.38, nose: 0.6, tail: 1.3, ped: 0.13 },
+    fins: { dorsal: [{ t0: 0.25, t1: 0.72, h: 0.09, shape: 'long' }], anal: [{ t0: 0.52, t1: 0.72, h: 0.09 }], caudal: { shape: 'emarginate', size: 0.18 } },
+    col: C(0x14141a, 0x1c1c22, 0xffffff, 0x101016), pat: [3, 4, 0.12], sheen: 0.2,
+    beh: { ...SHOAL, n: [5, 20], alt: [0.3, 1.5], spread: 2, speed: [0.2, 0.4] }, size: [0.06, 0.12],
+  }),
+  cleanerShrimp: { plan: 'lobster', det: 1, ...WALKER, lobster: { ant: 1.7 },
+    col: C(0xd8381e, 0xf2cf72, 0xffffff, 0xe0b060, 0xffffff, 0x101010), pat: [12, 0.95, 0.1], cs: [0.25, 0.7], sheen: 0.45, rough: 0.3,
+    mot: { mode: 10, amp: 0.7, waves: 0, c0: 0, beat: 8, idle: 0.3 },
+    beh: { kind: 'walk', n: [2, 5], spread: 0.7, speed: [0.01, 0.03], walk: 'wander' }, size: [0.05, 0.07], interest: 0.55,
+  },
+  clownTrigger: fish({
+    body: { depth: 0.5, width: 0.32, tm: 0.38, nose: 0.85, snout: 0.15, ped: 0.11 },
+    fins: { dorsal: [{ t0: 0.22, t1: 0.27, h: 0.09, shape: 'tri' }, { t0: 0.5, t1: 0.74, h: 0.1, shape: 'falcate', sweep: 0.6 }], anal: [{ t0: 0.5, t1: 0.74, h: 0.1, shape: 'falcate', sweep: 0.6 }],
+      caudal: { shape: 'truncate', size: 0.17 } },
+    col: C(0x101018, 0x15151c, 0xf8f8f0, 0x101018, 0xf0c020, 0xf0c020), pat: [3, 9, 0.34], pat2: [21, 3, 0.55], finEdge: 0.5, sheen: 0.2,
+    beh: { ...SOLO, speed: [0.25, 0.5] }, size: [0.25, 0.4],
+  }),
+  regalAngel: fish({
+    body: { depth: 0.52, width: 0.22, tm: 0.36, nose: 0.6, ped: 0.13 },
+    fins: { dorsal: [{ t0: 0.24, t1: 0.78, h: 0.09, shape: 'long', sweep: 0.6 }], anal: [{ t0: 0.5, t1: 0.78, h: 0.09, shape: 'long', sweep: 0.6 }], caudal: { shape: 'rounded', size: 0.16 } },
+    col: C(0xf09a20, 0xf4c060, 0xf2f2f6, 0xf0a020, 0x2a3a90, 0x2a50d0), pat: [1, 8, 0.32], pat2: [23, 0.74, 1], finEdge: 0.8, sheen: 0.15,
+    beh: { ...SOLO, n: [1, 2], speed: [0.2, 0.4] }, size: [0.2, 0.3],
+  }),
+  powderTang: merge(S.bluetang, {
+    col: C(0x3a8ae0, 0x6aa8f0, 0x101018, 0xf0d830, 0xf8f4f0, 0x101018), pat: [22, 0.2, 1], pat2: [0, 1, 0], finEdge: 0.5,
+    beh: { n: [3, 10] }, size: [0.15, 0.22],
+  }),
+  flameAngel: fish({
+    body: { depth: 0.52, width: 0.28, tm: 0.36, nose: 0.55, ped: 0.13 },
+    fins: { dorsal: [{ t0: 0.24, t1: 0.78, h: 0.08, shape: 'long', sweep: 0.6 }], anal: [{ t0: 0.5, t1: 0.78, h: 0.08, shape: 'long', sweep: 0.6 }], caudal: { shape: 'rounded', size: 0.17 } },
+    col: C(0xf03010, 0xf86020, 0x1a0a0a, 0xf03818, 0, 0x3060ff), pat: [1, 5, 0.12], finEdge: 0.9, sheen: 0.15,
+    beh: { ...HOVER, n: [1, 3], alt: [0.2, 1.2] }, size: [0.07, 0.11],
+  }),
+  longnoseHawkfish: fish({
+    body: { depth: 0.24, width: 0.4, tm: 0.4, nose: 1.1, snout: 0.05 },
+    extra: { bill: { len: 0.1, r: 0.012, part: 0, blunt: 1 } },
+    fins: { dorsal: [{ t0: 0.28, t1: 0.48, h: 0.1, shape: 'spiny', spikes: 10 }, { t0: 0.5, t1: 0.72, h: 0.08, shape: 'round' }], pect: { h: 0.14, shape: 'paddle', dip: 0.9 },
+      caudal: { shape: 'truncate', size: 0.16 } },
+    col: C(0xf8f4f0, 0xffffff, 0xd81818, 0xf8f0f0, 0, 0x101010), pat: [4, 26, 0.18], sheen: 0.1,
+    beh: { ...HOVER, n: [1, 2], alt: [0.2, 1] }, size: [0.08, 0.12],
+  }),
+  foxface: fish({
+    body: { depth: 0.48, width: 0.28, tm: 0.38, nose: 0.9, snout: 0.1, ped: 0.11 },
+    fins: { dorsal: [{ t0: 0.22, t1: 0.76, h: 0.08, shape: 'spiny', spikes: 13 }], anal: [{ t0: 0.5, t1: 0.76, h: 0.07, shape: 'spiny', spikes: 7 }], caudal: { shape: 'forked', size: 0.2 } },
+    col: C(0xf8d018, 0xffe040, 0x101010, 0xf8d018, 0xffffff, 0x101010), pat: [22, 0.18, 1], sheen: 0.15,
+    beh: { ...SHOAL, n: [2, 4], spread: 3 }, size: [0.18, 0.25],
+  }),
+  // ---- jellyfish lake ----
+  goldenJelly: jelly({
+    det: 0, jelly: { h: 0.42, th: 1.6, nT: 0, nO: 8, ol: 0.5, ow: 0.05, twist: 0.6, lappets: 16, scallop: 0.04, cheap: true, club: 0.07 },
+    col: C(0xb87818, 0xc08424, 0xf2e2c0, 0xa86e1c, 0, 0xffc060), pat: [3, 14, 0.18], glowMode: 2, glow: 0.12, sheen: 0.55,
+    mot: { amp: 0.16, idle: 0.9 }, beh: { ...DRIFT, n: [120, 260], spread: 14, speed: [0.06, 0.16] }, size: [0.08, 0.22], swarm: 7, interest: 0.5,
+  }),
+  cardinalfish: fish({
+    body: { depth: 0.42, width: 0.38, tm: 0.33, nose: 0.5, tail: 1.4, ped: 0.13 },
+    fins: { dorsal: [{ t0: 0.28, t1: 0.4, h: 0.12, shape: 'tri' }, { t0: 0.5, t1: 0.65, h: 0.12, shape: 'round' }], anal: [{ t0: 0.55, t1: 0.68, h: 0.1 }], pelv: { h: 0.12 },
+      caudal: { shape: 'forked', size: 0.2 } },
+    col: C(0xc8b890, 0xf0ecd8, 0x2a2018, 0xd8c8a0, 0xe07020, 0xe8a020), pat: [8, 0.4, 0.05], pat2: [3, 30, 0.2], eye: { r: 0.06 }, iris: 0.8, sheen: 0.4,
+    beh: { ...SHOAL, n: [8, 24], alt: [0.4, 2], spread: 3, speed: [0.1, 0.3] }, size: [0.06, 0.1], edge: [8, 16],
+  }),
+  // ---- sunken forest ----
+  sheepshead: fish({
+    det: 1,
+    body: { depth: 0.48, width: 0.3, tm: 0.36, nose: 0.75, tail: 1.4, ped: 0.11, snout: 0.12, hump: 0.08 },
+    fins: { dorsal: [{ t0: 0.28, t1: 0.5, h: 0.12, shape: 'spiny', spikes: 11 }, { t0: 0.52, t1: 0.72, h: 0.08, shape: 'round' }], anal: [{ t0: 0.55, t1: 0.72, h: 0.09, shape: 'round' }],
+      caudal: { shape: 'forked', size: 0.2 } },
+    col: C(0xb8b8b0, 0xe8e8e0, 0x1a1a1a, 0x5a5a58), pat: [1, 6, 0.35], sheen: 0.5,
+    beh: { ...SHOAL, n: [3, 12], alt: [0.5, 3], spread: 5, speed: [0.2, 0.5] }, size: [0.35, 0.55],
+  }),
+  spadefish: fish({
+    body: { depth: 0.72, width: 0.2, tm: 0.38, nose: 0.75, tail: 1.5, ped: 0.1, snout: 0.05 },
+    fins: { dorsal: [{ t0: 0.25, t1: 0.35, h: 0.08, shape: 'spiny', spikes: 8 }, { t0: 0.4, t1: 0.7, h: 0.38, shape: 'falcate', sweep: 0.9 }],
+      anal: [{ t0: 0.45, t1: 0.7, h: 0.34, shape: 'falcate', sweep: 0.9 }], caudal: { shape: 'emarginate', size: 0.18 } },
+    col: C(0xc0c4c4, 0xe4e6e6, 0x2a2a2a, 0xb0b4b4), pat: [1, 4, 0.22], sheen: 0.6,
+    beh: { ...SCHOOL, n: [12, 50], speed: [0.3, 0.6], zone: 'floor', alt: [2, 7], routes: { hold: 3, along: 1 } }, size: [0.35, 0.6],
+  }),
+});
+S.humbug = merge(S.dominoDamsel, { col: C(0xf4f4f0, 0xffffff, 0x101010, 0xf0f0f0), pat: [1, 3.2, 0.3] });
+S.loggerheadJuv = merge(S.loggerhead, { beh: { ...SOLO, n: [1, 3], speed: [0.15, 0.35], zone: 'surface', alt: [0.3, 1], dist: [3, 12] }, size: [0.06, 0.2], barnacles: 0, scars: 0, interest: 0.75 });
+S.blueWhale.interest = 1;
+// no bony gill cover to draw (sharks and rays have slits, seals / crocodiles have none, eels and puffers tiny openings)
+for (const k in SPECIES) { const x = SPECIES[k]; if (x && (x.scars === 0.9 || (x.pat && x.pat[0] === 24) || (x.pat2 && x.pat2[0] === 24) || ['guitarfish', 'harbourSeal', 'seaLion', 'leopardSeal', 'weddellSeal', 'saltwaterCroc', 'hagfish', 'moray', 'spotMoray', 'morayNight', 'gardenEel', 'splendidEel', 'pipefish', 'puffer', 'boxfish', 'sargassumfish', 'eelpout', 'dragonfish', 'blenny', 'needlefish'].includes(k))) x.gill = false; }
+for (const k of ['sargassumfish', 'juvTrigger', 'filefish']) S[k].mat = true; // cling to / shelter under the floating weed
+
 // Day / night activity: diurnal reef fish thin out and shelter near the bottom after dark; nocturnal
 // species only come out at night (see the director's per-biome night lists).
 export const DIEL = {
@@ -1157,7 +1319,7 @@ const PROC_PAT = [0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 12, 15, 21, 22, 23, 26];
 export function proceduralFish(kind, seed) {
   const r = mulberry32(seed * 7919 + 13);
   const deep = r.range(0.2, 0.62);
-  const reef = kind === 'reef' || kind === 'softcoral' || kind === 'wall', temperate = kind === 'kelp' || kind === 'polar', abyss = kind === 'abyss' || kind === 'vents' || kind === 'deepplain';
+  const reef = ['reef', 'softcoral', 'wall', 'seamount', 'champagne', 'anemone', 'bluehole'].includes(kind), temperate = kind === 'kelp' || kind === 'polar' || kind === 'sunkenforest', abyss = kind === 'abyss' || kind === 'vents' || kind === 'deepplain';
   const hue = r(), sat = reef ? r.range(0.55, 1) : temperate ? r.range(0.12, 0.45) : abyss ? r.range(0.1, 0.4) : r.range(0.3, 0.8);
   const val = abyss ? r.range(0.08, 0.25) : r.range(0.45, 0.95);
   const d = hsv(hue, sat, val * r.range(0.7, 1)), b = hsv(hue + r.range(-0.05, 0.05), sat * 0.6, Math.min(1, val + 0.25));
@@ -1168,7 +1330,7 @@ export function proceduralFish(kind, seed) {
   const scale = { 1: r.range(3, 9), 2: r.range(5, 16), 3: r.range(10, 40), 4: r.range(15, 40), 5: 1, 6: r.range(3, 8), 7: r.range(5, 12), 8: r.range(0.1, 0.16), 12: r.range(-0.2, 0.4), 15: r.range(5, 10), 21: r.range(5, 10), 22: r.range(0.15, 0.3), 23: r.range(0.55, 0.75), 26: r.range(10, 20) }[pt] ?? 1;
   const prm = { 1: r.range(0.15, 0.4), 2: r.range(0.15, 0.4), 3: r.range(0.15, 0.32), 4: r.range(0.15, 0.3), 5: r.range(0.05, 0.08), 6: r.range(0.45, 0.6), 7: r.range(0.3, 1), 8: r.range(0.02, 0.04), 12: r.range(0.05, 0.12), 15: r.range(0.3, 0.45), 21: r.range(0.45, 0.6), 22: 1, 23: 1, 26: r.range(0.3, 0.45) }[pt] ?? 0.5;
   const dorsalLen = r.range(0.3, 0.55), t0 = r.range(0.22, 0.32);
-  const sw = r.range(0.2, 0.9), n = Math.round(reef ? r.range(4, 14) : r.range(5, 20));
+  const sw = r.range(0.2, 0.9), n = Math.round(reef ? r.range(6, 18) : r.range(6, 22));
   const caud = r.pick(['forked', 'forked', 'emarginate', 'truncate', 'rounded', 'lunate', 'lyre']);
   return fish({
     key: `proc:${kind}:${seed}`, name: `${kind} fish #${seed % 1000}`,
@@ -1383,6 +1545,57 @@ const FAMILIES = {
   mangrove: ['Mojarra', 'Grunt', 'Snapper', 'Goby', 'Silverside'],
   deepplain: ['Cusk-eel', 'Snailfish', 'Grenadier', 'Halosaur'],
 };
+// ---------- names / facts for the newer cast ----------
+Object.assign(NAMES, {
+  silkyShark: 'Silky shark', bluefinTrevally: 'Bluefin trevally', fusilier: 'Blue-and-yellow fusilier', sargassumfish: 'Sargassumfish',
+  juvJack: 'Juvenile jack', juvTrigger: 'Juvenile grey triggerfish', flyingFish: 'Flying fish', loggerhead: 'Loggerhead turtle',
+  loggerheadJuv: 'Young loggerhead turtle', trumpetfish: 'Trumpetfish', pinkSkunkClown: 'Pink skunk clownfish', tomatoClown: 'Tomato clownfish',
+  blackClown: 'Black ocellaris clownfish', clarkClown: "Clark's anemonefish", dominoDamsel: 'Domino damsel', humbug: 'Humbug damselfish',
+  cleanerShrimp: 'Skunk cleaner shrimp', clownTrigger: 'Clown triggerfish', regalAngel: 'Regal angelfish', powderTang: 'Powder blue tang',
+  flameAngel: 'Flame angelfish', longnoseHawkfish: 'Longnose hawkfish', foxface: 'Foxface rabbitfish', goldenJelly: 'Golden jellyfish',
+  cardinalfish: 'Orbiculate cardinalfish', sheepshead: 'Sheepshead', spadefish: 'Atlantic spadefish',
+});
+Object.assign(FACTS, {
+  silkyShark: 'Silky sharks are named for their smooth skin, covered in tiny tightly packed scales.',
+  bluefinTrevally: 'Bluefin trevally hunt alongside moray eels and octopuses, snapping up whatever flees.',
+  fusilier: 'Fusiliers feed on plankton in mid-water and swarm cleaning stations in their hundreds.',
+  sargassumfish: 'Sargassumfish are frogfish that clamber through floating seaweed on hand-like fins.',
+  juvJack: 'Young jacks shelter under drifting weed and objects, far out in the open ocean.',
+  juvTrigger: 'Juvenile triggerfish drift with sargassum rafts until they are big enough to settle on a reef.',
+  flyingFish: 'Flying fish can glide more than 50 m above the waves on their wing-like fins.',
+  loggerhead: 'Loggerheads crush crabs and conchs with their huge heads and powerful jaws.',
+  loggerheadJuv: 'Young loggerheads spend their "lost years" drifting with sargassum mats across the ocean.',
+  trumpetfish: 'Trumpetfish hide behind larger fish to sneak up on their prey.',
+  pinkSkunkClown: 'Pink skunk clownfish live mostly in magnificent sea anemones.',
+  tomatoClown: 'A tomato clownfish pair defends a single bubble-tip anemone for years.',
+  blackClown: 'Black ocellaris clownfish are a rare dark form found around northern Australia.',
+  clarkClown: "Clark's anemonefish can live with ten different kinds of sea anemone.",
+  dominoDamsel: 'Young domino damsels shelter among anemone tentacles alongside clownfish.',
+  humbug: 'Humbug damselfish dive into branching coral the moment anything comes close.',
+  cleanerShrimp: 'Cleaner shrimp pick parasites off fish, even from inside their mouths.',
+  clownTrigger: "A clown triggerfish's bold spots break up its outline against the reef.",
+  regalAngel: 'Regal angelfish feed almost only on sponges and tunicates.',
+  powderTang: 'Powder blue tangs graze algae in schools to overwhelm territorial damselfish.',
+  flameAngel: 'Flame angelfish rarely stray more than a body length from their coral shelter.',
+  longnoseHawkfish: 'Longnose hawkfish perch in sea fans and gorgonians, waiting for tiny crustaceans.',
+  foxface: 'Foxface rabbitfish carry venomous spines and change colour at night.',
+  goldenJelly: 'Golden jellyfish follow the sun across their lake every day to feed their algae.',
+  cardinalfish: 'Male cardinalfish brood the eggs in their mouths until they hatch.',
+  sheepshead: 'Sheepshead have human-like teeth for crushing barnacles and oysters.',
+  spadefish: 'Atlantic spadefish gather in large schools around wrecks and old trees.',
+});
+Object.assign(DIEL, {
+  pinkSkunkClown: 'day', tomatoClown: 'day', blackClown: 'day', clarkClown: 'day', dominoDamsel: 'day', humbug: 'day', fusilier: 'day',
+  regalAngel: 'day', flameAngel: 'day', clownTrigger: 'day', powderTang: 'day', foxface: 'day', longnoseHawkfish: 'day', sheepshead: 'day',
+  spadefish: 'day', juvTrigger: 'day',
+});
+Object.assign(FAMILIES, {
+  seamount: ['Fusilier', 'Wrasse', 'Damselfish', 'Triggerfish', 'Anthias', 'Hawkfish'], sargassum: ['Filefish', 'Jack', 'Triggerfish'],
+  champagne: ['Wrasse', 'Damselfish', 'Butterflyfish', 'Goby', 'Blenny', 'Hawkfish'], jellylake: ['Goby', 'Cardinalfish'],
+  sunkenforest: ['Pinfish', 'Grunt', 'Porgy', 'Blenny', 'Sea bass'], anemone: ['Damselfish', 'Wrasse', 'Cardinalfish', 'Goby', 'Chromis'],
+  bluehole: ['Wrasse', 'Damselfish', 'Snapper', 'Fusilier', 'Grunt', 'Surgeonfish'],
+});
+
 export function commonName(sp) {
   const k = sp.key || '';
   if (k.startsWith('proc:')) {

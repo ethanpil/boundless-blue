@@ -492,6 +492,17 @@ function extras(gb, sp, prof, det) {
     const Lf = X.feelers.len; prof(0.22, o);
     for (const s of [1, -1]) tube(gb, [[s * o.wid * 0.8, o.yc + o.top * 0.3, 0.28], [s * 0.07, o.top + Lf * 0.45, 0.3 + Lf * 0.3], [s * 0.13, o.top + Lf * 0.62, 0.34 + Lf * 0.6]], [0.004, 0.003, 0], 4, () => [PART.PAIRED, -1, 0, 0]);
   }
+  if (X.tassels) { // frogfish skin flaps: short fleshy filaments all over the body (sargassumfish)
+    const T = X.tassels, rng = mulberry32(91), s3 = [0, 0, 0], n = det.nL > 20 ? T.n : Math.ceil(T.n * 0.5);
+    for (let i = 0; i < n; i++) {
+      const t = 0.08 + 0.75 * rng(), a = rng() * PI * 2;
+      prof(t, o); section(o, a, s3);
+      const x = s3[0], y = s3[1], ox = x, oy = y - o.yc, ol = Math.hypot(ox, oy) || 1, L = T.len * (0.4 + 0.8 * rng());
+      const dx = ox / ol, dy = oy / ol, z = 0.5 - t, bend = (rng() - 0.5) * 0.6;
+      tube(gb, [[x, y, z], [x + dx * L * 0.55, y + dy * L * 0.55, z - L * 0.15], [x + dx * L + bend * L * 0.3, y + dy * L, z - L * 0.35]],
+        [0.009, 0.006, 0], 3, () => [PART.BODY, s3[2], 0, 0]);
+    }
+  }
   if (X.disc) { // remora: the flat, ridged sucking disc on top of the head
     prof(0.14, o);
     sphere(gb, 0, o.yc + o.top * 0.9, 0.5 - 0.14, 1, Math.max(3, det.eLat), Math.max(6, det.eLon), PART.BEAK, [0, 1, 0], [o.wid * 0.75, o.top * 0.22, 0.11], 0);
@@ -502,7 +513,8 @@ function extras(gb, sp, prof, det) {
 export function buildJelly(sp, lod = 0) {
   const gb = new GB(), J = sp.jelly, lv = levelOf(sp, lod), det = lv <= 1 ? 0 : 1;
   const rng = mulberry32(J.seed ?? 5);
-  const nR = lv <= 1 ? 7 : lv >= 3 ? 13 : 10, nA = lv <= 1 ? 16 : lv >= 3 ? 32 : 24;
+  // swarm jellies (hundreds at once) use a much lighter bell
+  const nR = J.cheap ? (lv <= 1 ? 5 : 8) : lv <= 1 ? 7 : lv >= 3 ? 13 : 10, nA = J.cheap ? (lv <= 1 ? 10 : 18) : lv <= 1 ? 16 : lv >= 3 ? 32 : 24;
   const H = J.h, thMax = J.th ?? 1.7;
   const rings = [];
   const rN = thMax > PI / 2 ? 1 : Math.sin(thMax), rimR = 0.5 * Math.sin(thMax) / rN + (J.flare ?? 0) * 0.5;
@@ -539,8 +551,22 @@ export function buildJelly(sp, lod = 0) {
     }
     ribbon(gb, pts, w, (i) => [PART.ARM, 0, k * 1.37, (i / seg) * L]);
   }
-  // oral arms (frilly, from the centre)
+  // oral arms (frilly, from the centre); club-ended tubes for Mastigias-like swarm jellies
   const nO = J.nO ?? 0;
+  if (J.club) {
+    sphere(gb, 0, -0.05, 0, 1, 3, lv <= 1 ? 6 : 8, PART.ARM, [0, 1, 0], [0.16, 0.09, 0.16], 0); // dense oral mass under the bell
+    const ns = lv <= 1 ? 3 : 4, sides = lv <= 1 ? 3 : 4;
+    for (let k = 0; k < nO; k++) {
+      const ph = (k / nO) * PI * 2 + 0.3, L = J.ol * (0.75 + 0.35 * rng()), pts = [], rad = [];
+      for (let i = 0; i <= ns; i++) {
+        const f = i / ns;
+        pts.push([Math.cos(ph) * (0.06 + 0.1 * f), -0.04 - f * L, Math.sin(ph) * (0.06 + 0.1 * f)]);
+        rad.push(i === ns ? 0 : (J.ow ?? 0.04) * (i === ns - 1 ? 1.6 : 0.8 - 0.15 * f) + (i === ns - 1 ? J.club : 0) * 0.5);
+      }
+      tube(gb, pts, rad, sides, (i) => [PART.ARM, 1, k * 2.11 + 5, (i / ns) * L]);
+    }
+    return gb.finish();
+  }
   for (let k = 0; k < nO; k++) {
     const ph = (k / nO) * PI * 2 + 0.4, L = J.ol * (0.8 + 0.3 * rng()), pts = [], w = [];
     for (let i = 0; i <= seg; i++) {

@@ -3,6 +3,7 @@
 import { mulberry32, hash2i } from '../noise.js';
 import { speciesOf, DIEL } from './species.js';
 import { Obstacles } from '../obstacles.js';
+import { sargassumCover, blueHoleOf } from '../biomes.js';
 
 // [species key | 'proc:<kind>', weight, cooldown (s)]
 // target = desired simultaneous encounters, lat = max lateral offset from the camera path.
@@ -106,6 +107,45 @@ export const TABLES = {
     ['beluga', 4, 60], ['narwhal', 3, 80], ['arcticCod', 4, 50], ['harbourSeal', 1.5, 150], ['greenlandShark', 0.5, 450],
     ['lionsMane', 1.5, 140], ['moonJelly', 1.5, 100], ['combJelly', 1, 120], ['proc:polar', 1.5, 40],
   ] },
+  // ---- seven more oceanscapes ----
+  seamount: { cover: 3.2, target: 16, lat: 60, night: NIGHT_REEF, dusk: DUSK, list: [
+    ['hammerheadSchool', 2.5, 200], ['jack', 3, 90], ['barracuda', 2.5, 100], ['manta', 1.2, 240], ['eagleRay', 1.5, 140], ['reefShark', 2, 110],
+    ['silkyShark', 2, 120], ['potatoGrouper', 1.5, 120], ['coralGrouper', 1.5, 90], ['yellowfin', 1.5, 140], ['rainbowRunner', 1.5, 90],
+    ['bluefinTrevally', 2, 80], ['fusilier', 3, 50], ['anthias', 4, 25], ['purpleAnthias', 2, 40], ['bannerfish', 1.5, 70], ['napoleon', 0.8, 200],
+    ['whaleShark', 0.3, 600], ['oceanicWhitetip', 0.4, 400], ['bottlenose', 0.4, 400], ['greenTurtle', 0.8, 150], ['moorish', 1, 90], ['proc:seamount', 3, 20],
+  ] },
+  sargassum: { cover: 3, target: 12, lat: 40, night: NIGHT_OPEN, list: [
+    ['sargassumfish', 4, 35], ['juvJack', 4, 40], ['juvTrigger', 3, 50], ['filefish', 2.5, 60], ['mahi', 3, 80], ['loggerheadJuv', 3, 70],
+    ['loggerhead', 1, 160], ['flyingFish', 3.5, 50], ['moonJelly', 1.5, 100], ['pelagia', 1, 120], ['rainbowRunner', 1, 120],
+    ['oceanicWhitetip', 0.4, 400], ['commonDolphin', 0.6, 300], ['proc:sargassum', 2, 30],
+  ] },
+  champagne: { cover: 3.2, target: 17, lat: 35, night: NIGHT_REEF, dusk: DUSK, list: [
+    ['anthias', 5, 25], ['chromis', 5, 25], ['butterfly', 3, 45], ['moorish', 2, 60], ['bluetang', 2.5, 50], ['yellowtang', 2.5, 50], ['regalAngel', 1.5, 80],
+    ['flameAngel', 2, 60], ['clownTrigger', 1.2, 100], ['picasso', 1.5, 80], ['parrotfish', 2.5, 60], ['boxfish', 1.5, 90], ['puffer', 1.5, 90],
+    ['trumpetfish', 3, 50], ['seahorse', 2.5, 60], ['octopus', 2.5, 70], ['moray', 2, 60], ['spotMoray', 1.5, 80], ['lionfish', 1.5, 90],
+    ['longnoseHawkfish', 1.5, 80], ['cuttlefish', 1.5, 90], ['greenTurtle', 1, 140], ['hawksbill', 0.8, 160], ['gardenEel', 1, 120],
+    ['goatfish', 1.5, 70], ['sergeant', 2, 50], ['powderTang', 1.5, 70], ['foxface', 1.2, 90], ['proc:champagne', 6, 12],
+  ] },
+  jellylake: { cover: 4, target: 12, lat: 30, list: [
+    ['goldenJelly', 12, 3], ['moonJelly', 3, 30], ['cardinalfish', 2.5, 40], ['silverside', 1, 80], ['proc:jellylake', 1, 60],
+  ] },
+  sunkenforest: { cover: 3, target: 13, lat: 40, night: NIGHT_SAND, dusk: DUSK, list: [
+    ['silverside', 5, 30], ['snapper', 3, 60], ['sheepshead', 4, 45], ['spadefish', 3, 60], ['barracuda', 2, 100], ['greenTurtle', 1.5, 120],
+    ['loggerhead', 1.5, 130], ['goliath', 1, 150], ['jack', 1.2, 140], ['flounder', 1.5, 80], ['southernRay', 1.2, 100], ['octopus', 1.5, 90],
+    ['nurseShark', 0.6, 200], ['seaNettle', 1, 120], ['moonJelly', 1, 120], ['sardine', 0.6, 200], ['proc:sunkenforest', 3, 20],
+  ] },
+  anemone: { cover: 3.2, target: 16, lat: 35, night: NIGHT_REEF, dusk: DUSK, list: [
+    ['clownfish', 4, 30], ['pinkSkunkClown', 3, 40], ['tomatoClown', 3, 40], ['blackClown', 2.5, 50], ['clarkClown', 3, 40], ['dominoDamsel', 4, 30],
+    ['humbug', 3, 35], ['cleanerShrimp', 2, 50], ['chromis', 3, 40], ['anthias', 2, 40], ['butterfly', 2, 60], ['bluetang', 1.5, 70],
+    ['moorish', 1, 90], ['cleanerWrasse', 1.5, 60], ['greenTurtle', 1, 150], ['octopus', 1.2, 100], ['lionfish', 1, 100], ['sweetlips', 1, 100],
+    ['flameAngel', 1.2, 80], ['proc:anemone', 4, 15],
+  ] },
+  bluehole: { cover: 3.2, target: 15, lat: 50, night: NIGHT_REEF, dusk: DUSK, list: [
+    ['reefShark', 3, 90], ['blacktip', 1.5, 120], ['potatoGrouper', 2, 100], ['goliath', 1.2, 140], ['coralGrouper', 1.5, 90], ['greenTurtle', 2, 100],
+    ['hawksbill', 1.2, 130], ['jack', 3, 80], ['barracuda', 2.5, 90], ['fusilier', 2.5, 60], ['bannerfish', 2, 60], ['bluefinTrevally', 2, 80],
+    ['snapper', 2, 70], ['eagleRay', 1.2, 150], ['anthias', 3, 30], ['chromis', 3, 30], ['parrotfish', 2, 70], ['napoleon', 0.8, 200],
+    ['manta', 0.5, 300], ['proc:bluehole', 4, 15],
+  ] },
 };
 
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -113,18 +153,25 @@ const TAU = Math.PI * 2;
 // activity by time of day: diurnal fish thin out after dark, nocturnal ones only come out at night
 const dielW = (k, night) => { const d = DIEL[k] ?? (k.startsWith('proc:') ? 'day' : null); return d === 'day' ? 1 - 0.75 * night : d === 'night' ? night : 1; };
 const REMORA_HOSTS = { whaleShark: 0.85, manta: 0.6, oceanicWhitetip: 0.6, reefShark: 0.3, blacktip: 0.25, whitetip: 0.2, greatWhite: 0.3,
-  hammerhead: 0.25, hammerheadSchool: 0.2, sandTiger: 0.3, lemonShark: 0.25, greenTurtle: 0.2, hawksbill: 0.15, blueShark: 0.2 };
+  hammerhead: 0.25, hammerheadSchool: 0.2, sandTiger: 0.3, lemonShark: 0.25, greenTurtle: 0.2, hawksbill: 0.15, blueShark: 0.2, silkyShark: 0.35, loggerhead: 0.25 };
 const CURIOUS = new Set(['greenTurtle', 'hawksbill', 'manatee', 'dugong', 'potatoGrouper', 'napoleon', 'goliath', 'giantSeaBass']);
 const PLAY = new Set(['bottlenose', 'commonDolphin', 'seaLion', 'harbourSeal', 'leopardSeal']);
 const HUNTERS = { pelagic: ['yellowfin', 'sailfish', 'commonDolphin'], kelp: ['seaLion', 'kelpBass'], polar: ['adeliePenguin'],
   reef: ['jack', 'barracuda', 'blacktip'], wall: ['jack', 'barracuda'], softcoral: ['jack', 'barracuda'], sandflat: ['jack', 'barracuda'],
-  wreck: ['jack', 'barracuda'], ruins: ['jack', 'barracuda'], seagrass: ['barracuda'], mangrove: ['juvBarracuda', 'tarpon'] };
+  wreck: ['jack', 'barracuda'], ruins: ['jack', 'barracuda'], seagrass: ['barracuda'], mangrove: ['juvBarracuda', 'tarpon'],
+  seamount: ['jack', 'barracuda', 'yellowfin', 'silkyShark', 'bluefinTrevally'], bluehole: ['jack', 'barracuda', 'bluefinTrevally'], sargassum: ['mahi'],
+  champagne: ['jack', 'bluefinTrevally'], anemone: ['bluefinTrevally'], sunkenforest: ['barracuda', 'jack'] };
+// zones open enough for a passing blue whale
+const WHALE_ZONES = new Set(['pelagic', 'seamount', 'wall', 'bluehole', 'sargassum']);
+const CLOSE_SKIP = new Set(['strike', 'play', 'lunge', 'circle', 'curious', 'majestic', 'swirl']);
 // species a set piece will need (prebuilt in idle time when such a POI is coming up)
 const POI_SPECIES = { 'cleaning-station': ['manta', 'cleanerWrasse'], 'whale-fall': ['hagfish', 'rattail', 'deepCrab', 'sleeperShark'],
   'brine-pool': ['eelpout', 'deepCrab'], ledge: ['turtleRest', 'hawksbill', 'nurseShark'], 'wall-overhang': ['sweetlips'], 'amphora-den': ['octopus'],
   wreck: ['glassfish', 'goliath', 'potatoGrouper', 'batfish'], 'kelp-clearing': ['seaLion'], iceberg: ['adeliePenguin', 'emperorPenguin', 'beluga'],
   'garden-eel-field': ['gardenEel', 'splendidEel'], 'cave-opening': ['glassfish', 'sweeper'], 'vent-field': ['eelpout', 'deepCrab'],
-  'mangrove-roots': ['juvSnapper', 'grunt', 'juvBarracuda'], statue: ['jack', 'snapper'], giant: ['jack', 'snapper'], arch: ['jack', 'snapper'], treasure: ['moray', 'spotMoray'] };
+  'mangrove-roots': ['juvSnapper', 'grunt', 'juvBarracuda'], statue: ['jack', 'snapper'], giant: ['jack', 'snapper'], arch: ['jack', 'snapper'], treasure: ['moray', 'spotMoray'],
+  anemone: ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown', 'cleanerShrimp', 'dominoDamsel'] };
+const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
 export class Director {
@@ -154,6 +201,8 @@ export class Director {
     if (!this.primed || c.jumped) { this.prime(c, !this.primed); this.primed = true; return; }
     this._c = c;
     this.delightTick(c);
+    if (this.whaleTick(c) || this.holeTick(c)) return;
+    this.closeTick(c);
     if (this.poiTick(c)) return;
     // Coverage control: keep enough groups that are (or will soon be) readable inside the forward view.
     if (this.ensureTick(c)) return;
@@ -200,7 +249,7 @@ export class Director {
       this.poiDone.set(key, p.s);
       if (sys.enc.length > sys.maxEnc - 4) continue;
       const cd = this.poiCool || (this.poiCool = {}); // the same kind of set piece at most every ~35 s
-      if ((cd[p.type] ?? -1e9) > this.clock - (p.type === 'brine-pool' || p.type === 'ledge' ? 45 : 25)) continue;
+      if ((cd[p.type] ?? -1e9) > this.clock - (p.type === 'brine-pool' || p.type === 'ledge' ? 45 : p.type === 'anemone' ? 5 : 25)) continue;
       if (this.setPiece(p, c)) { cd[p.type] = this.clock; return true; } // at most one set piece per tick
     }
     return false;
@@ -280,6 +329,14 @@ export class Director {
         return false;
       case 'treasure':
         return !!this.spawnAt(r() < 0.5 ? 'moray' : 'spotMoray', p, { kind: 'peek' });
+      case 'anemone': { // a clownfish family nestled in its anemone; cleaner shrimp and damsels sharing it
+        const rad = clamp(p.r || 0.6, 0.25, 1.4), want = p.data && p.data.clown;
+        const key = CLOWNS.includes(want) ? want : CLOWNS[Math.floor(r() * (wb === 'anemone' ? CLOWNS.length : 3))];
+        const fam = this.spawnAt(key, p, { kind: 'hover', homeY: p.y + 0.1, n: 2 + Math.floor(r() * 4), spread: rad * 0.7, altMul: 0.3, noSeek: true });
+        if (r() < 0.45) this.spawnAt('cleanerShrimp', p, { ring: rad * 0.95, n: 2 + Math.floor(r() * 3) });
+        if (r() < 0.3) this.spawnAt(r() < 0.6 ? 'dominoDamsel' : 'humbug', p, { kind: 'hover', homeY: p.y + 0.25, n: 3 + Math.floor(r() * 6), spread: rad * 1.3 + 0.3, altMul: 0.5, noSeek: true });
+        return !!fam;
+      }
       default: return false;
     }
   }
@@ -366,6 +423,113 @@ export class Director {
     }
   }
 
+  // Make room for a special spawn: retire the least useful group that is out of view.
+  retireOne(c) {
+    let worst = null, ws = -1;
+    for (const e of this.sys.enc) {
+      if (e.visible || e.done || e.route === 'majestic') continue;
+      const ahead = -(e.anchorZ + e.bounds.z) - c.s;
+      const score = ahead < 0 ? 1e4 - ahead : Math.abs(e.bounds.x - c.x) / (e.readLat + 1);
+      if (score > ws) { ws = score; worst = e; }
+    }
+    if (worst) worst.done = true;
+    return !!worst;
+  }
+
+  // A blue whale glides past (15-35 m away) about once every 40-55 minutes of open-water travel; the
+  // first one comes 8-15 minutes into the journey. It swims slowly toward the camera or is slowly overtaken.
+  whaleTick(c) {
+    const sys = this.sys, r = this.rng;
+    if (this.whaleDue === undefined) this.whaleDue = 480 + r() * 420;
+    if (this.clock < this.whaleDue || this.clock - (this.whaleTry ?? -99) < 3) return false;
+    this.whaleTry = this.clock;
+    const ws = sys.seq.weights(c.s + 120), w0 = ws[0];
+    if (!WHALE_ZONES.has(w0.key) || w0.w < 0.6 || sys.seq.weights(c.s)[0].key !== w0.key) return false;
+    const sp = this.species('blueWhale');
+    if (!sp) return false;
+    if (sys.enc.length >= sys.maxEnc && !this.retireOne(c)) return false;
+    const plan = this.plan(sp, c, true, ws, sys.maxInstances - sys.instances, sys.maxTris - sys.trisTotal, false, false);
+    if (!plan) return false;
+    const sh = sys.shape, rr = (a, b) => a + (b - a) * r();
+    // which side is open water? (the wall: away from the face)
+    let side = r() < 0.5 ? -1 : 1;
+    if (w0.key === 'wall') { const s1 = c.s + 100, px = sh.pathX(s1); side = sh.floorAt(px + 14, s1) > sh.floorAt(px - 14, s1) ? -1 : 1; }
+    const oncoming = r() < 0.55;
+    const s0 = c.s + (oncoming ? rr(130, 170) : rr(70, 100)), lat = rr(12, 24);
+    for (let k = 0; k < 4; k++) {
+      const sd = k & 1 ? -side : side, l = sd * (lat + (k >> 1) * 6), x = sh.pathX(s0) + l;
+      const fl = sh.floorAt(x, s0), ce = Math.min(sh.ceilingAt(x, s0), 0), py = sh.pathY(s0);
+      const y = clamp(py + rr(-7, -1), fl + 6, ce - 4);
+      if (ce - fl < 11 || y < fl + 5) continue;
+      Object.assign(plan, { n: 1, kind: 'solo', route: 'majestic', zone: 'mid', s0, l0: l, h0: y - py, vs: oncoming ? -rr(1.2, 1.7) : rr(1.1, 1.6), vl: 0,
+        latMax: 70, fadeIn: true, interest: 1, wobble: 1.5 });
+      const e = sys.spawn(sp, plan);
+      if (!e) return false;
+      this.seen.set(sp.key, this.clock); this.lastSpawn = this.clock;
+      this.whaleDue = this.clock + 2400 + r() * 900;
+      this.whaleCount = (this.whaleCount || 0) + 1;
+      if (sys.env && typeof sys.env.note === 'function') sys.env.note('A blue whale is passing');
+      return true;
+    }
+    return false;
+  }
+
+  // Blue hole: reef sharks circle slowly down inside the sinkhole, a big school mills at its rim and
+  // a grouper hangs by the wall, set up once per hole as the camera approaches it.
+  holeTick(c) {
+    this.holeT = (this.holeT || 0) - 1;
+    if (this.holeT > 0) return false;
+    this.holeT = 30;
+    const sys = this.sys, seq = sys.seq, g = seq.segs[seq.segAt(c.s + 140)];
+    if (!g || g.key !== 'bluehole') return false;
+    const H = blueHoleOf(g);
+    if (!H || this.holeDone === g.seed || H.s - c.s > 180 || H.s - c.s < 25) return false;
+    this.holeDone = g.seed;
+    const r = this.rng, sh = sys.shape, rr = (a, b) => a + (b - a) * r();
+    while (sys.enc.length > sys.maxEnc - 4 && this.retireOne(c));
+    const py = sh.pathY(H.s), rad = H.R * rr(0.42, 0.55), y = py - rr(5, 11);
+    const p = { type: 'bluehole', x: H.x, y, s: H.s, r: H.R };
+    this.spawnAt(r() < 0.8 ? 'reefShark' : 'blacktip', p, { kind: 'pod', route: 'circle', zone: 'mid', n: 2 + Math.floor(r() * 3), spacing: 1.3, interest: 0.85,
+      orbit: { x: H.x, s: H.s, y, r: rad, w: rr(0.8, 1.15) / rad * (r() < 0.5 ? -1 : 1), a0: r() * TAU, T: 150 } });
+    const a = r() * TAU, rim = { type: 'bluehole', x: H.x + Math.cos(a) * H.R * 0.85, y: py + rr(-2, 0), s: H.s + Math.sin(a) * H.R * 0.85, r: 6 };
+    this.spawnAt(r() < 0.55 ? 'jack' : r() < 0.5 ? 'barracuda' : 'fusilier', rim, { kind: r() < 0.6 ? 'mill' : 'school', route: 'hold', vs: 0, zone: 'mid', h0: rim.y - sh.pathY(rim.s) });
+    if (r() < 0.7) {
+      const b = a + Math.PI * (0.6 + 0.8 * r()), gp = { type: 'bluehole', x: H.x + Math.cos(b) * H.R * 0.8, y: py - rr(1, 4), s: H.s + Math.sin(b) * H.R * 0.8, r: 4 };
+      this.spawnAt(r() < 0.5 ? 'potatoGrouper' : 'goliath', gp, { kind: 'solo', route: 'hold', vs: 0, zone: 'mid', h0: gp.y - sh.pathY(gp.s) });
+    }
+    return true;
+  }
+
+  // Close encounters: every 9-19 s one animal or small group (rotating through species) comes to have a
+  // look, gliding past the camera 2.5-4 m away. Swimmers get a 'curious' pass; reef fish around the
+  // bottom send one individual up to inspect the camera as it passes.
+  closeTick(c) {
+    const sys = this.sys, r = this.rng;
+    if (!this.closeSeen) { this.closeSeen = new Map(); this.closeNext = 6 + r() * 6; }
+    if (this.clock < this.closeNext) return;
+    let best = null, bs = 0, insp = false;
+    for (const e of sys.enc) {
+      if (e.done || e.fade < 0.9 || !e.visible || e.event || e.kind === 'attach') continue;
+      const ahead = -(e.anchorZ + e.bounds.z) - c.s, sz = e.baseSize;
+      if (sz < 0.07 || sz > 5) continue;
+      let ok = false, isp = false;
+      if ((e.kind === 'solo' || e.kind === 'pod' || (e.kind === 'school' && e.n <= 14)) && !CLOSE_SKIP.has(e.route) && ahead > 12 && ahead < 45) ok = true;
+      else if ((e.kind === 'shoal' || (e.kind === 'hover' && (e.sp.beh.speed?.[1] ?? 0) >= 0.15)) && e.inspect < 0 && ahead > 8 && ahead < 32) { ok = true; isp = true; }
+      if (!ok) continue;
+      const nov = 1 + Math.min(3, (this.clock - (this.closeSeen.get(e.sp.key) ?? -1e4)) / 100);
+      const score = nov * (0.4 + r()) * (isp ? 1 : 1.4);
+      if (score > bs) { bs = score; best = e; insp = isp; }
+    }
+    this.closeNext = this.clock + (best ? 9 + r() * 10 : 2.5);
+    if (!best) return;
+    this.closeSeen.set(best.sp.key, this.clock);
+    this.closeCount = (this.closeCount || 0) + 1;
+    if (insp) { best.startInspect(c); return; }
+    const side = best.ll !== 0 ? Math.sign(best.ll) : r() < 0.5 ? -1 : 1;
+    best.route = 'curious'; best.zone = 'mid';
+    best.event = { type: 'curious', t: 0, ph: 0, side, lat: 2.5 + r() * 1.3 };
+  }
+
   // Next species likely to be spawned soon whose geometry is not cached yet (or null).
   nextPrewarm(c) {
     const sys = this.sys;
@@ -422,8 +586,10 @@ export class Director {
   coverWant(c) {
     let t = 0;
     for (const e of this.sys.seq.weights(c.s + 60)) t += (TABLES[e.key]?.cover ?? 3) * e.w;
-    return t;
+    return t * this.density() * 1.35; // more groups readable in (or about to enter) the view
   }
+  // more life in view: group targets scale with the tier's budget (low 1.05x, medium 1.15x, high 1.25x, ultra 1.4x)
+  density() { const k = this.sys.tierScale; return k < 0.7 ? 1.05 : k < 1 ? 1.15 : k > 1 ? 1.4 : 1.25; }
 
   // Groups that are readable in view now, or are lined up to pass through the forward view cone.
   coverage(c) {
@@ -443,7 +609,7 @@ export class Director {
   target(c) {
     let t = 0;
     for (const e of this.sys.seq.weights(c.s + 110)) t += (TABLES[e.key]?.target ?? 8) * e.w;
-    return Math.round(t);
+    return Math.min(this.sys.maxEnc - 3, Math.round(t * this.density()));
   }
 
   prime(c, first) {
@@ -484,7 +650,7 @@ export class Director {
       if (cooling && !lead) return; // lead requests may reuse a cooling species (at lower weight) to keep the view alive
       if (sp.hemi && sp.hemi !== hemi && ws.some((x) => x.key === 'polar')) return;
       if (sp.hl && (!allowHl || this.hlTimer > 0) && !this.forced) return;
-      if ((activeCount.get(sp.key) || 0) >= (sp.beh.kind === 'shoal' || key.startsWith('proc:') || small ? 2 : 1) && !this.forced) return;
+      if ((activeCount.get(sp.key) || 0) >= (sp.swarm ?? (sp.beh.kind === 'shoal' || key.startsWith('proc:') || small ? 2 : 1)) && !this.forced) return;
       const nMin = sp.beh.n[0];
       if (nMin > instBudget) return;
       const novelty = 1 + Math.min(2, (this.clock - (this.seen.get(ck) ?? -1e4)) / 400);
@@ -519,7 +685,7 @@ export class Director {
   // e.g. jacks with rainbow runners, sardines with anchovies, reef shoals of 2-4 species.
   mixWith(enc, sp, plan, c, ws, region) {
     const sys = this.sys, rng = this.rng, kind = enc.kind;
-    if (!['school', 'shoal', 'bait', 'mill'].includes(kind) || plan.route === 'swirl' || sys.enc.length > sys.maxEnc - 4 || rng() > 0.35) return;
+    if (!['school', 'shoal', 'bait', 'mill'].includes(kind) || plan.route === 'swirl' || sys.enc.length > sys.maxEnc - 4 || rng() > 0.45) return;
     const PAIR = { jack: ['rainbowRunner'], rainbowRunner: ['jack'], sardine: ['anchovy'], anchovy: ['sardine'], silverside: ['anchovy'],
       snapper: ['sweetlips', 'proc'], bluetang: ['yellowtang', 'proc'], yellowtang: ['bluetang'], chromis: ['anthias', 'proc'], anthias: ['chromis', 'proc'],
       sergeant: ['proc', 'chromis'], blacksmith: ['senorita'], senorita: ['blacksmith', 'proc'], goatfish: ['proc'], butterfly: ['proc', 'bluetang'] };
@@ -562,7 +728,7 @@ export class Director {
       if (r < 0.1) n = Math.max(1, Math.round(n * (0.1 + rng() * 0.25)));
       else if (r > 0.93 && sp.size[1] < 2) n = Math.round(n * (1.5 + rng() * 0.7));
     }
-    if (sys.tierScale < 1 && n > 3) n = Math.round(n * sys.tierScale);
+    if (sys.tierScale !== 1 && n > 3) n = Math.round(n * sys.tierScale);
     n = Math.max(1, Math.min(n, instBudget, 400));
     const tris = sys.cache.map.get(sp.key)?.tris ?? 1500;
     while (n > 1 && n * tris > triBudget) n = Math.floor(n * 0.7);
@@ -668,6 +834,21 @@ export class Director {
       if (beh.open) { plan.l0 = -side * rr([18, 34]); plan.h0 = rr([-7, -1]); }
       if ((sp.key === 'anthias' || sp.key === 'purpleAnthias') && rng() < 0.7) { plan.face = side; plan.noSeek = true; plan.h0 = rr([-2, 2]); }
     }
+    // seamount / blue hole: big pelagics patrol out in the blue, off the slope
+    const openW = ws.find((x) => x.key === 'seamount' || x.key === 'bluehole');
+    if (openW && openW.w > 0.5 && (beh.open || sp.key === 'silkyShark') && !lead) { plan.l0 = side * rr([16, 32]); plan.h0 = rr([-7, -1]); }
+    // sargassum: weed dwellers cling to / shelter under the floating mats
+    const sarg = ws.find((x) => x.key === 'sargassum');
+    if (sarg && sarg.w > 0.5 && sp.mat && (kind === 'hover' || kind === 'shoal')) {
+      let best = -1, bl = plan.l0, bs = plan.s0;
+      for (let k = 0; k < 12; k++) {
+        const l = latLim(side * rr([1, 12])), s = plan.s0 + rr([-15, 15]), cv = sargassumCover(sh.pathX(s) + l, s);
+        if (cv > best) { best = cv; bl = l; bs = s; }
+      }
+      plan.l0 = bl; plan.s0 = bs; plan.homeY = rr([-1.4, -0.35]); plan.noSeek = true; plan.zone = 'mid';
+    }
+    // jellyfish lake: cardinalfish keep to the shady edges
+    if (sp.edge && ws[0].key === 'jellylake') plan.l0 = latLim(side * rr(sp.edge));
     // validate water column at the spawn point; shrink lateral offset if needed
     const reg = sys.env && sys.env.obstacles;
     // floor dwellers find a free spot locally (beside / on top of rocks); only mid-water groups are checked here
