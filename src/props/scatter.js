@@ -14,8 +14,9 @@ export function pickW(rng, list) {
 export const pick = (rng, a) => a[(rng() * a.length) | 0];
 
 // y that puts every contact point (and a grid across wide flat bases) at or below the surface
-// `fs` is the chunk Ground (floor + supports) or any object with at(x, s).
-export function groundY(fs, x, s, tpl, R, sx, sy, sz, few = false) {
+// `fs` is the chunk Ground (floor + supports) or any object with at(x, s). full: the whole contact band even
+// for a small footprint (the hull + lowest points can straddle a dip in an uneven support's top).
+export function groundY(fs, x, s, tpl, R, sx, sy, sz, few = false, full = false) {
   const at = fs.h ? (px, ps) => fs.h(px, ps) : (px, ps) => fs.at(px, ps);
   if (R[4] < 0.5) { // lying / capsized: use the lowest band in world orientation
     const F = tpl.tiltFoot(R, sx, sy, sz);
@@ -25,7 +26,7 @@ export function groundY(fs, x, s, tpl, R, sx, sy, sz, few = false) {
   }
   const [fx0, fz0, fx1, fz1] = tpl.footBox;
   const ext = Math.max((fx1 - fx0) * sx, (fz1 - fz0) * sz);
-  const F = few || ext < 0.8 ? tpl.footFew : tpl.foot; // small footprints / planar bases: hull + lowest points
+  const F = !full && (few || ext < 0.8) ? tpl.footFew : tpl.foot; // small footprints / planar bases: hull + lowest points
   const r0 = R[0], r1 = R[1], r2 = R[2], r3 = R[3], r4 = R[4], r5 = R[5], r6 = R[6], r7 = R[7], r8 = R[8];
   let y = 1e9;
   for (let i = 0; i < F.length; i += 3) {
@@ -57,7 +58,10 @@ export function ceilY(ctx, x, s, tpl, R, sx, sy, sz) {
 //         tint(rng) -> rgb, sway (bool: scale fx by size), fxScale (scale fx by size), fa, grow [a,b], tilt,
 //         maxSlope, minK, giant (probability of a rare 2.2-3x showpiece, labelled "Giant ..." + POI),
 //         support (others may rest on it; placed upright), occ (footprint occupancy factor), layer,
-//         drape (patch follows the floor vertex by vertex), yaw/yawJ, R }
+//         drape (patch follows the floor vertex by vertex), yaw/yawJ, R, lbl / fact (per-placement name and fact),
+//         embed (may sit deep in a slope: its uphill side buried), straddle (m it may sink below the floor
+//         at its centre on a slope, default 0.3; broad low patches set into a slope need more),
+//         fullFoot (seat on the whole contact band: small things set on bumpy coral heads) }
 // Every placement also gets mild default non-uniform scale, lean and a per-instance texture-key offset.
 // Returns the placed scale, or 0 if rejected.
 export function putAt(ctx, batch, spec, x, y, s, nx, ny, nz, rng, sizeK = 1, fs = null) {
@@ -96,8 +100,8 @@ export function putAt(ctx, batch, spec, x, y, s, nx, ny, nz, rng, sizeK = 1, fs 
   if (fs) { // seat on the ground under the whole contact band, then embed slightly
     const hgt = (tpl.box[4] - tpl.box[1]) * sc * ys;
     const yc = y;
-    y = drape ? fs.fs.at(x, s) - tpl.minY * sc : groundY(fs, x, s, tpl, R, sc, sc * ys, sc * zs);
-    if (!drape && yc - y > Math.max(0.3, 0.5 * hgt)) return 0; // straddles a ledge: would be buried deep
+    y = drape ? fs.fs.at(x, s) - tpl.minY * sc : groundY(fs, x, s, tpl, R, sc, sc * ys, sc * zs, false, !!spec.fullFoot);
+    if (!drape && !spec.embed && yc - y > Math.max(spec.straddle ?? 0.3, 0.5 * hgt)) return 0; // straddles a ledge: would be buried deep (spec.embed: a boulder set into a slope, that is fine)
     sink = drape ? 0 : Math.min((spec.sink ?? 0.04) * sc * ys, 0.2 * hgt) + 0.01;
   }
   const fa = (spec.sway || spec.fxScale ? sc : 1) * (spec.fa ?? 1) * (spec.grow ? spec.grow[0] + (spec.grow[1] - spec.grow[0]) * rng() : 0.5 + rng());
@@ -105,8 +109,9 @@ export function putAt(ctx, batch, spec, x, y, s, nx, ny, nz, rng, sizeK = 1, fs 
   const it = batch.last;
   if (fs) it.g = 1;
   if (drape) { it.drape = fs.fs; it.s0 = ctx.s0; }
-  const label = giant && tpl.label ? 'Giant ' + tpl.label.charAt(0).toLowerCase() + tpl.label.slice(1) : null;
-  batch.tag(rng(), label);
+  const base = spec.lbl || tpl.label, label = giant && base ? 'Giant ' + base.charAt(0).toLowerCase() + base.slice(1) : null;
+  batch.tag(rng(), label, spec.fact);
+  if (spec.lbl && !giant) it.name = spec.lbl; // regional species name for a shared template
   if (support && fs && fs.addSupport) fs.addSupport(it, s);
   if (occR) fs.occupy(x, s, occR, spec.layer || 0);
   if (giant) { const h = tpl.maxY * sc * ys; poi(ctx, 'giant', x, y + h * 0.5, s, Math.max(h, tpl.r * sc), { name: label }); }

@@ -1,5 +1,7 @@
 // Shipwrecks. Every wreck segment gets its own freshly built wrecks: a plan per segment (theme, slots,
-// kinds, resting states, names) and, per slot, a design lofted and built from its own seed (wreck_types.js,
+// kinds, resting states, names; the first set piece within ~60 m of the zone start, then none more than GAP m
+// apart: small wrecks or debris fields, the remains of ships that broke up, fill the gaps between the big
+// ships) and, per slot, a design lofted and built from its own seed (wreck_types.js,
 // wreck_air.js) as one or two templates (whole or broken in two) with the resting state baked in (upright,
 // listing, on its side, capsized, half-buried, skeleton, or ends left around a debris field). Builds are
 // time-sliced generator jobs (~1 ms per step) pumped by this populator's steps in every chunk (including
@@ -71,8 +73,9 @@ const N = {
   fish: ['Northern Pride', 'Ocean Harvest', 'Sea Hunter', 'Morning Star', 'Provider', 'Lady Jean', 'Silver Spray', 'Bonnie Lass', 'Atlantic Rover', 'Good Hope'],
   navy: ['Halford', 'Brannock', 'Kessler', 'Moreland', 'Whitcombe', 'Strathmore', 'Penrose', 'Dalgety', 'Ashworth', 'Corvell'],
 };
+const namer = (r, used) => (list) => { let n; for (let t = 0; t < 8 && (!n || used.has(n)); t++) n = list[(r() * list.length) | 0]; used.add(n); return n; };
 function nameFor(d, r, used) {
-  const pick = (list) => { let n; for (let t = 0; t < 8 && (!n || used.has(n)); t++) n = list[(r() * list.length) | 0]; used.add(n); return n; };
+  const pick = namer(r, used);
   const y = d.year ? ` (${d.year})` : '';
   switch (d.kind) {
     case 'galleon': return `Galleon ${d.name}${y}`;
@@ -88,6 +91,15 @@ function nameFor(d, r, used) {
     case 'paddle': return `Paddle steamer ${pick(N.sail)}${y}`;
     default: return d.name ? `${d.label} ${d.name}${y}` : `${d.label}${y}`;
   }
+}
+// the ship whose scattered remains a debris field is (kind: a big kind of the theme, for the right flavour)
+function remainsName(fam, kind, r, used) {
+  const pick = namer(r, used);
+  if (fam === 'wood') return `${['brig', 'schooner', 'barque', 'brigantine'][(r() * 4) | 0]} ${pick(N.sail)}`;
+  if (kind === 'tug') return `tug ${pick(N.tug)}`;
+  if (kind === 'trawler') return `trawler ${pick(N.fish)}`;
+  if (kind === 'destroyer') return `destroyer ${pick(N.navy)}`;
+  return `${r() < 0.6 ? 'SS' : 'steamer'} ${pick(N.steel)}`;
 }
 
 // ---------- generation queue ----------
@@ -123,7 +135,7 @@ function need(j) { // finish a job now (its chunk is being built)
 // ---------- per-segment plans ----------
 const THEMES = [
   { name: 'galleon graveyard', big: ['galleon', 'galleon', 'brig'], small: ['rowboat', 'longboat', 'rowboat'], chest: 0.75, bell: 0.7, w: 1 },
-  { name: 'age of sail', big: ['schooner', 'brig', 'galleon'], small: ['rowboat', 'dinghy'], chest: 0.3, bell: 0.6, w: 1 },
+  { name: 'age of sail', big: ['schooner', 'brig', 'galleon'], small: ['rowboat', 'dinghy', 'longboat'], chest: 0.3, bell: 0.6, w: 1 },
   { name: 'WWII battle', big: ['destroyer', 'freighter', 'submarine'], small: ['fighter', 'bomber', 'seaplane', 'fighter'], chest: 0, bell: 0.4, w: 1.3 },
   { name: 'merchant graveyard', big: ['freighter', 'tanker', 'container', 'freighter'], small: ['tug', 'lifeboat'], chest: 0, bell: 0.3, w: 1.1 },
   { name: 'fishing harbour', big: ['trawler', 'tug', 'trawler'], small: ['yacht', 'dinghy', 'skiff', 'rowboat'], chest: 0, bell: 0.3, w: 1 },
@@ -137,6 +149,9 @@ const pathYaw = (ctx, s) => Math.atan2(-(ctx.pathX(s + 12) - ctx.pathX(s - 12)),
 const avail = (list) => (list || []).filter((k) => KINDS[k]);
 const bigKinds = () => Object.keys(KINDS).filter((k) => KINDS[k].big);
 const smallKinds = () => Object.keys(KINDS).filter((k) => !KINDS[k].big);
+// Set pieces along a wreck zone: the first within ~60 m of where the zone begins for the viewer, then never more
+// than GAP m (slot to slot) to the next, so the camera always has a wreck, or a wreck's remains, coming up.
+const GAP = 110;
 
 function segmentPlan(ctx, seg) {
   let L = plans.get(seg.id);
@@ -145,7 +160,10 @@ function segmentPlan(ctx, seg) {
   let tw = 0; for (const t of THEMES) tw += t.w;
   let x = rng() * tw, theme = THEMES[THEMES.length - 1];
   for (const t of THEMES) { x -= t.w; if (x <= 0) { theme = t; break; } }
-  const slots = [], lo = seg.start + 140, hi = seg.end - 140;
+  // the zone begins at seg.start (half way through the cross-fade); a dive that starts in this zone (the
+  // sequence's first segment, see BiomeSequence._push) starts 200 m into it
+  const z0 = seg.id === 0 ? seg.start + 200 : seg.start, zEnd = seg.end - 15;
+  const slots = [], lo = Math.max(seg.start + 140, z0 + 60), hi = seg.end - 140;
   if (hi > lo) {
     const n = 2 + (rng() < 0.55 ? 1 : 0), big = avail(theme.big).length ? avail(theme.big) : bigKinds(), small = avail(theme.small).length ? avail(theme.small) : smallKinds();
     for (let i = 0; i < n; i++) slots.push({ s: lerp(lo, hi, n === 1 ? 0.5 : i / (n - 1)) + (rng() - 0.5) * 40, big: true });
@@ -156,16 +174,34 @@ function segmentPlan(ctx, seg) {
       const curv = Math.abs(ctx.pathX(c + 22) - 2 * ctx.pathX(c) + ctx.pathX(c - 22));
       if (curv < bc) { bc = curv; slots[0].s = c; }
     }
-    // small wrecks (aircraft, boats) between the big ones
-    if (small.length) for (let i = 0, m = 1 + Math.floor(rng() * 3); i < m; i++) slots.push({ s: lerp(lo - 60, hi + 60, rng()), big: false });
-    const used = new Set();
+    // small wrecks (aircraft, boats) and the remains of ships that broke up (field) fill in: each goes into
+    // the widest gap left (the zone's end counts as a boundary)
+    const widest = () => {
+      const s = slots.map((q) => q.s).sort((a, b) => a - b);
+      s.push(zEnd);
+      let g = 0, at = 0;
+      for (let i = 1; i < s.length; i++) if (s[i] - s[i - 1] > g) { g = s[i] - s[i - 1]; at = s[i - 1]; }
+      return [at, g];
+    };
+    const fill = (field) => { const [a, g] = widest(); slots.push({ s: a + g * (0.5 + (rng() - 0.5) * 0.3), big: false, field }); };
+    if (!slots.some((q) => q.s <= z0 + 60)) slots.push({ s: z0 + 42 + rng() * 18, big: false, field: rng() < 0.5 }); // wreck weight >= 0.84 there
+    for (let i = 0, m = 1 + Math.floor(rng() * 3); i < m; i++) fill(false);
+    for (let k = 0; k < 12 && widest()[1] > GAP; k++) fill(rng() < 0.6);
+    const used = new Set(), foot = [];
     slots.forEach((sl, i) => {
+      if (sl.field) { // no hull: a trail of the heaviest parts (boilers or ballast, frames, plates) on the bottom
+        const fk = big[(rng() * big.length) | 0], fam = theme.big ? (KINDS[fk].family === 'wood' ? 'wood' : 'steel') : rng() < 0.5 ? 'wood' : 'steel';
+        Object.assign(sl, { i, kind: 'remains', fam, hero: false, side: rng() < 0.5 ? -1 : 1, k: (rng() * 1e9) | 0, pieces: null, job: null, used, foot });
+        sl.name = remainsName(fam, fk, mulberry32(sl.k ^ 0x51), used);
+        return;
+      }
       const pool = sl.big ? big : small;
       const kind = theme.big ? pool[i % pool.length] : pool[(rng() * pool.length) | 0];
       Object.assign(sl, {
         i, kind: KINDS[kind] ? kind : 'freighter', hero: i === 0, side: rng() < 0.5 ? -1 : 1, seed: (rng() * 4294967295) >>> 0, pieces: null, job: null,
         yawX: (rng() - 0.5) * (i === 0 ? 0.12 : 0.6) + (rng() < 0.3 ? Math.PI : 0), gapOK: rng() < 0.5, k: (rng() * 1e9) | 0,
-        chest: rng() < (theme.chest || 0), bell: rng() < (theme.bell || 0), used,
+        // a bell only on ships (not aircraft or small boats)
+        chest: rng() < (theme.chest || 0), bell: rng() < (theme.bell || 0) && !!(KINDS[kind] || KINDS.freighter).big, used, foot,
       });
     });
   }
@@ -180,7 +216,7 @@ function segmentPlan(ctx, seg) {
   return L;
 }
 function jobOf(ctx, sl) {
-  if (sl.job) return sl.job;
+  if (sl.job || sl.field) return sl.job; // a debris field has no hull to build
   const tier = ctx.tier;
   sl.job = {
     factory: function* () {
@@ -243,22 +279,43 @@ function probePts(tpl, x, y, s, R) {
   }
   return out;
 }
-// seat a piece on the floor: yaw about the path, pitch along its own axis; the burial cut lies below the sand
-function placePiece(ctx, fl, P, tpl, s, off, yaw, step = 1.6, tries = 24) {
+// Footprints (oriented rectangles in x, s: centre c, unit-ish axes u, v, half extents hu, hv) of a plan's placed
+// pieces and debris fields, so the wrecks of two slots are never laid into each other.
+function overlaps(A, list, si, m = 1.5) {
+  for (const B of list) {
+    if (B.sl === si) continue;
+    const dx = B.c[0] - A.c[0], ds = B.c[1] - A.c[1], far = A.hu + A.hv + B.hu + B.hv + m;
+    if (dx * dx + ds * ds > far * far) continue;
+    let sep = false;
+    for (const ax of [A.u, A.v, B.u, B.v]) { // separating axis test
+      const l = Math.hypot(ax[0], ax[1]) || 1, nx = ax[0] / l, ns = ax[1] / l;
+      const pa = Math.abs(A.u[0] * nx + A.u[1] * ns) * A.hu + Math.abs(A.v[0] * nx + A.v[1] * ns) * A.hv;
+      const pb = Math.abs(B.u[0] * nx + B.u[1] * ns) * B.hu + Math.abs(B.v[0] * nx + B.v[1] * ns) * B.hv;
+      if (Math.abs(dx * nx + ds * ns) > pa + pb + m) { sep = true; break; }
+    }
+    if (!sep) return true;
+  }
+  return false;
+}
+const footOf = (c, R, box) => ({ c: [c[0], c[2]], u: [R[0], -R[6]], v: [R[2], -R[8]], hu: (box[3] - box[0]) / 2, hv: (box[5] - box[2]) / 2 });
+// seat a piece on the floor: yaw about the path, pitch along its own axis; the burial cut lies below the sand.
+// sl: its slot (footprints of the plan's other slots are kept clear)
+function placePiece(ctx, fl, P, tpl, s, off, yaw, step = 1.6, tries = 24, sl = null) {
   const bx = -Math.sin(yaw), bs = Math.cos(yaw), half = Math.max(4, (tpl.box[5] - tpl.box[2]) * 0.4);
+  const [x0, y0, z0, x1, y1, z1] = tpl.box, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
   for (let t = 0; t < tries; t++) {
     const d = off + (t === 0 ? 0 : (Math.sign(off) || (t % 2 ? 1 : -1)) * Math.ceil(t / (off ? 1 : 2)) * step);
     const x = ctx.pathX(s) + d;
     const fA = fl.at(x - bx * half, s - bs * half), fB = fl.at(x + bx * half, s + bs * half);
     const R = mul3(rotY(yaw), rotX(Math.atan2(fB - fA, 2 * half) * 0.85));
     const y = groundY(fl, x, s, tpl, R, 1, 1, 1) - (tpl.sinkK ?? 0.25);
+    const c = [R[0] * cx + R[1] * cy + R[2] * cz + x, R[3] * cx + R[4] * cy + R[5] * cz + y, s - (R[6] * cx + R[7] * cy + R[8] * cz)];
+    if (sl && overlaps(footOf(c, R, tpl.box), sl.foot, sl.i)) continue;
     if (!clearT(P, placedPoints(tpl, x, y, s, R, 1, 1, 1, 90), 0.6)) continue; // cheap reject first
     if (!clearT(P, probePts(tpl, x, y, s, R), 0.6)) continue;
     let sMax = -1e9, sMin = 1e9;
     const pts = placedPoints(tpl, x, y, s, R, 1, 1, 1, 200);
     for (let i = 2; i < pts.length; i += 3) { sMax = Math.max(sMax, pts[i]); sMin = Math.min(sMin, pts[i]); }
-    const [x0, y0, z0, x1, y1, z1] = tpl.box, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
-    const c = [R[0] * cx + R[1] * cy + R[2] * cz + x, R[3] * cx + R[4] * cy + R[5] * cz + y, s - (R[6] * cx + R[7] * cy + R[8] * cz)];
     return { tpl, x, y, s, R, sMax, sMin, c, r: Math.max(x1 - x0, z1 - z0) / 2, hw: Math.max(-x0, x1), top: y1 };
   }
   return null;
@@ -280,9 +337,34 @@ function latticeFloor(ctx) {
   };
 }
 
+// The remains of a ship that broke up (a field slot): no hull, its heaviest parts (boilers, or the ballast
+// pile, named after the ship) and a trail of frames, plates and fittings along the line it lay on, beside the path.
+function fieldPieces(ctx, sl) {
+  const rng = mulberry32(sl.k), sp = specs(), wood = sl.fam === 'wood';
+  const a = Math.PI / 2 + (rng() - 0.5) * 1.2, ca = Math.cos(a), sa = Math.sin(a); // the line, in (x, s): mostly along the path
+  const hl = 7 + rng() * 6, hw = 2.5 + rng() * 2, cs = sl.s, off = TUBE + 2.5 + hw + rng() * 5;
+  const foot = (cx) => ({ sl: sl.i, c: [cx, cs], u: [ca, sa], v: [-sa, ca], hu: hl + 1, hv: hw + 1 });
+  let cx = ctx.pathX(cs) + sl.side * off;
+  for (let t = 1; t < 10 && overlaps(foot(cx), sl.foot, sl.i); t++) cx = ctx.pathX(cs) + sl.side * (off + t * 2.5);
+  sl.foot.push(foot(cx));
+  const at = (u, v) => [cx + ca * u - sa * v, cs + sa * u + ca * v]; // u along the line, v across it
+  sl.extras = [];
+  for (let q = 0, n = wood || rng() < 0.6 ? 1 : 2; q < n; q++) {
+    const p = at((rng() - 0.5) * hl * 0.5 + (q ? hl * 0.45 : 0), (rng() - 0.5) * hw * 0.4);
+    sl.extras.push({ type: 'debris', k: wood ? 'ballast' : 'boiler', x: p[0], s: p[1], big: true, lbl: (wood ? 'Ballast stones of the ' : 'Boiler of the ') + sl.name });
+  }
+  for (let q = 0, n = Math.round((14 + rng() * 8) * tierK(ctx)); q < n; q++) {
+    const u = (rng() * 2 - 1) * hl, p = at(u, (rng() * 2 - 1) * hw * Math.sqrt(1 - 0.7 * (u / hl) ** 2));
+    sl.extras.push({ type: 'debris', k: pickW(rng, wood ? sp.remWood : sp.remSteel).k, x: p[0], s: p[1] });
+  }
+  sl.site = { x: cx, s: cs, r: hl };
+  return (sl.pieces = []);
+}
+
 // place a slot's pieces (once): whole, broken halves (maybe a gap the camera threads), aircraft, small boats
 function slotPieces(ctx, gnd, sl) {
   if (sl.pieces) return sl.pieces;
+  if (sl.field) return fieldPieces(ctx, sl);
   const tpls = need(jobOf(ctx, sl)) || [];
   sl.extras = [];
   const tp0 = performance.now();
@@ -295,8 +377,8 @@ function slotPieces(ctx, gnd, sl) {
     // A: the piece whose broken end is at template +z, B: at -z (bow/stern for hulls, front/tail for bodies)
     const A = tpls[0].cutEnd > 0 ? tpls[0] : tpls[1], B = A === tpls[0] ? tpls[1] : tpls[0];
     if (sl.gapOK && !sl.hero && KINDS[sl.kind] && KINDS[sl.kind].big && sl.kind !== 'galleon') { // broken across the path: the camera threads the gap
-      const a = push(placePiece(ctx, fl, P, A, s, side * (TUBE + 1.2 + Math.max(0, A.box[5])), yaw0 - side * Math.PI / 2 + (rng() - 0.5) * 0.15, 0.6), sl.name + ', ' + A.part);
-      const b = push(placePiece(ctx, fl, P, B, s + (rng() - 0.5) * 3, -side * (TUBE + 1.2 + Math.max(0, -B.box[2])), yaw0 + side * Math.PI / 2 + (rng() - 0.5) * 0.3, 0.6), sl.name + ', ' + B.part);
+      const a = push(placePiece(ctx, fl, P, A, s, side * (TUBE + 1.2 + Math.max(0, A.box[5])), yaw0 - side * Math.PI / 2 + (rng() - 0.5) * 0.15, 0.6, 24, sl), sl.name + ', ' + A.part);
+      const b = push(placePiece(ctx, fl, P, B, s + (rng() - 0.5) * 3, -side * (TUBE + 1.2 + Math.max(0, -B.box[2])), yaw0 + side * Math.PI / 2 + (rng() - 0.5) * 0.3, 0.6, 24, sl), sl.name + ', ' + B.part);
       if (a && b) sl.arch = { x: ctx.pathX(s), y: ctx.pathY(s), s };
     } else { // the two pieces lie a little apart along the same line, the broken ends facing each other
       const off = side * (Math.max(lat(A), lat(B)) + TUBE + 1.5 + (sl.hero ? 0.5 : rng() * 6));
@@ -309,14 +391,14 @@ function slotPieces(ctx, gnd, sl) {
         }
       }
       // template -z points along +s for yaw ~ yaw0: A (broken end +z) lies ahead of the break, B behind it
-      push(placePiece(ctx, fl, P, A, s + fwd * (A.box[5] + gap / 2), off, yaw + (rng() - 0.5) * 0.4), sl.name + ', ' + A.part);
-      push(placePiece(ctx, fl, P, B, s + fwd * (B.box[2] - gap / 2), off + side * rng() * 5, yaw + (rng() - 0.5) * 0.7), sl.name + ', ' + B.part);
+      push(placePiece(ctx, fl, P, A, s + fwd * (A.box[5] + gap / 2), off, yaw + (rng() - 0.5) * 0.4, 1.6, 24, sl), sl.name + ', ' + A.part);
+      push(placePiece(ctx, fl, P, B, s + fwd * (B.box[2] - gap / 2), off + side * rng() * 5, yaw + (rng() - 0.5) * 0.7, 1.6, 24, sl), sl.name + ', ' + B.part);
     }
   } else if (tpls.length === 1) {
     const t = tpls[0], low = t.box[4] - t.box[1] < 3.2;
     const off = low && !sl.hero && rng() < 0.6 ? (rng() - 0.5) * 4 : side * (lat(t) + TUBE + 1.0 + (sl.hero ? 0.4 : rng() * 7));
     const yaw = yaw0 + (KINDS[sl.kind] && KINDS[sl.kind].air ? rng() * TAU : sl.yawX);
-    push(placePiece(ctx, fl, P, t, s, off, yaw, sl.hero ? 0.6 : 1.4), sl.name);
+    push(placePiece(ctx, fl, P, t, s, off, yaw, sl.hero ? 0.6 : 1.4, 24, sl), sl.name);
   }
   // delights around the wreck, placed by whichever chunk contains them
   const h = out[0];
@@ -329,7 +411,9 @@ function slotPieces(ctx, gnd, sl) {
     const cx = (h ? h.c[0] : ctx.pathX(s)) + side * (8 + rng() * 6), n = 10 + Math.floor(rng() * 8);
     for (let q = 0; q < n; q++) sl.extras.push({ type: 'container', x: cx + (rng() - 0.5) * 24, s: s + (rng() - 0.5) * 40, stack: rng() < 0.35, k: (rng() * 1e9) | 0 });
     sl.cargo = { x: cx, s };
+    sl.foot.push({ sl: sl.i, c: [cx, s], u: [1, 0], v: [0, 1], hu: 15, hv: 23 });
   }
+  for (const p of out) sl.foot.push({ sl: sl.i, ...footOf(p.c, p.R, p.tpl.box) });
   sl.pieces = out;
   const dt = performance.now() - tp0;
   if (dt > (Q.slow.place || 0)) Q.slow.place = +dt.toFixed(2);
@@ -361,7 +445,8 @@ export function specs() {
     tyre: { tpl: D.tyre, scale: [0.9, 1.1], follow: 0.9, sink: 0.08, occ: 0.6, tint: w },
     bottles: { tpl: D.bottles, scale: [0.9, 1.2], follow: 1, sink: 0.02, tint: w },
     gas: { tpl: D.gas, scale: [0.9, 1.1], follow: 0.9, sink: 0.05, occ: 0.6, tint: w },
-    mast: { tpl: D.mast, scale: [0.9, 1.1], follow: 0.1, tint: w },
+    mast: { tpl: D.mast, scale: [0.9, 1.1], follow: 0.1, occ: 0.5, tint: w }, // fallen, heel in the sand (contact band up to the sand line)
+    spar: { tpl: D.spar, scale: [0.9, 1.15], follow: 0.9, tilt: 0.04, sink: 0.05, occ: 0.5, tint: w },
     chest: { tpl: T.chest, scale: [1, 1.15], follow: 0.8, tilt: 0.15, sink: 0.08, occ: 1, tint: tintFrom([[1, 1, 1]], 0.06) },
     bell: { tpl: T.bell, scale: [1, 1.2], follow: 0.8, sink: 0.12, tint: tintFrom([[1, 1, 1]], 0.08) },
     coins: { tpl: T.coinSpill, scale: [1, 1.2], tint: tintFrom([[1, 1, 1]], 0.05) },
@@ -376,6 +461,9 @@ export function specs() {
   S.steel = [{ w: 2.5, k: 'fragSteel' }, { w: 2, k: 'drum' }, { w: 1, k: 'crate' }, { w: 0.4, k: 'anchor' }, { w: 1, k: 'chain' }, { w: 2.5, k: 'plate' }, { w: 0.9, k: 'girder' }, { w: 0.5, k: 'cowl' }, { w: 0.35, k: 'boiler' }, { w: 0.5, k: 'gas' }, { w: 0.4, k: 'tyre' }, { w: 1, k: 'rock' }, { w: 0.8, k: 'sponge' }, { w: 0.5, k: 'anem', sway: true }];
   S.light = [{ w: 2, k: 'plate' }, { w: 1, k: 'fragSteel' }, { w: 0.8, k: 'gas' }, { w: 0.5, k: 'tyre' }, { w: 1, k: 'rock' }, { w: 0.8, k: 'sponge' }, { w: 0.5, k: 'anem', sway: true }];
   S.micro = [{ w: 2, spec: S.pebbles }, { w: 1.2, spec: S.algae }];
+  // the remains of a ship that broke up (field slots), around its boilers or ballast pile
+  S.remWood = [{ w: 3, k: 'frag' }, { w: 2.5, k: 'plank' }, { w: 1.2, k: 'cannon' }, { w: 1.2, k: 'barrel' }, { w: 0.6, k: 'shot' }, { w: 0.8, k: 'chain' }, { w: 0.35, k: 'anchor' }, { w: 0.6, k: 'crate' }, { w: 0.4, k: 'bottles' }, { w: 0.8, k: 'spar' }, { w: 0.4, k: 'mast' }, { w: 0.5, k: 'sponge' }, { w: 0.4, k: 'fan' }];
+  S.remSteel = [{ w: 3, k: 'fragSteel' }, { w: 3, k: 'plate' }, { w: 1.6, k: 'girder' }, { w: 1.2, k: 'drum' }, { w: 0.6, k: 'cowl' }, { w: 0.8, k: 'chain' }, { w: 0.35, k: 'anchor' }, { w: 0.5, k: 'gas' }, { w: 0.5, k: 'crate' }, { w: 0.3, k: 'tyre' }, { w: 0.5, k: 'sponge' }, { w: 0.4, k: 'anem' }];
   S.sparse = [{ w: 1.2, k: 'frag' }, { w: 0.8, k: 'fragSteel' }, { w: 4, k: 'rock' }, { w: 1, k: 'plank' }, { w: 0.6, k: 'drum' }, { w: 0.5, k: 'barrel' }, { w: 0.6, k: 'plate' }, { w: 0.3, k: 'girder' }, { w: 0.6, k: 'sponge' }, { w: 0.4, k: 'anem', sway: true }];
   S.grow = [{ w: 3, k: 'fan', sway: true }, { w: 2.5, k: 'sponge' }, { w: 1.5, k: 'anem', sway: true }];
   return S;
@@ -426,8 +514,9 @@ export function layoutWreck(ctx) {
         putFloor(ctx, fs, st, { ...sp.coins, yaw, yawJ: 0.2 }, e.x + it.R[2] * f, e.s - it.R[8] * f, rng); // gold spilling out of the front
         poi(ctx, 'treasure', e.x, fs.at(e.x, e.s) + 0.4, e.s, 2, { wreck: sl.name });
       }
-    } else if (e.type === 'debris') {
-      putFloor(ctx, fs, mid, sp[e.k], e.x, e.s, rng);
+    } else if (e.type === 'debris') { // big: a field's centrepiece, always drawn and named after its ship
+      const spec = sp[e.k];
+      putFloor(ctx, fs, e.big ? st : spec.sway ? sw : mid, e.lbl ? { ...spec, lbl: e.lbl } : spec, e.x, e.s, rng);
     } else if (e.type === 'bell') {
       if (putFloor(ctx, fs, st, sp.bell, e.x, e.s, rng)) st.last.lbl = "Ship's bell of the " + (sl.name || 'wreck').replace(/ \(\d+\)$/, '');
     } else { // container, sometimes with a shorter one stacked on top (same yaw, inside its roof)
@@ -481,6 +570,7 @@ export function layoutWreck(ctx) {
         }
         if (sl.arch && inChunk(sl.arch.s)) poi(ctx, 'arch', sl.arch.x, sl.arch.y, sl.arch.s, TUBE + 1.2, { kind: 'hull gap', name: sl.name });
         if (sl.cargo && inChunk(sl.cargo.s)) poi(ctx, 'wreck', sl.cargo.x, fs.at(sl.cargo.x, sl.cargo.s) + 2, sl.cargo.s, 16, { name: sl.name, kind: 'containers' });
+        if (sl.site && inChunk(sl.site.s)) poi(ctx, 'wreck', sl.site.x, fs.at(sl.site.x, sl.site.s) + 2, sl.site.s, sl.site.r, { name: 'Remains of the ' + sl.name, kind: 'remains', community: plan.theme.name });
         for (const e of sl.extras) if (inChunk(e.s)) next.push(timed('extra', extra(sl, e)));
         more.unshift(...next);
       }));
@@ -493,7 +583,16 @@ export function layoutWreck(ctx) {
     const e = pickW(rng, sp.sparse);
     putFloor(ctx, fs, e.sway ? sw : mid, sp[e.k], p.x, p.s, rng, 1 + sstep(5, 30, p.d));
   }));
-  more.push(() => { for (const b of bendSpots(ctx)) if (rng() < ctx.weightOf(b.s, 'wreck') * 0.5) putBend(ctx, fs, st, rng() < 0.6 ? sp.mast : sp.rock, b, rng); });
+  more.push(() => {
+    for (const b of bendSpots(ctx)) {
+      if (rng() >= ctx.weightOf(b.s, 'wreck') * 0.5) continue;
+      if (rng() >= 0.6) { putBend(ctx, fs, st, sp.rock, b, rng); continue; }
+      if (putBend(ctx, fs, st, sp.mast, b, rng) === null) continue;
+      // the fallen mast's yard lies loose beside it, roughly parallel, on the side away from the path
+      const it = st.last, yaw = Math.atan2(it.R[2], it.R[0]), nx = -Math.sin(yaw), ns = Math.cos(yaw), o = (2.6 + rng() * 1.6) * (Math.sign(nx * b.side) || 1);
+      putFloor(ctx, fs, st, { ...sp.spar, yaw, yawJ: 0.4 }, it.x + nx * o, ctx.s0 - it.z + ns * o, rng);
+    }
+  });
   more.push(...microSteps(ctx, fs, near, rng, 'wreck', sp.micro, 90, 26, 30));
   // the slot steps unshift their follow-ups (debris ring, growth, delights) into this same array, so the
   // stage runner must get `more` itself, not a copy

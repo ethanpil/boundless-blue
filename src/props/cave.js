@@ -8,14 +8,22 @@ import { MAT } from './materials.js';
 import { mulberry32 } from '../noise.js';
 
 const LIME = [0.56, 0.52, 0.43];
+// speleothem calcite: cream, ochre and wet tan, with darker iron-stained growth bands; stone texture keys
+// (static mode 6.x) with almost no encrusting growth (they grew in air, then drowned in the dark)
+const SPELEO = [[0.8, 0.74, 0.6], [0.74, 0.62, 0.45], [0.66, 0.57, 0.45], [0.84, 0.72, 0.54]], STAIN = [0.62, 0.45, 0.28];
+const stoneKey = (seed) => 6.05 + mulberry32(seed * 131 + 17)() * 0.9;
+function speleoPaint(seed, v, band, ao, o) {
+  const c = SPELEO[seed % SPELEO.length], st = 0.35 * Math.max(0, Math.sin(v * 23 + seed * 1.7)) ** 3;
+  o[3] = lerp(c[0], STAIN[0], st) * band * ao; o[4] = lerp(c[1], STAIN[1], st) * band * ao; o[5] = lerp(c[2], STAIN[2], st) * band * ao;
+}
 
 function stalactite(seed, parts) {
-  const b = new Builder(), rng = mulberry32(seed);
+  const b = new Builder(), key = stoneKey(seed);
   for (const [L, ox, oz, rr] of parts) {
     const v0 = b.vc;
     b.lathe(9, 7, (v) => [rr * (0.26 * Math.pow(1 - v, 1.25) + 0.004 + 0.012 * Math.sin(v * 31 + seed) * (1 - v)), -v * L],
       (a, v) => 1 + 0.18 * vn3(Math.cos(a) * 1.5, v * 4, Math.sin(a) * 1.5, seed),
-      (v, a, x, y, z, o) => { const band = 0.85 + 0.2 * Math.sin(v * 40 + seed); const ao = 0.55 + 0.45 * v; o[3] = LIME[0] * band * ao; o[4] = LIME[1] * band * ao; o[5] = LIME[2] * band * ao; o[6] = 0.1; o[7] = 2; },
+      (v, a, x, y, z, o) => { speleoPaint(seed, v, 0.85 + 0.2 * Math.sin(v * 40 + seed), 0.55 + 0.45 * v, o); o[6] = 0.02; o[7] = key; },
       { flip: true });
     b.xform(v0, [1, 0, 0, 0, 1, 0, 0, 0, 1], ox, 0.02, oz);
   }
@@ -23,26 +31,26 @@ function stalactite(seed, parts) {
 }
 
 function stalagmite(seed) {
-  const b = new Builder();
+  const b = new Builder(), key = stoneKey(seed + 40);
   b.lathe(10, 8, (v) => [0.3 * Math.pow(1 - Math.pow(v, 1.8), 0.7) + 0.02 + 0.03 * Math.sin(v * 17 + seed) * (1 - v), v],
     (a, v) => 1 + 0.15 * vn3(Math.cos(a) * 1.5, v * 3, Math.sin(a) * 1.5, seed + 3),
-    (v, a, x, y, z, o) => { const band = 0.85 + 0.18 * Math.sin(v * 30 + seed); const ao = 0.5 + 0.5 * v; o[3] = LIME[0] * band * ao; o[4] = LIME[1] * band * ao; o[5] = LIME[2] * band * ao; o[6] = 0.25; o[7] = 2; });
+    (v, a, x, y, z, o) => { speleoPaint(seed + 1, v, 0.85 + 0.18 * Math.sin(v * 30 + seed), 0.5 + 0.5 * v, o); o[6] = 0.03; o[7] = key; });
   return b.build();
 }
 
 function column(seed) {
-  const b = new Builder();
+  const b = new Builder(), key = stoneKey(seed + 80);
   b.lathe(14, 12, (v) => [0.5 * (0.3 + 0.7 * Math.pow(Math.abs(2 * v - 1), 1.7)) + 0.04 * Math.sin(v * 23 + seed), v],
     (a, v) => 1 + 0.1 * Math.abs(Math.sin(a * 5 + v * 7)) + 0.12 * vn3(Math.cos(a) * 1.5, v * 5, Math.sin(a) * 1.5, seed),
-    (v, a, x, y, z, o) => { const band = 0.82 + 0.2 * Math.sin(v * 50 + a); o[3] = LIME[0] * band; o[4] = LIME[1] * band; o[5] = LIME[2] * band; o[6] = 0.15; o[7] = 2; });
+    (v, a, x, y, z, o) => { speleoPaint(seed + 2, v, 0.82 + 0.2 * Math.sin(v * 50 + a), 1, o); o[6] = 0.02; o[7] = key; });
   return b.build();
 }
 
 // low draped flowstone mound with rimstone ripples
 function flowstone(seed) {
-  const b = new Builder(), rng = mulberry32(seed * 3), R = 0.8 + rng() * 0.8, H = 0.4 + rng() * 0.6, rip = 14 + rng() * 14;
+  const b = new Builder(), rng = mulberry32(seed * 3), R = 0.8 + rng() * 0.8, H = 0.4 + rng() * 0.6, rip = 14 + rng() * 14, key = stoneKey(seed + 120);
   b.lathe(16, 8, (v) => [R * Math.pow(1 - v, 0.6) * (1 + 0.05 * Math.sin(v * rip)) + 0.02, H * Math.sin(v * Math.PI * 0.5)], (a, v) => 1 + 0.18 * vn3(Math.cos(a) * 1.5, v * 3, Math.sin(a) * 1.5, seed),
-    (v, a, x, y, z, o) => { const band = 0.8 + 0.25 * Math.sin(v * rip * 2 + a); o[3] = LIME[0] * band * 1.05; o[4] = LIME[1] * band; o[5] = LIME[2] * band * 0.9; o[6] = 0.1; o[7] = 2; });
+    (v, a, x, y, z, o) => { speleoPaint(seed + 3, v, 0.8 + 0.25 * Math.sin(v * rip * 2 + a), 1, o); o[6] = 0.03; o[7] = key; });
   const t = b.build(); t.label = 'Flowstone'; return t;
 }
 
@@ -92,7 +100,7 @@ export function initCave() {
   T.caveColumn = vary([1, 2, 3].map(column), 2, 37, { disp: 0.1, bend: 0.06, twist: 0.6 });
   T.deadTree = vary([1, 2, 3, 4, 5, 6].map(deadTree), 2, 47, { disp: 0.05, bend: 0.15, twist: 0.4 });
   T.deadTreeLying = T.deadTree.flatMap((t, i) => [lyingTree(t, 1.3 + (i % 3) * 0.05), lyingTree(t, 1.48 - (i % 2) * 0.04)]);
-  const b = new Builder(); stoneInto(b, { sx: 1.6, sy: 0.9, sz: 1.2, p: 4, rough: 0.12, seed: 5, detail: 2, col: LIME, growth: 0.2, mode: 2 });
+  const b = new Builder(); stoneInto(b, { sx: 1.6, sy: 0.9, sz: 1.2, p: 4, rough: 0.12, seed: 5, detail: 2, col: LIME, growth: 0.05, mode: stoneKey(5) });
   b.xform(0, [1, 0, 0, 0, 1, 0, 0, 0, 1], 0, 0.4, 0); T.caveBlock = [b.build()];
   T.caveBlock[0].label = 'Breakdown block';
 }
@@ -102,8 +110,9 @@ function specs() {
   if (S.rock) return S;
   Object.assign(S, {
     // live reference: rock_gen.js refreshes T.rocks per segment; blocks are a separate, rarer entry
-    rock: { tpl: T.rocks, scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
-    block: { tpl: T.caveBlock, scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
+    // little encrusting growth in the dark: bare breakdown limestone with a film of silt
+    rock: { tpl: T.rocks, scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0, 0.18], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
+    block: { tpl: T.caveBlock, scale: [0.5, 2.2], ys: [0.7, 1.35], xz: 0.5, grow: [0, 0.18], follow: 0.6, tint: tintFrom([[0.62, 0.58, 0.5], [0.5, 0.48, 0.44]]) },
     pebbles: { tpl: T.pebbles, scale: [0.8, 1.7], follow: 1, sink: 0.02, tint: tintFrom([[0.85, 0.8, 0.7], [0.75, 0.72, 0.66]], 0.08) },
     grit: { tpl: T.rubble, scale: [0.8, 1.5], follow: 1, sink: 0.02, tint: tintFrom([[0.8, 0.77, 0.7]], 0.08) },
     flow: { tpl: T.flowstone, scale: [0.7, 1.6], follow: 0.7, sink: 0.1, tint: tintFrom([[1, 1, 1], [1.05, 0.95, 0.85]], 0.12) },

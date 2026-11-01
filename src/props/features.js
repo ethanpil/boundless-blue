@@ -1,7 +1,7 @@
 // Feature templates shared by several biomes: natural rock arches (swim-throughs), overhanging ledges,
-// retracting tube worms, treasure, ship's bells, bottles, shipping containers, stalked kelp, grass types.
+// retracting tube worms, treasure, ship's bells, bottles, shipping containers, stalked kelp.
 import { Builder, T, TAU, vn3, fbm3, sat, sstep, lerp, rotX, rotY, rotZ, mul3 } from './core.js';
-import { rockInto, stoneInto, grassPatch } from './shapes.js';
+import { rockInto, stoneInto } from './shapes.js';
 import { mulberry32 } from '../noise.js';
 
 const norm = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
@@ -47,22 +47,27 @@ export function rockArch(seed, { clear = 4.6, legR = 2.1, topR = 1.3, depth = 12
 }
 
 // ---------- overhanging rock ledge (creatures shelter underneath) ----------
-// The lip juts out toward +x; t.ledge = { x, y, z } is the shady mouth under the lip (template space).
+// An undercut outcrop: a squat base, a back mass and a thick cap stratum that overlaps the base's top
+// and juts out toward +x (never a thin slab balanced on a ball). t.ledge = { x, y, z } is the shady
+// mouth under the lip (template space).
 export function rockLedge(seed) {
-  const rng = mulberry32(seed * 911 + 7), b = new Builder();
-  const H = 2.6 + rng() * 2.2, W = 2.6 + rng() * 1.6, D = 2.4 + rng() * 1.8, lipY = H * (0.55 + rng() * 0.2), lip = 1.6 + rng() * 1.4;
-  rockInto(b, seed * 3 + 1, { detail: 4, sx: W / 2, sy: H / 1.3, sz: D / 2, rough: 0.35, flat: 0.15, growth: 0.9, col: [0.9, 0.86, 0.8] });
+  const rng = mulberry32(seed * 911 + 7), b = new Builder(), col = [0.9, 0.86, 0.8];
+  const H = 2.4 + rng() * 1.8, W = 2.8 + rng() * 1.4, D = 2.6 + rng() * 1.6, lipY = H * (0.55 + rng() * 0.12), lip = 1.3 + rng() * 1.2;
+  rockInto(b, seed * 3 + 1, { detail: 4, sx: W / 2, sy: lipY / 1.25, sz: D / 2, rough: 0.38, flat: 0.3, growth: 0.9, col });
   const v1 = b.vc;
-  rockInto(b, seed * 3 + 2, { detail: 3, sx: (W + lip) / 2, sy: 0.55, sz: D / 2 * 1.05, rough: 0.3, flat: 0.45, growth: 1.0, col: [0.9, 0.86, 0.8] });
-  b.xform(v1, rotZ(-0.06), lip * 0.5, lipY, 0);
+  rockInto(b, seed * 3 + 3, { detail: 3, sx: W * 0.42, sy: H * 0.62, sz: D * 0.4, rough: 0.4, flat: 0.25, growth: 0.9, col });
+  b.xform(v1, rotY(rng() * TAU), -W * 0.3, 0, (rng() - 0.5) * D * 0.4);
+  const v2 = b.vc, capT = 0.65 + rng() * 0.3;
+  rockInto(b, seed * 3 + 2, { detail: 4, sx: (W + lip) / 2 * 1.05, sy: capT, sz: D / 2 * 1.08, rough: 0.36, flat: 0.3, growth: 1.0, col });
+  b.xform(v2, rotZ(-0.05 - rng() * 0.06), lip * 0.45, lipY - capT * 0.45, 0);
   const key = 6.05 + rng() * 0.9;
   b.paint(0, (i, x, y, z, nx, ny, nz, o) => {
-    const under = y < lipY && x > W * 0.3 ? 0.55 : 1;
+    const under = y < lipY + 0.1 && x > W * 0.25 ? 0.5 + 0.5 * sat((W * 0.25 + 0.6 - x) / 0.6) : 1; // shaded mouth
     o[0] *= under; o[1] *= under; o[2] *= under; o[4] = key;
   });
   b.label = 'Rock overhang'; b.fact = 'Overhangs are prime real estate: lobsters, moray eels and sweepers shelter in the shade.';
   b.support = true;
-  b.obs = [[0, H * 0.35, 0, 0, H * 0.75, 0, Math.max(W, D) * 0.5], [W * 0.2, lipY, 0, W * 0.5 + lip, lipY, 0, 0.6]];
+  b.obs = [[0, H * 0.3, 0, 0, Math.max(H * 0.3, lipY - 0.3), 0, Math.max(W, D) * 0.5], [-W * 0.3, H * 0.35, 0, -W * 0.3, H * 0.6, 0, Math.max(W, D) * 0.42], [W * 0.1, lipY + capT * 0.3, 0, W * 0.5 + lip, lipY + capT * 0.2, 0, capT + 0.3]];
   const t = b.build();
   t.ledge = { x: W * 0.5 + lip * 0.6, y: lipY * 0.45, z: 0 };
   return t;
@@ -247,9 +252,4 @@ export function initFeatures() {
   T.bottle = [1].map(bottle);
   T.container = [1, 2, 3, 4, 5, 6].map((s) => container(s));
   T.seaPalm = [1, 2, 3, 4, 5, 6, 7, 8].map(seaPalm);
-  // seagrass communities: broad turtle grass vs long, narrow eelgrass ribbons
-  T.turtleNear = [601, 603, 605].map((sd, i) => grassPatch(sd, { n: 12 + i * 2, r: 0.5, h: 0.32 + i * 0.06, w: 0.055 + i * 0.008, segs: 2, sway: 0.15, base: [0.08, 0.17, 0.05], mid: [0.22, 0.45, 0.11], tipc: [0.45, 0.45, 0.18] }));
-  T.turtleFar = [602, 604].map((sd, i) => grassPatch(sd, { n: 12, r: 0.9, h: 0.38, w: 0.075, segs: 2, sway: 0.15, base: [0.08, 0.17, 0.05], mid: [0.22, 0.45, 0.11], tipc: [0.45, 0.45, 0.18] }));
-  T.eelNear = [701, 703, 705].map((sd, i) => grassPatch(sd, { n: 16 + i * 2, r: 0.45, h: 0.95 + i * 0.15, w: 0.016 + i * 0.003, segs: 3, sway: 0.28, base: [0.06, 0.14, 0.05], mid: [0.18, 0.42, 0.14], tipc: [0.35, 0.5, 0.2] }));
-  T.eelFar = [702, 704].map((sd, i) => grassPatch(sd, { n: 14, r: 0.85, h: 1.05, w: 0.03, segs: 2, sway: 0.28, base: [0.06, 0.14, 0.05], mid: [0.18, 0.42, 0.14], tipc: [0.35, 0.5, 0.2] }));
 }

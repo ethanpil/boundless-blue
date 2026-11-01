@@ -1,6 +1,7 @@
 // Loose wreckage scattered around the wrecks (startup templates, varied per instance): casks, oil drums,
 // crates, cannons, cannonball piles, ballast stones, anchors, chain, timbers, bent plates, hull fragments
-// with frames, a standing broken mast, boilers, fallen cowl ventilators, girders, tyres, bottles, gas bottles.
+// with frames, a fallen broken mast with its heel in the sand, loose yards, boilers, fallen cowl ventilators,
+// girders, tyres, bottles, gas bottles.
 import { Builder, T, TAU, vn3, rotX, rotY, rotZ, mul3, vary } from './core.js';
 import { mulberry32 } from '../noise.js';
 import { cyl, pipe, disc, ring, beam } from './wreck_geo.js';
@@ -111,15 +112,38 @@ function hullFragment(seed, steel) {
   }
   return b.build();
 }
-// broken mast stump with a fallen yard, standing beside the path at bends
+// broken mast where it fell: the heel driven into the sand, the shaft 60-85 deg from upright, the splintered
+// top clear of the bottom. No yard across it (an upright mast with a crossing yard read as a grave cross);
+// the yard lies loose on the sand instead (spar). Origin under the middle of the visible shaft; y = 0 is the
+// sand line: the contact band reaches up to it, so the seat buries the heel and the shaft emerges there.
 function mastStump(seed) {
-  const b = new Builder(), rng = mulberry32(seed), H = 7 + rng() * 4, wc = [0.28, 0.21, 0.13], wf = [0.85, 0];
-  const lean = [(rng() - 0.5) * 0.25, (rng() - 0.5) * 0.25], top = [Math.sin(lean[0]) * H, H, Math.sin(lean[1]) * H];
-  cyl(b, [0, -0.5, 0], top, 0.32, 0.24, 7, wc, wf, 2);
-  for (let k = 0; k < 3; k++) { const a = k * 2.1 + rng(); cyl(b, top, [top[0] + Math.cos(a) * 0.15, top[1] + 0.5 + rng() * 0.6, top[2] + Math.sin(a) * 0.15], 0.1, 0.01, 3, wc, wf); }
-  cyl(b, [-2.6, H * 0.7, 0.3], [2.2, H * 0.62, -0.2], 0.13, 0.12, 5, wc, wf, 3);
-  for (let k = 0; k < 5; k++) b.box(0.3, 0.15, 1.6 + rng(), rotY(rng() * TAU), (rng() - 0.5) * 1.5, 0.08, (rng() - 0.5) * 1.5, wc, [0.9, 0]);
-  b.obs = [[0, 0, 0, top[0], top[1], top[2], 0.45]];
+  const b = new Builder(), rng = mulberry32(seed), wc = [0.28, 0.21, 0.13], wf = [0.85, 0], iron = [0.16, 0.09, 0.06];
+  const t = (60 + (seed % 4) * 6.5 + rng() * 5) * Math.PI / 180, sn = Math.sin(t), cs = Math.cos(t); // 60-85 deg across the 4 variants
+  const Lv = 6 + rng() * 3.5, lb = 1.3 + rng() * 0.5, at = (u) => [-Lv * sn / 2 + sn * u, cs * u, 0]; // visible, buried length
+  const us = [-lb, -lb / 2, 0, Lv * 0.3, Lv * 0.65, Lv], top = at(Lv);
+  pipe(b, us.map(at), us.map((u) => 0.33 - 0.09 * Math.max(0, u) / Lv), 7, wc, wf, 1);
+  for (let k = 0; k < 3; k++) { // splintered top
+    const a = k * 2.1 + rng(), l = 0.5 + rng() * 0.6, o = [-cs * Math.cos(a) * 0.15, sn * Math.cos(a) * 0.15, Math.sin(a) * 0.15];
+    cyl(b, [top[0] + o[0], top[1] + o[1], top[2] + o[2]], [top[0] + sn * l + o[0] * 0.6, top[1] + cs * l + o[1] * 0.6, top[2] + o[2] * 0.6], 0.1, 0.01, 3, wc, wf);
+  }
+  for (const u of [Lv * 0.32, Lv * 0.6]) ring(b, at(u), [sn, cs, 0], 0.3, 0.035, 0.14, 8, iron, [0.8, 4]); // iron mast bands
+  let minY = 0;
+  for (let i = 1; i < b.P.length; i += 3) minY = Math.min(minY, b.P[i]);
+  b.band = -minY;
+  b.label = 'Broken mast'; b.fact = "A big sailing ship's lower mast could be over 30 m tall and a metre thick, built up from several trees.";
+  b.obs = [[...at(0), ...top, 0.45]];
+  return b.build();
+}
+// a yard (the spar that carried a square sail) lying loose on the sand: thickest at the slings, tapering to
+// the yardarms, iron bands at the middle, one end broken off. Its underside is straight, so it lies flat.
+function spar(seed) {
+  const b = new Builder(), rng = mulberry32(seed), L = 5 + rng() * 4, r = 0.13 + rng() * 0.05, wc = [0.27, 0.2, 0.12], wf = [0.85, 0];
+  const us = [0, 0.12, 0.3, 0.5, 0.7, 0.88, 1], rs = us.map((u) => r * (0.55 + 0.45 * Math.sin(u * Math.PI))), x = (u) => (u - 0.5) * L;
+  pipe(b, us.map((u, i) => [x(u), rs[i], 0]), rs, 7, wc, wf, 1);
+  for (const o of [-0.35, 0.35]) ring(b, [o, r, 0], [1, 0, 0], r + 0.005, 0.025, 0.1, 8, [0.16, 0.09, 0.06], [0.8, 4]);
+  for (let k = 0; k < 3; k++) { const a = k * 2.1 + rng(), e = [x(1), rs[6], 0]; cyl(b, [e[0], e[1] + Math.cos(a) * rs[6] * 0.5, Math.sin(a) * rs[6] * 0.5], [e[0] + 0.25 + rng() * 0.35, e[1] + Math.cos(a) * rs[6] * 0.3, Math.sin(a) * rs[6] * 0.3], 0.05, 0.01, 3, wc, wf); }
+  b.band = 0.07; // the contact band holds the whole underside, not only the iron bands that stand 3 cm proud of it
+  b.label = 'Fallen yard'; b.fact = 'Yards carried the square sails; sailors stood on foot-ropes slung beneath them to furl the canvas.';
   return b.build();
 }
 // Scotch marine boiler: the last part of a steamer to stand when the hull has collapsed
@@ -181,7 +205,7 @@ export function initDebris() {
     barrel: vary([barrel(1, false), barrel(3, false)], 4, 71, { disp: 0.08, bend: 0.06, twist: 0.2 }), drum: vary([barrel(2, true), barrel(5, true)], 4, 72, { disp: 0.1, bend: 0.08 }),
     crate: vary([1, 2, 3, 4].map((s) => crate(s, s % 2 === 0)), 2, 73, { disp: 0.03, bend: 0.05, twist: 0.1, smooth: false }),
     cannon: vary([cannon(1), cannon(2)], 3, 74, { disp: 0.03, scale: 0.15, bend: 0.03, twist: 0 }),
-    frag: [1, 2, 5, 6].map((s) => hullFragment(s, false)), fragSteel: [3, 4, 7, 8].map((s) => hullFragment(s, true)), mast: [1, 2, 3, 4].map(mastStump),
+    frag: [1, 2, 5, 6].map((s) => hullFragment(s, false)), fragSteel: [3, 4, 7, 8].map((s) => hullFragment(s, true)), mast: [1, 2, 3, 4].map(mastStump), spar: [7, 12, 4].map(spar),
     anchor: [anchorLying(1, 'admiralty'), anchorLying(2, 'admiralty'), anchorLying(3, 'stockless'), anchorLying(4, 'stockless')], chain: [1, 2, 3, 4, 5].map(chainTrail),
     plank: [1, 2, 5, 6].map((s) => plank(s, false)), plate: [3, 4, 7, 8].map((s) => plank(s, true)),
     shot: [1, 2, 3].map(shotPile), ballast: [1, 2, 3, 4].map(ballastPile), boiler: [1, 2, 3].map(boiler), cowl: [1, 2, 3].map(cowlFallen),

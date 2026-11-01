@@ -1,6 +1,6 @@
 // Sand flats: rippled turquoise plain with dense small life (shells, sand dollars, sea pens, stars,
 // cucumbers, conchs, grass tufts, coral rubble, shell grit, garden-eel burrow colonies), occasional
-// coral heads / rocks, and pinnacles or big coral heads on the outside of bends to steer around.
+// coral heads / rocks, and rock outcrops or big coral heads on the outside of bends to steer around.
 import { Builder, Batch, T, TAU, sat, lerp, vn3, floorSampler, presence, budgetK, bendSpots, vary, tierK, poi } from './core.js';
 import { grassPatch } from './shapes.js';
 import { putFloor, putAt, pickW, tintFrom, spot, putBend, bendX, microDetail, microSteps, steps, clusterer } from './scatter.js';
@@ -62,7 +62,8 @@ function specs() {
     grit: { tpl: T.grit, scale: [0.8, 1.6], follow: 1, sink: 0.01, tint: tintFrom([[1, 0.97, 0.92]], 0.08) },
     algae: { tpl: T.algae, scale: [0.5, 1.4], follow: 1, sink: 0.01, tint: tintFrom([[0.8, 0.85, 0.6], [0.9, 0.75, 0.55]], 0.1) },
     rock: { tpl: T.rocks, scale: [0.4, 1.4], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.5, tint: tintFrom([[0.68, 0.62, 0.52], [0.6, 0.58, 0.54]]) },
-    pinnacle: { tpl: T.pinnacle, scale: [1.0, 1.6], ys: [0.7, 1.35], xz: 0.5, grow: [0.1, 1.5], follow: 0.2, sink: 0.2, tint: tintFrom([[0.65, 0.58, 0.5], [0.58, 0.55, 0.5]]) },
+    // steer-around outcrop: a low, broad boulder mound (live pool), never a lone spire on open sand
+    outcrop: { tpl: T.mound, scale: [1.2, 1.9], ys: [0.55, 0.85], xz: 0.5, grow: [0.3, 0.9], follow: 0.25, sink: 0.2, tint: tintFrom([[0.65, 0.58, 0.5], [0.58, 0.55, 0.5]]) },
   });
   S.micro = [
     { w: 3, spec: S.grit }, { w: 2.2, spec: S.rubble }, { w: 1.6, spec: S.dollar }, { w: 1.2, spec: S.scallop }, { w: 1, spec: S.conch },
@@ -80,10 +81,14 @@ export function layoutSandflat(ctx) {
   const mid = { st: new Batch(MAT.static, 30000 * bk * tk, 'mid'), sw: new Batch(MAT.sway, 14000 * bk * tk, 'mid') }; // colonies
   const near = new Batch(MAT.static, 80000 * bk * tk, 'near'), nsw = new Batch(MAT.sway, 40000 * bk * tk, 'near'); // small life
   const head = { mid, near: { st: near, sw: nsw } }, more = [];
-  // steer-around features on the outside of bends: a big coral head or a rock pinnacle
+  // steer-around features on the outside of bends: a big coral head, or a low rock outcrop with rubble at its foot
   for (const b of bendSpots(ctx)) {
     if (rng() > ctx.weightOf(b.s, 'sandflat') * 0.8) continue;
-    if (rng() < 0.5) more.push(() => putBend(ctx, fs, st, sp.pinnacle, b, rng));
+    if (rng() < 0.4) more.push(() => {
+      const x = putBend(ctx, fs, st, sp.outcrop, b, rng);
+      if (x === null) return;
+      for (let j = 0; j < 5; j++) putFloor(ctx, fs, j < 2 ? st : near, j < 2 ? sp.rock : sp.rubble, x + (rng() - 0.5) * 6, b.s + (rng() - 0.5) * 6, rng, j < 2 ? 0.6 : 1.2);
+    });
     else { const x = bendX(ctx, b, 3.6, rng); more.push(...bommie(ctx, fs, st, mid.sw, rng, x, b.s, 1.2, 9, 1.05, null, head)); }
   }
   // occasional coral heads / rocks out on the flat

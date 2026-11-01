@@ -5,7 +5,8 @@
 //                      mode 0 generic (+encrusting growth), 1 brain-coral meanders, 2 polyp texture,
 //                      3 hot mineral glow (vents), 4 rusty steel streaks, 5 ice, 6.x rock/stone (texture key),
 //                      7 gold (metallic, glints in caustics), 8 giant clam (x>0: mantle sinks, x<0: valve lips
-//                      close inward, as the camera comes within ~4 m)
+//                      close inward, as the camera comes within ~4 m), 9.x bushy coral branch tips (no
+//                      growth or dust; fract 0..0.24 pales the tips)
 //   all hard props get weathering: sediment dusting on up-facing faces, darker wet crevices
 //   sway material    : x = sway amplitude in metres at this vertex, y = style
 //                      style 0 gentle (corals, fans), 1 kelp surge, 2 grass waves, 3 tentacle wiggle,
@@ -96,14 +97,15 @@ diffuseColor.rgb *= 1.0 + (pA.rgb - 0.5) * vec3(0.32, 0.22, 0.28);   // natural 
 
 const COLOR_STATIC = COLOR_COMMON + /* glsl */`
 if (pMode > 0.5 && pMode < 1.5) {
-  // brain coral: contour lines of smooth noise make meandering grooves
+  // brain coral: contour lines of smooth noise make meandering grooves (periods 2-8 m: a 16 m period drew
+  // 20-40 cm cartoon meanders across big heads)
   float gk = pMode - 1.0;
-  vec4 pC = pTri(vWPos + vec3(gk * 9.0), pW, gk < -0.13 ? 4.0 : (gk < 0.13 ? 8.0 : 16.0));
+  vec4 pC = pTri(vWPos + vec3(gk * 9.0), pW, gk < -0.13 ? 2.0 : (gk < 0.13 ? 4.0 : 8.0));
   float q = pC.r * (5.0 + 6.0 * fract(gk * 7.3 + 0.5)) + pC.g * 2.5;
   float l = abs(fract(q) - 0.5) * 2.0;
   float groove = 1.0 - smoothstep(0.12, 0.5, l);
   groove = mix(groove, 0.4, smoothstep(0.25, 0.7, fwidth(q)));
-  diffuseColor.rgb *= 1.0 - 0.5 * groove;
+  diffuseColor.rgb *= 1.0 - 0.32 * groove; // low-contrast grooves (no black squiggles)
   pH = -groove * 0.8 + pB.g * 0.2;
   pBumpK = 0.05;
 } else if ((pMode > 1.5 && pMode < 2.5) || (pMode > 7.5 && pMode < 8.5)) {
@@ -121,14 +123,29 @@ if (pMode > 0.5 && pMode < 1.5) {
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.42, 0.17, 0.06) * (0.6 + 0.6 * pB.r), rust * 0.85);
   pH = pB.r * 0.7 + rust * 0.3;
 } else if (pMode > 4.5 && pMode < 5.5) {
-  diffuseColor.rgb *= 0.9 + 0.2 * pB.g;
-  pBumpK = 0.05;
-} else if (pMode > 6.5 && pMode < 7.5) {
+  // ice: tiling-broken noise at two scales (no repeating 'cottage cheese' pattern), melt scallops in the bump
+  float ik = nrIndex(vWPos.xz);
+  vec4 i1 = nrTri(vWPos, pW, 2.0, ik), i2 = nrTri(vWPos, pW, 8.0, ik + 2.0);
+  diffuseColor.rgb *= 0.86 + 0.28 * i2.g;
+  pH = (1.0 - abs(2.0 * i1.r - 1.0)) * 0.55 + i2.b * 0.45;
+  pBumpK = 0.04;
+} else if (pMode > 6.97 && pMode < 7.5) {
   // gold: smooth metal
   diffuseColor.rgb *= 0.92 + 0.16 * pB.g;
   pH = pB.r * 0.3;
   pBumpK = 0.006;
-} else if (pMode > 5.5 && pMode < 6.5) {
+} else if (pMode > 8.5 && pMode < 9.5) {
+  // bushy coral (corymbose Acropora, Pocillopora): a mass of rounded branch tips, raised and pale, with
+  // shadowed gaps between. Once the ~6 cm tips shrink to a few pixels the pattern eases to its mean (no
+  // shimmer); fract(mode) pales the tips toward white-blue.
+  vec4 pC = pTri(vWPos, pW, 0.5);
+  float tip = smoothstep(0.46, 0.6, pC.g * 0.75 + pB.b * 0.25);
+  tip = mix(tip, 0.45, smoothstep(0.02, 0.07, length(fwidth(vWPos))));
+  diffuseColor.rgb *= 0.52 + 0.75 * tip;
+  diffuseColor.rgb += vec3(0.02, 0.03, 0.05) * tip * fract(pMode) * 4.0;
+  pH = tip * 0.9 + pB.g * 0.1;
+  pBumpK = 0.05;
+} else if (pMode > 5.5 && pMode < 6.97) {
   // rock / dressed stone: per-template texture key picks scale, offset and channel mix
   float rk = fract(pMode);
   float P = rk < 0.33 ? 2.0 : (rk < 0.66 ? 4.0 : 8.0);
@@ -146,7 +163,7 @@ if (pMode > 0.5 && pMode < 1.5) {
   pH = n * 0.8 - crack * 0.7 + pB.g * 0.2;
   pBumpK = 0.055;
 }
-if (pMode < 2.5 || (pMode > 3.5 && pMode < 4.5) || (pMode > 5.5 && pMode < 6.5)) {
+if (pMode < 2.5 || (pMode > 3.5 && pMode < 4.5) || (pMode > 5.5 && pMode < 6.97)) {
   // encrusting growth (algae, coralline, sponges) on up-facing surfaces
   float g = vFx.x * smoothstep(-0.15, 0.6, pN.y + (pA.b - 0.5) * 0.9) * smoothstep(0.4, 0.62, pA.a * 0.75 + pB.b * 0.45);
   g = clamp(g, 0.0, 1.0);
@@ -154,8 +171,9 @@ if (pMode < 2.5 || (pMode > 3.5 && pMode < 4.5) || (pMode > 5.5 && pMode < 6.5))
   gc = mix(gc, vec3(0.78, 0.55, 0.2), smoothstep(0.66, 0.82, pA.b) * 0.8);
   diffuseColor.rgb = mix(diffuseColor.rgb, gc * (0.6 + 0.7 * pB.r), g);
   pH += g * pB.a;
-  // weathering shared by every hard prop: settled sediment on up-facing faces, darker wet crevices
-  float dust = smoothstep(0.55, 0.95, pN.y) * smoothstep(0.38, 0.8, pA.b * 0.7 + pB.r * 0.5) * (0.5 - 0.3 * g);
+  // weathering shared by every hard prop: settled sediment on up-facing faces, darker wet crevices.
+  // Living coral tissue (brain 1, polyps 2) sheds sediment with mucus: only a trace settles there.
+  float dust = smoothstep(0.55, 0.95, pN.y) * smoothstep(0.38, 0.8, pA.b * 0.7 + pB.r * 0.5) * (0.5 - 0.3 * g) * (pMode > 0.5 && pMode < 2.5 ? 0.3 : 1.0);
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.64, 0.6, 0.52) * (0.85 + 0.3 * pB.g), dust);
   diffuseColor.rgb *= mix(0.68, 1.0, smoothstep(0.08, 0.5, pH));
 }
@@ -168,7 +186,7 @@ normal = pBump(-vViewPosition, normal, vec2(dFdx(pH), dFdy(pH)) * pBumpK, faceDi
 
 const EMISSIVE_STATIC = /* glsl */`
 #include <emissivemap_fragment>
-if (pMode > 6.5 && pMode < 7.5) {
+if (pMode > 6.97 && pMode < 7.5) {
   // gold glints where caustics dance across it
   float dB = max(0.0, uSurfaceY - vWPos.y);
   vec3 ca = causticRGB(vWPos);
@@ -187,17 +205,22 @@ const ROUGH_STATIC = /* glsl */`
 #include <roughnessmap_fragment>
 if (pMode > 4.5 && pMode < 5.5) roughnessFactor = 0.3;
 else if (pMode > 3.5 && pMode < 4.5) roughnessFactor = 0.7;
-else if (pMode > 6.5 && pMode < 7.5) roughnessFactor = 0.26;
+else if (pMode > 6.97 && pMode < 7.5) roughnessFactor = 0.26;
 `;
 
-// style 4: gorgonian fan sheet cut into a net with ridged noise
+// style 4: gorgonian fan sheet cut into a net: only the crests of the ridged noise (alpha) survive, so
+// ~60% of the sheet is cut near the camera (a lacy mesh) and less with distance (the silhouette stays).
+// One projection (the sheet's dominant axis), not a triplanar blend: blending pulls the ridged values to
+// their mean and the sheet would stay solid.
 const LATTICE = /* glsl */`
 pBumpK = 0.015;
 if (pMode > 3.5 && pMode < 4.5) {
-  float net = pTri(vWPos, pW, 0.5).a * 0.65 + pTri(vWPos, pW, 0.25).a * 0.35;
-  float thr = mix(0.6, 0.47, smoothstep(4.0, 22.0, length(vWPos - cameraPosition)));
+  vec3 an = abs(pN);
+  vec2 lp = an.x > an.y && an.x > an.z ? vWPos.yz : (an.y > an.z ? vWPos.xz : vWPos.xy);
+  float net = texture2D(uNoiseTex, lp * 2.0).a * 0.7 + texture2D(uNoiseTex, lp * 4.0 + 0.37).a * 0.3;
+  float thr = mix(0.7, 0.61, smoothstep(4.0, 22.0, length(vWPos - cameraPosition)));
   if (net < thr) discard;
-  diffuseColor.rgb *= 0.75 + 0.5 * smoothstep(thr, thr + 0.2, net);
+  diffuseColor.rgb *= 0.5 + 0.65 * smoothstep(thr, thr + 0.07, net); // darker cut edges: axes and branchlets
 }
 `;
 
@@ -240,12 +263,16 @@ function propMaterial(key, sway) {
       sh.vertexShader = sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\nvFx = aFx;');
       if (sway) sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', SWAY_PROJECT);
       else sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', CLAM_VERTEX);
-      if (!sway) sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nif (vFx.y > 6.5 && vFx.y < 7.5) metalnessFactor = 0.85;');
+      if (!sway) sh.fragmentShader = sh.fragmentShader.replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\nif (vFx.y > 6.97 && vFx.y < 7.5) metalnessFactor = 0.85;');
       sh.fragmentShader = sh.fragmentShader
         .replace('#include <color_fragment>', sway ? COLOR_COMMON + LATTICE : COLOR_STATIC)
         .replace('#include <normal_fragment_maps>', sway ? NORMAL_BUMP + 'if (pMode > 1.5 && pMode < 2.5) normal = normalize(vNormal);' : NORMAL_BUMP)
         .replace('#include <emissivemap_fragment>', sway ? EMISSIVE_SWAY : EMISSIVE_STATIC);
       if (!sway) sh.fragmentShader = sh.fragmentShader.replace('#include <roughnessmap_fragment>', ROUGH_STATIC);
+      // thin ribbons (kelp 1, grass 2) are translucent: the camera lamps light both faces. Grass keeps its
+      // up-biased normal with no face flip, so a plain max(N.L, 0) left every blade leaning away black at night.
+      if (sway) sh.fragmentShader = sh.fragmentShader.replace('float ndl = max(dot(normal, L), 0.0);',
+        'float ndl = (pMode > 0.5 && pMode < 2.5) ? abs(dot(normal, L)) * 0.7 + 0.3 : max(dot(normal, L), 0.0);');
     },
   });
 }

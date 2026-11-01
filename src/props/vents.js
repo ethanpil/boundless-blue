@@ -8,13 +8,15 @@
 // orifices with glowing throats; layered sulphide colours (black, rust, ochre, white anhydrite, brassy
 // linings) with baked crevice occlusion, in the rock texture shader mode (glowing parts in their own vertex
 // runs). Each stands on a rubble heap. Smoke is a billowing particle plume (own material) that jets, slows,
-// spreads and bends over in the bottom current. Around them: Riftia thickets (splayed white tubes, red plumes
-// that pull back as the camera passes), vent mussels and clams, patchy bacterial mats, sulphide rubble and
-// pillow lava.
+// spreads and bends over in the bottom current. Active orifices light themselves (the water swallows lamp light
+// beyond ~15 m): a glowing cracked collar under the lip, the orange-lit base of their own plume and a soft orb.
+// Beehive diffusers are ochre and rust oxide crust riddled with dark pores. Around them: Riftia thickets
+// (splayed white tubes, red plumes that pull back as the camera passes), vent mussels and clams, patchy
+// bacterial mats, sulphide rubble and pillow lava.
 import * as THREE from 'three';
-import { Builder, Batch, T, TAU, sat, sstep, lerp, vn3, fbm3, floorSampler, presence, tubeClear, rotY, rotZ, budgetK, bendSpots, tierK, poi } from './core.js';
+import { Builder, Batch, T, TAU, TUBE, sat, sstep, lerp, vn3, fbm3, floorSampler, presence, tubeClear, rotY, rotZ, budgetK, bendSpots, tierK, poi } from './core.js';
 import { musselBed } from './shapes.js';
-import { putFloor, pickW, tintFrom, bendX, groundY, microSteps, steps, clusterer } from './scatter.js';
+import { putFloor, pickW, tintFrom, groundY, microSteps, steps, clusterer } from './scatter.js';
 import { MAT, billboardMesh } from './materials.js';
 import { applyWater } from '../water.js';
 import { mulberry32 } from '../noise.js';
@@ -24,6 +26,7 @@ import { provide, paletteOf, makePool } from './rock_gen.js';
 const mix3 = (a, b, t) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)];
 const C3 = [0, 0, 0]; // scratch colour: per-vertex paint loops never allocate
 const SED = [0.3, 0.29, 0.26]; // settled grey-beige sediment
+const PORE = [0.03, 0.026, 0.022]; // dark sulphide inside a beehive's pores, whatever the crust colour
 const mulK = (c, k) => [c[0] * k[0], c[1] * k[1], c[2] * k[2]];
 
 // ---------- mineral palettes (linear RGB, final colours) ----------
@@ -192,6 +195,10 @@ function spireRows(rng, o) {
     rows[0].f = F_BROKEN; rows[0].jk = -1;
     for (const [dy, k, jk] of [[0.04, 0.78, -0.85], [0.35, 0.56, -0.6], [0.9, 0.44, -0.3]]) rows.unshift({ y: y0 + dy * rB, f: F_HOLLOW, w: 0, cx: c[0], cz: c[1], R: rB * k, jk });
   }
+  if (open && !broken && o.collar) { // hot collar: the wall just under an active orifice glows (own vertex run)
+    rows.gH = Math.min(1.3, Math.max(0.5, H * 0.1));
+    for (const r of rows) if (r.f === F_WALL && r.y > yTop - rows.gH) r.hot = true;
+  }
   if (open && !broken) { // lip rolls in, throat drops into the chimney
     const rT = RofY(yTop), c = C(yTop);
     for (const [dy, k, f] of [[0.05, 0.92, F_LIP], [0.035, 0.68, F_LIP], [-0.25, 0.5, F_THROAT], [-0.85, 0.42, F_THROAT], [-1.5, 0.36, F_THROAT]]) {
@@ -308,6 +315,12 @@ function* spireG(b, site, o) {
     let glow = 0;
     if (f === F_THROAT) { mixIn(c, P.lining, 0.65); glow = 1.1 + 0.9 * sat((yTop - y) / (o.r0 * 1.5)); }
     else if (f === F_LIP) { mixIn(c, P.lining, 0.35); glow = 0.45; }
+    else if (f === F_WALL && hot && rows.gH) { // collar: brassy, patchy glow rising to the lip (what shows from below and afar)
+      const q = sat((y0 + t * o.H - (yTop - rows.gH)) / rows.gH), cr = sstep(-0.1, 0.45, vn3(x * 3.4, y * 2.3, z * 3.4, sd + 36));
+      mixIn(c, P.black, 0.55 * sstep(0, 0.35, q)); // fresh sulphide at the active top (and glow mode has no rock-texture darkening)
+      mixIn(c, P.lining, 0.12 * q * cr);
+      glow = o.collar * q * q * Math.max(cr, sstep(0.75, 1, q)); // glowing cracks in dark crust, a solid ring at the rim
+    }
     else if (f === F_HOLLOW) mixIn(c, P.lining, 0.3 + 0.3 * sstep(-0.2, 0.5, n2));
     else if (f === F_UNDER && hot) glow = (o.poolGlow ?? 0.3) * sstep(0.0, 0.5, vn3(x * 2.5, y * 2.5, z * 2.5, sd + 35)); // patchy hot pools
     const ao = (0.55 + 0.45 * sstep(0, 0.3, t)) * (0.8 + 0.2 * Math.max(0, ny)) * (f === F_UNDER ? 0.6 : f === F_HOLLOW ? 0.45 : 1) * (0.66 + 0.62 * sat(0.5 + n3));
@@ -410,12 +423,24 @@ function* rubbleG(b, site, rng, n, rIn, rOut, size, pal = null) {
     });
   }
 }
-// beehive diffuser: squat shingled dome venting from many small orifices
+// beehive diffuser: squat shingled dome venting from many small orifices, its oxidised crust riddled with pores
+// (lathe rows j, columns i: vertex v0 + j * nu + i; gridG's fan around a vertex, in order)
+const FAN = [[0, 1], [1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1]];
 function* beehiveG(b, site, o) {
   const rng = mulberry32(o.seed), sd = o.seed, P = site.pal, nu = o.nu, H = o.H, Rb = o.R, sp = 0.22 + rng() * 0.18;
   const ny = Math.max(24, Math.round(H / (o.step * 0.25))), spots = [], lip = (0.14 + rng() * 0.1) * Rb;
   const seg = o.seg || 0.3, rf = 0.9 / seg, crumb = 0.25 * seg;
   for (let k = 0, n = 4 + Math.floor(rng() * 6); k < n; k++) spots.push([rng() * TAU, 0.3 + rng() * 0.62, 0.1 + rng() * 0.12]);
+  // pores: lathe vertices sunk into the crust (row j -> depth), never next to each other or to a vent pit;
+  // each gets a dark funnel over its own triangle fan below (so it can neither float nor sink into the dome)
+  const pores = new Map(), nP = Math.round(TAU * Rb * H * 0.75 * 3.5);
+  for (let tries = 0; pores.size < nP && tries < nP * 5; tries++) {
+    const j = 2 + Math.floor(rng() * (ny * 0.88 - 2)), i = Math.floor(rng() * nu), t = j / ny, a = i / nu * TAU;
+    let free = true;
+    for (let dj = -2; dj <= 2 && free; dj++) for (let di = -2; di <= 2 && free; di++) if (pores.has((j + dj) * nu + (i + di + nu) % nu)) free = false;
+    if (!free || spots.some((q) => Math.abs(Math.atan2(Math.sin(a - q[0]), Math.cos(a - q[0]))) < 0.35 && Math.abs(t - q[1]) < 0.09)) continue;
+    pores.set(j * nu + i, 0.05 + rng() * 0.06);
+  }
   const R = (t, a) => {
     const ca = Math.cos(a), sa = Math.sin(a), y = t * H;
     // stacked shingles: each band swells slowly, then its lip overhangs the band below (irregular per angle)
@@ -431,7 +456,7 @@ function* beehiveG(b, site, o) {
     return r;
   };
   const i0 = b.I.length, v0 = yield* gridG(b, nu, ny, (u, v, i, j, out) => {
-    const t = Math.min(0.985, v), a = u * TAU, r = R(t, a);
+    const t = Math.min(0.985, v), a = u * TAU, r = R(t, a) - (pores.get(j * nu + i) || 0);
     out[0] = Math.cos(a) * r; out[1] = t * H; out[2] = Math.sin(a) * r; out[6] = 0; out[7] = t;
   });
   { // cap the top
@@ -446,11 +471,14 @@ function* beehiveG(b, site, o) {
   }
   yield* paintG(b, v0, (i, x, y, z, nx, nyy, nz, out) => {
     const t = y / H, a = Math.atan2(z, x);
-    const n1 = vn3(x * 1.4, y * 0.8, z * 1.4, sd + 3), n3 = vn3(x * 6, y * 6, z * 6, sd + 9);
-    const c = mixIn(set3(C3, P.black), P.grey, 0.4 + 0.35 * n1);
-    mixIn(c, P.rust, sstep(0.25, 0.75, n1 + (1 - t) * 0.3 - 0.15) * P.rustK * 0.6);
-    mixIn(c, P.ochre, sstep(0.45, 0.8, n3) * P.ochreK * 0.4);
-    mixIn(c, P.white, sstep(0.45, 0.85, n3 * 0.4 + n1 * 0.3 + Math.max(0, nyy) * 0.5) * P.whiteK);
+    const n1 = vn3(x * 1.4, y * 0.8, z * 1.4, sd + 3), n2 = vn3(x * 3, y * 3, z * 3, sd + 5), n3 = vn3(x * 6, y * 6, z * 6, sd + 9);
+    // ochre and rust-brown iron-oxide crust; fresh dark sulphide shows under the shingle lips and in the pores
+    const c = mixIn(set3(C3, P.ochre), P.rust, sstep(-0.6, 0.4, n1 + (1 - t) * 0.25) * 0.85);
+    mixIn(c, P.grey, 0.22 + 0.3 * sstep(0.3, 0.75, n2));
+    mixIn(c, P.black, sstep(0.1, -0.55, nyy) * 0.7);
+    mixIn(c, P.white, sstep(0.55, 0.9, n3 * 0.4 + n1 * 0.3 + Math.max(0, nyy) * 0.5) * P.whiteK * 0.5);
+    mixIn(c, SED, sstep(0.55, 0.95, nyy + 0.3 * n2) * 0.25);
+    if (pores.has(i - v0)) mixIn(c, PORE, 0.85);
     for (const s of spots) { // brassy staining around the vent pits
       const da = Math.atan2(Math.sin(a - s[0]), Math.cos(a - s[0])), dt = t - s[1];
       if (da * da * 14 + dt * dt * 500 < 1.2) mixIn(c, P.lining, 0.45);
@@ -472,6 +500,20 @@ function* beehiveG(b, site, o) {
       b.v(cx + tx * u + bx * w, cy + by * w, cz + tz * u + bz * w, nx, ny2, nz, P.black[0] + 0.04, P.black[1] + 0.035, P.black[2] + 0.03, 0.35 * gK, 3);
     }
     for (let k = 0; k < 7; k++) b.t(c, c + 1 + (k + 1) % 7, c + 1 + k);
+  }
+  // pore patches: rim points 70% of the way along the fan edges lie on the dome's own triangles, so each patch rides
+  // just above the sunken fan (the dent gives the depth); a quarter glow faintly where warm fluid seeps through
+  const Pb = b.P, Nb = b.N;
+  for (const [k] of pores) {
+    const j = Math.floor(k / nu), i = k % nu, V = v0 + k, nx = Nb[V * 3], ny2 = Nb[V * 3 + 1], nz = Nb[V * 3 + 2];
+    const vx = Pb[V * 3], vy = Pb[V * 3 + 1], vz = Pb[V * 3 + 2], hot = gK > 0.3 && rng() < 0.25;
+    const c = b.v(vx + nx * 0.004, vy + ny2 * 0.004, vz + nz * 0.004, nx, ny2, nz, PORE[0] * 0.5, PORE[1] * 0.5, PORE[2] * 0.5, hot ? 0.5 * gK : 0, 3);
+    for (const [dj, di] of FAN) {
+      const W = v0 + (j + dj) * nu + (i + di + nu) % nu;
+      b.v(vx + (Pb[W * 3] - vx) * 0.7 + nx * 0.006, vy + (Pb[W * 3 + 1] - vy) * 0.7 + ny2 * 0.006, vz + (Pb[W * 3 + 2] - vz) * 0.7 + nz * 0.006,
+        nx, ny2, nz, PORE[0] * 1.6, PORE[1] * 1.5, PORE[2] * 1.4, 0, 3);
+    }
+    for (let q = 0; q < 6; q++) b.t(c, c + 1 + (q + 1) % 6, c + 1 + q); // same winding as the dome
   }
   return vents;
 }
@@ -537,9 +579,10 @@ export function* edificeG(site0, seed, tier, form = null) {
   const deadO = dead ? { open: false, broken: true, glowK: 0.15, rustB: 0.25 } : {};
   // build a spire; shift(sp, dx, dz) then moves just that spire (and its vent) sideways
   const spire = function* (o) {
-    const v1 = b.vc, r = yield* spireG(b, site, { nu: ringN(Q, o.r0, o.flanges), step: rowStep(Q, o.r0), seg: Q.seg, seed: nS(), ...o });
+    const act = o.open !== false && !o.broken && rng() < site.active; // an active orifice smokes and gets a glowing collar
+    const v1 = b.vc, r = yield* spireG(b, site, { nu: ringN(Q, o.r0, o.flanges), step: rowStep(Q, o.r0), seg: Q.seg, seed: nS(), collar: act ? 0.6 : 0, ...o });
     let vent = null;
-    if (r.orifice && rng() < site.active) vents.push((vent = { x: r.orifice[0], y: r.orifice[1], z: r.orifice[2], r: r.orifice[3] }));
+    if (r.orifice && act) vents.push((vent = { x: r.orifice[0], y: r.orifice[1], z: r.orifice[2], r: r.orifice[3] }));
     if (o.sprouts) yield* sprouts(r.wall, o.sprouts);
     return { v1, vent };
   };
@@ -615,7 +658,8 @@ export function* edificeG(site0, seed, tier, form = null) {
     Rm = 1.5 + r0 * 1.5;
   } else if (form === 'beehive') {
     const H = Math.min(H0, 1.6 + rng() * 2.2), R = 1.0 + rng() * 0.9; // squat domes
-    const sp = yield* beehiveG(b, site, { seed: nS(), nu: ringN(Q, R * 1.1, null), step: Q.step, seg: Q.seg, H, R });
+    const nu = Math.min(Q.cap + 20, Math.max(ringN(Q, R * 1.1, null), Math.round(TAU * R * 1.1 / (Q.seg * 0.45)))); // fine enough for the pores
+    const sp = yield* beehiveG(b, site, { seed: nS(), nu, step: Q.step, seg: Q.seg, H, R });
     for (const v of sp) if (rng() < site.active) vents.push(v);
     for (let k = 0, n = Math.floor(rng() * 2.5); k < n; k++) {
       const a = rng() * TAU, d = R * 0.15 * rng();
@@ -664,7 +708,13 @@ export function* edificeG(site0, seed, tier, form = null) {
   const mv1 = b.vc, mi1 = b.I.length;
   yield* rubbleG(b, site, rng, 2 + Math.floor(rng() * 5), Rm * 0.8, Rm * 1.4, 0.25 + rng() * 0.25);
   b.band = 0.05; // the flat bottoms (mound, spire bases, rubble) are the contact band
+  // flight-tube split (see layoutVents): the low part is the mound with its heap and the rubble around it,
+  // everything above its top is the tall part, usually far narrower than the whole footprint
+  let hLow = 0, rTall = 0;
+  for (let i = mv0; i < b.vc; i++) hLow = Math.max(hLow, b.P[i * 3 + 1]);
+  for (let i = 0; i < b.vc; i++) if (b.P[i * 3 + 1] > hLow) rTall = Math.max(rTall, Math.hypot(b.P[i * 3], b.P[i * 3 + 2]));
   const t = b.build();
+  t.hLow = hLow; t.rTall = rTall;
   // what other props rest on: the mound alone. A spire's thousands of triangles project into a few top-down
   // cells, which would make every nearby ground query scan them.
   const pb = new Builder();
@@ -801,9 +851,9 @@ function smokeMaterial() {
   if (SMOKE_MAT) return SMOKE_MAT;
   const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, side: THREE.DoubleSide });
   SMOKE_MAT = applyWater(m, {
-    key: 'vents-smoke-v2', noLight: true,
-    vertexHead: 'attribute vec2 aCorner; attribute vec4 aP; attribute vec4 aQ; varying vec2 vC; varying float vT; varying float vPh; varying vec4 vQ; uniform float uTime;',
-    fragmentHead: 'varying vec2 vC; varying float vT; varying float vPh; varying vec4 vQ;',
+    key: 'vents-smoke-v3', noLight: true,
+    vertexHead: 'attribute vec2 aCorner; attribute vec4 aP; attribute vec4 aQ; varying vec2 vC; varying float vT; varying float vPh; varying float vH; varying vec4 vQ; uniform float uTime;',
+    fragmentHead: 'varying vec2 vC; varying float vT; varying float vPh; varying float vH; varying vec4 vQ;',
     patch(sh) {
       sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', /* glsl */`
         float t = fract(uTime * aP.y + aP.x);
@@ -826,7 +876,7 @@ function smokeMaterial() {
         q.y *= 1.0 + 0.7 * (1.0 - smoothstep(0.0, 0.18, t)) * step(0.5, aQ.z);   // stretched jet near a hot orifice
         mvPosition.xy += q * sz;
         gl_Position = projectionMatrix * mvPosition;
-        vC = aCorner; vT = t; vPh = sd; vQ = aQ;`);
+        vC = aCorner; vT = t; vPh = sd; vH = h; vQ = aQ;`);
       sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', /* glsl */`
         {
           float r = length(vC);
@@ -845,11 +895,43 @@ function smokeMaterial() {
           vec3 amb = (uWaterUp * 0.5 + uWaterDeep * 0.5) * uAmbientScale * 1.5 + vec3(0.015);
           vec3 col = alb * (amb + lamp);
           col += vec3(1.0, 0.38, 0.1) * vQ.z * (1.0 - smoothstep(0.0, 0.05, vT)) * (0.5 - 0.45 * vC.y) * 0.3;
+          // the glowing orifice lights the base of its own plume: billows lit from below, fading over a few metres
+          col += vec3(1.0, 0.46, 0.15) * vQ.z * (0.5 + 0.5 * bil) * (0.6 - 0.4 * vC.y) * 0.34 / (1.0 + 0.3 * vH * vH);
           diffuseColor = vec4(col, a);
         }`);
     },
   });
   return SMOKE_MAT;
+}
+// Soft point glow around an active orifice (additive billboards from materials.billboardMesh: aP.w = radius).
+// Warmer and wider than the small orange core halo; the water haze scatters it into a faint orb that marks a
+// smoking chimney from beyond the lamps' reach. Fogged by extinction only (additive).
+let GLOW_MAT = null;
+function glowMaterial() {
+  if (GLOW_MAT) return GLOW_MAT;
+  const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide });
+  GLOW_MAT = applyWater(m, {
+    key: 'vents-glow-v1', additive: true, noLight: true,
+    vertexHead: 'attribute vec2 aCorner; attribute vec4 aP; varying vec2 vC; varying float vPh; uniform float uTime;',
+    fragmentHead: 'varying vec2 vC; varying float vPh;',
+    patch(sh) {
+      sh.vertexShader = sh.vertexShader.replace('#include <project_vertex>', /* glsl */`
+        vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+        mvPosition.xy += aCorner * aP.w;
+        gl_Position = projectionMatrix * mvPosition;
+        vC = aCorner; vPh = aP.x;`);
+      sh.fragmentShader = sh.fragmentShader.replace('#include <color_fragment>', /* glsl */`
+        {
+          float r = length(vC);
+          if (r > 1.0) discard;
+          float a = (1.0 - r) * (1.0 - r) * (0.75 + 0.25 * exp(-r * r * 10.0));
+          float fl = 0.85 + 0.15 * sin(uTime * (1.7 + vPh) + vPh * 40.0);
+          float near = smoothstep(1.5, 5.0, length(vWPos - cameraPosition)); // no flat disc in the lens
+          diffuseColor.rgb = vec3(1.0, 0.5, 0.17) * a * fl * near * 0.16;
+        }`);
+    },
+  });
+  return GLOW_MAT;
 }
 function smokeMesh(em, rng) {
   let total = 0;
@@ -887,7 +969,7 @@ function smokeMesh(em, rng) {
 // ---------- init: startup fallbacks + per-segment palette providers ----------
 const N_CHIMNEY = { low: 6, medium: 7, high: 8, ultra: 9 };
 export function initVents() {
-  smokeMaterial();
+  smokeMaterial(); glowMaterial();
   // fallbacks (used only until a segment's own palette is ready)
   const fb = makeSite(SITES[0], 4242);
   T.chimney = [drain(edificeG(fb, 11, 'medium', 'spire')), drain(edificeG(makeSite(SITES[1], 4243), 12, 'medium', 'flange')), drain(edificeG(fb, 13, 'medium', 'candelabra')),
@@ -937,18 +1019,24 @@ if (typeof window !== 'undefined') window.__ventStats = VSTAT;
 const why = (k) => { VSTAT[k] = (VSTAT[k] || 0) + 1; };
 
 // ---------- vent fields per segment ----------
+// Fields stand 6-15 m off the path: the water (sigma ~0.1/m) swallows lamp light and glow beyond ~15-20 m,
+// so a field further out is never seen. A field takes the outside of the local bend when there is one
+// (tall chimneys then appear dead ahead and the camera curves past); chimney() pushes each chimney out to
+// the clearance its own low and tall parts need.
 const fields = new Map();
 function segmentFields(ctx, seg, site) {
   let F = fields.get(seg.id);
   if (F && F.seed === seg.seed) return F;
-  const rng = mulberry32(seg.seed ^ 0x7e47), members = [], centres = [];
-  for (let s = seg.start + 40 + rng() * 40; s < seg.end - 40; s += 45 + rng() * 70) {
-    const side = rng() < 0.5 ? -1 : 1, d = 9 + rng() * 22, cx = ctx.pathX(s) + side * d;
-    centres.push({ x: cx, s });
+  const rng = mulberry32(seg.seed ^ 0x7e47), members = [];
+  for (let s = seg.start + 30 + rng() * 30, fi = 0; s < seg.end - 30; s += 30 + rng() * 32, fi++) {
+    const c = (ctx.pathX(s + 6) - 2 * ctx.pathX(s) + ctx.pathX(s - 6)) / 36; // as WorldShape.pathCurv
+    const side = Math.abs(c) > 0.004 && rng() < 0.8 ? (c > 0 ? -1 : 1) : rng() < 0.5 ? -1 : 1;
+    const d = 6 + rng() * 9, cx = ctx.pathX(s) + side * d;
     const n = 1 + Math.floor(rng() * (site.key === 'beehive' || site.key === 'relict' ? 5 : 4));
     for (let k = 0; k < n; k++) {
-      const a = rng() * TAU, r = k === 0 ? 0 : 4.5 + rng() * 9;
-      members.push({ kind: 'chimney', x: cx + Math.cos(a) * r, s: s + Math.sin(a) * r, seed: (rng() * 1e9) | 0, main: k === 0 });
+      const a = rng() * TAU, r = k === 0 ? 0 : 3.5 + rng() * 6.5, ms = s + Math.sin(a) * r;
+      const lat = Math.max(4 + rng() * 2, d + Math.cos(a) * r); // the field keeps to its own side of the path
+      members.push({ kind: 'chimney', x: ctx.pathX(ms) + side * lat, s: ms, seed: (rng() * 1e9) | 0, main: k === 0, side, fi });
     }
     // a Riftia thicket patch and a clam crack on the diffuse-flow floor between the chimneys
     if (rng() < site.worms) { const a = rng() * TAU, r = 3 + rng() * 6; members.push({ kind: 'thicket', x: cx + Math.cos(a) * r, s: s + Math.sin(a) * r, seed: (rng() * 1e9) | 0 }); }
@@ -957,7 +1045,7 @@ function segmentFields(ctx, seg, site) {
       members.push({ kind: 'life', x: cx + Math.cos(a) * r, s: s + Math.sin(a) * r, seed: (rng() * 1e9) | 0 });
     }
   }
-  F = { seed: seg.seed, members, centres };
+  F = { seed: seg.seed, members };
   fields.set(seg.id, F);
   if (fields.size > 24) fields.delete(fields.keys().next().value);
   return F;
@@ -969,7 +1057,7 @@ export function layoutVents(ctx) {
   const st = new Batch(MAT.static, 70000 * bk);                                                 // chimneys, rocks
   const mid = new Batch(MAT.static, 22000 * bk * tk, 'mid'), sw = new Batch(MAT.sway, 34000 * bk * tk, 'mid'); // vent life
   const near = new Batch(MAT.static, 14000 * bk * tk, 'near');                                   // micro detail
-  const em = [], halos = [], members = [];
+  const em = [], halos = [], orbs = [], members = [];
   const inChunk = (s) => s >= ctx.s0 && s < ctx.s1;
   let site = null, segV = null;
   for (const seg of ctx.segments) {
@@ -977,7 +1065,6 @@ export function layoutVents(ctx) {
     site = siteOf(seg); segV = seg;
     const F = segmentFields(ctx, seg, site);
     for (const m of F.members) if (inChunk(m.s)) members.push({ ...m, site, seg });
-    for (const c of F.centres) if (inChunk(c.s)) poi(ctx, 'vent-field', c.x, fs.at(c.x, c.s) + 3, c.s, 12, { kind: site.name });
   }
   if (!site) { // vents weight from a neighbouring chunk's segment only (cross-fade edge): borrow the nearest
     const g = ctx.weights(ctx.s0 + 32).find((e) => e.key === 'vents');
@@ -987,9 +1074,22 @@ export function layoutVents(ctx) {
   // chimneys on the outside of bends: the camera curves past the smoking stack
   for (const b of bendSpots(ctx)) {
     if (rng() > ctx.weightOf(b.s, 'vents') * 0.8) continue;
-    members.push({ kind: 'chimney', bend: b, x: 0, s: b.s, seed: (b.s * 7919) | 0, site, seg: segV, main: true });
+    members.push({ kind: 'chimney', bend: b, x: 0, s: b.s, seed: (b.s * 7919) | 0, site, seg: segV, main: true, side: b.side });
   }
-  const placed = [];
+  const placed = [], shown = new Set(); // fields announced (POI) in this chunk: only once a chimney of theirs stands
+  // Flight tube per part: the wide mound and rubble (up to hLow) and the narrow tall spires above it.
+  // need() is the lateral offset from the path line both parts need at s, given how far the path runs above
+  // or below them (same limit as tubeClear plus 0.25 m slack: the path moves a little over the footprint).
+  const LIM = TUBE + 0.35 + 0.25;
+  const part = (s, yLo, yHi, r) => { const py = ctx.pathY(s), dy = py < yLo ? yLo - py : py > yHi ? py - yHi : 0; return dy >= LIM ? 0 : Math.sqrt(LIM * LIM - dy * dy) + r; };
+  const need = (tpl, s, y0, sc, ky, k) => {
+    const yL = y0 + tpl.hLow * sc * ky;
+    return Math.max(part(s, y0 - 1, yL, tpl.r * sc * k + 0.4), tpl.maxY > tpl.hLow ? part(s, yL, y0 + tpl.maxY * sc * ky, tpl.rTall * sc * k + 0.4) : 0);
+  };
+  const clear = (tpl, x, s, y0, sc, ky, k) => {
+    const yL = y0 + tpl.hLow * sc * ky;
+    return tubeClear(ctx, x, s, y0 - 1, yL, tpl.r * sc * k + 0.4) && (tpl.maxY <= tpl.hLow || tubeClear(ctx, x, s, yL, y0 + tpl.maxY * sc * ky, tpl.rTall * sc * k + 0.4));
+  };
   const chimney = (m) => {
     const r2 = mulberry32(m.seed), list = chimneysOf(m.seg), S2 = m.site;
     // the main chimney of a field: a third of the time the site's signature form (palette slot 0)
@@ -997,18 +1097,24 @@ export function layoutVents(ctx) {
     if (m.main && r2() < 0.35) tpl = list[0];
     const sm = SMOKE[tpl.smoke || S2.smoke], glowP = tpl.glow ?? S2.pal.glow;
     // every copy its own proportions: squatter or slimmer, a little wider one way
-    const sc0 = 0.8 + r2() * 0.4, ky = 0.85 + r2() * 0.35, kx = 0.9 + r2() * 0.2, kz = 0.9 + r2() * 0.2, yaw = r2() * TAU;
+    const sc0 = 0.8 + r2() * 0.4, ky = 0.85 + r2() * 0.35, kx = 0.9 + r2() * 0.2, kz = 0.9 + r2() * 0.2, yaw = r2() * TAU, k = Math.max(kx, kz);
     let R = rotY(yaw);
     // up to four spots: the member's own, then nearby ones (steep slopes and ridges bury a mound: each
-    // ridge failure also shrinks the footprint, which is what sets the burial on a slope)
+    // ridge failure also shrinks the footprint, which is what sets the burial on a slope). Each spot is
+    // pushed out from the path, on the member's side, to the clearance this chimney needs.
     let x = m.x, s = m.s, sc = sc0, y = 0, fail = '', shrink = 1;
     for (let att = 0; att < (m.bend ? 1 : 4); att++) {
-      if (att) { const a = r2() * TAU, d = 2.5 + r2() * 4; x = m.x + Math.cos(a) * d; s = Math.min(ctx.s1 - 0.01, Math.max(ctx.s0, m.s + Math.sin(a) * d)); }
+      if (att) { // another spot nearby, a step nearer the path each time: flatter ground than the ridge flanks
+        const a = r2() * TAU, d = 2.5 + r2() * 4;
+        x = m.x + Math.cos(a) * d - (m.side || 0) * att * 1.5; s = Math.min(ctx.s1 - 0.01, Math.max(ctx.s0, m.s + Math.sin(a) * d));
+      }
       sc = sc0 * shrink;
-      if (m.bend) x = bendX(ctx, m.bend, tpl.r * sc, r2, 1.2);
+      const px = ctx.pathX(s), side = m.side || (x < px ? -1 : 1);
+      if (m.bend) x = px + side * (need(tpl, s, fs.at(px + side * 6, s), sc, ky, k) + r2() * 1.2);
+      else for (let q = 0; q < 2; q++) { const nd = need(tpl, s, fs.at(x, s), sc, ky, k); if (side * (x - px) < nd) x = px + side * nd; }
       const y0 = fs.at(x, s);
       let ok = false;
-      for (let t = 0; t < 3 && !ok; t++) { ok = tubeClear(ctx, x, s, y0 - 1, y0 + tpl.maxY * sc * ky, tpl.r * sc * Math.max(kx, kz) + 0.4); if (!ok) sc *= 0.72; }
+      for (let t = 0; t < 3 && !ok; t++) { ok = clear(tpl, x, s, y0, sc, ky, k); if (!ok) sc *= 0.72; }
       if (!ok || sc < 0.5) { fail = 'tube'; continue; }
       if (!fs.free(x, s, tpl.rFoot * sc * Math.max(kx, kz) * 0.8)) { fail = 'occupied'; continue; } // fields never stack chimneys into each other
       // flat-bottomed mound settled into the floor; a long fallen piece settles along the slope, so on a
@@ -1033,13 +1139,17 @@ export function layoutVents(ctx) {
     fs.addSupport({ tpl: tpl.supportProxy || tpl, x: it.x, y: it.y, R: it.R, sx: it.sx, sy: it.sy, sz: it.sz }, s);
     fs.occupy(x, s, rF * 0.8);
     placed.push({ x, s, r: rF, site: S2, seg: m.seg });
+    if (m.fi !== undefined && !shown.has(m.fi)) { shown.add(m.fi); poi(ctx, 'vent-field', x, y + 3, s, 12, { kind: S2.name }); }
     for (const v of tpl.vents) {
       const lx = v.x * sx, lz = v.z * sz, vx = R[0] * lx + R[2] * lz, vz = R[6] * lx + R[8] * lz, vy = y + v.y * sy;
       const s2 = v.seep ? SMOKE.seep : sm, big = v.r * sc > 0.22;
       em.push({ x: x + vx, y: vy, z: z + vz, n: Math.round(s2.n * (v.seep ? 1 : big ? 1 : 0.6) * (ctx.tier === 'low' ? 0.7 : 1)),
         rise: (s2.rise[0] + r2() * (s2.rise[1] - s2.rise[0])) * (big || v.seep ? 1 : 0.6), size: Math.max(0.25, v.r * sc * s2.size), spread: s2.spread,
         alb: s2.alb, glow: s2.glow * (glowP > 0.5 ? 1 : 0.2), alpha: s2.alpha, speed: s2.speed[0] + r2() * (s2.speed[1] - s2.speed[0]), phase: r2() });
-      if (glowP > 0.3 && !v.seep) halos.push({ x: x + vx, y: vy - 0.05, z: z + vz, n: 1, rise: 0, size: Math.max(0.35, v.r * sc * 1.8), speed: 0, phase: r2() });
+      if (glowP > 0.3 && !v.seep) {
+        halos.push({ x: x + vx, y: vy - 0.05, z: z + vz, n: 1, rise: 0, size: Math.max(0.35, v.r * sc * 1.8), speed: 0, phase: r2() });
+        if (big) orbs.push({ x: x + vx, y: vy + 0.5 + v.r * sc, z: z + vz, n: 1, rise: 0, size: 1.3 + v.r * sc * 2.5, speed: 0, phase: r2() });
+      }
     }
     // tube worms, mussels and clams crowd the warm foot of active chimneys
     const thk = thicketsOf(m.seg), ws = wormSpec(thk), nL = Math.round(5 * (0.6 + S2.worms));
@@ -1079,6 +1189,7 @@ export function layoutVents(ctx) {
   more.push(() => { // plumes and orifice glow once every chimney is seated
     const pm = smokeMesh(em, rng); if (pm) L.extra.push(pm);
     const hm = billboardMesh(halos, MAT.halo, rng); if (hm) L.extra.push(hm);
+    const om = billboardMesh(orbs, glowMaterial(), rng); if (om) L.extra.push(om);
   });
   const L = { batches: [st, mid, sw, near], extra: [], more };
   return L;

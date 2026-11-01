@@ -483,11 +483,12 @@ export class Batch {
   // place template with rotation R (row-major 3x3), scale, tint and fx.x multiplier
   add(tpl, x, y, z, R, sx, sy = sx, sz = sx, cr = 1, cg = 1, cb = 1, fa = 1) {
     if (!tpl || (this.ic + tpl.idx.length) / 3 > this.max) return false;
-    this.items.push({ tpl, x, y, z, R, sx, sy, sz, cr, cg, cb, fa, ko: 0, lbl: null, fact: null, g: 0, hang: 0, drape: null, s0: 0 });
+    this.items.push({ tpl, x, y, z, R, sx, sy, sz, cr, cg, cb, fa, ko: 0, lbl: null, name: null, fact: null, g: 0, hang: 0, drape: null, s0: 0 });
     this.vc += tpl.vc; this.ic += tpl.idx.length;
     return true;
   }
-  // per-instance extras for the last added item: texture-key offset, label override
+  // per-instance extras for the last added item: texture-key offset, label override (lbl: a showpiece such as a
+  // giant, ranked first for labels; it.name: a plain per-placement name such as a regional species)
   tag(ko, lbl, fact = null) { const it = this.items[this.items.length - 1]; if (it) { it.ko = ko; it.lbl = lbl; if (fact) it.fact = fact; } }
   get last() { return this.items[this.items.length - 1]; }
   // Split items into n slices of similar vertex count; build(k, n) merges slice k only.
@@ -686,12 +687,14 @@ export class Ground {
     const ly = sp.tpl.rayDown((sp.c * dx - sp.sn * dz) / sp.sx, (sp.sn * dx + sp.c * dz) / sp.sz);
     return ly === -Infinity ? -1e9 : sp.y + ly * sp.sy;
   }
-  // register a placed batch item (yaw-only rotation) as something others can rest on
+  // register a placed batch item (yaw-only rotation) as something others can rest on. A template may name
+  // a support proxy (tpl.supTpl, same space): its solid body without thin plates and branches, so what
+  // settles on it never perches on a plate's edge.
   addSupport(it, s) {
     const R = it.R;
     if (Math.abs(R[4] - 1) > 1e-4) return null;
     const rad = it.tpl.r * Math.max(it.sx, it.sz) + 0.2;
-    const sp = { it, tpl: it.tpl, x: it.x, y: it.y, s, c: R[0], sn: R[2], sx: it.sx, sy: it.sy, sz: it.sz, r2: rad * rad };
+    const sp = { it, tpl: it.tpl.supTpl || it.tpl, x: it.x, y: it.y, s, c: R[0], sn: R[2], sx: it.sx, sy: it.sy, sz: it.sz, r2: rad * rad };
     for (let i = Math.floor((sp.x - rad) / 4); i <= Math.floor((sp.x + rad) / 4); i++) {
       for (let j = Math.floor((s - rad) / 4); j <= Math.floor((s + rad) / 4); j++) {
         const k = hkey(i, j); let a = this.hash.get(k);
@@ -1010,7 +1013,7 @@ function registerItems(ctx, b, i0, i1, obs, labels) {
       const px = x * it.sx, py = y * it.sy, pz = z * it.sz;
       return [R[0] * px + R[1] * py + R[2] * pz + it.x, R[3] * px + R[4] * py + R[5] * pz + it.y, ctx.s0 - (R[6] * px + R[7] * py + R[8] * pz + it.z)];
     };
-    const name = it.lbl || t.label;
+    const name = it.lbl || it.name || t.label;
     if (name && size > 0.12) {
       const c = tf((bx[0] + bx[3]) / 2, (bx[1] + bx[4]) / 2, (bx[2] + bx[5]) / 2);
       labels.push([it.lbl ? size * 3 : size, name, c, it.fact || t.fact]);
