@@ -335,10 +335,10 @@ export const SPECIES = {
   }),
   octopus: {
     plan: 'octopus', det: 1, octo: { armLen: 0.55 },
-    col: C(0xb8542c, 0xe8b08a, 0x5e2010, 0xc8683e, 0xf6dcc0, 0xe0a040), pat: [30, 6, 1.0], pat2: [3, 32, 0.2], cs: [-2, 0],
-    finEdge: 0, finRays: 0, iris: 0.8, glowMode: 0, glow: 0, sheen: 0.28, rough: 0.42,
+    col: C(0xb8542c, 0xe8b08a, 0x5e2010, 0xc8683e, 0xe2b48e, 0xe0a040), pat: [30, 6, 1.0], pat2: [3, 32, 0.15], cs: [-2, 0], // pale spots: small, low contrast (read as paint)
+    finEdge: 0, finRays: 0, iris: 0.8, glowMode: 0, glow: 0, sheen: 0.06, rough: 0.78, // papillate skin: matte, not wet-glossy
     mot: { mode: 6, amp: 0, waves: 0, c0: 0, beat: 0, idle: 0.5 },
-    beh: { kind: 'octo', n: [1, 2], speed: [0.08, 0.2], spread: 3, lift: [4, 6.5] }, size: [0.9, 1.4],
+    beh: { kind: 'octo', n: [1, 2], speed: [0.08, 0.2], spread: 3, lift: [2.2, 3.4] }, size: [0.9, 1.4], // startled only close up (at 4-6.5 m every one near the camera path jetted off)
   },
   cuttlefish: fish({
     plan: 'squid', det: 1,
@@ -1070,7 +1070,7 @@ Object.assign(SPECIES, {
   dumbo: {
     plan: 'dumbo', det: 1,
     col: C(0xc88a7c, 0xe0b0a4, 0xa05a50, 0xd89a8c, 0, 0x201010), pat: [6, 5, 0.55], pat2: [0, 1, 0], cs: [-0.2, 0.3],
-    finEdge: 0, finRays: 0, iris: 0.6, glowMode: 0, glow: 0, sheen: 0.4, rough: 0.35,
+    finEdge: 0, finRays: 0, iris: 0.6, glowMode: 0, glow: 0, sheen: 0.18, rough: 0.55,
     mot: { mode: 4, amp: 0.08, waves: 0, c0: 0, beat: 0, idle: 0.35 },
     beh: { kind: 'drift', n: [1, 2], speed: [0.05, 0.12], zone: 'floor', alt: [0.6, 2.2], spread: 8 }, size: [0.2, 0.32],
   },

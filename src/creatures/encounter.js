@@ -128,7 +128,7 @@ export class Encounter {
     // first, in a fixed order, so all encounters share one hidden class and the per-agent loops stay monomorphic.
     this.NRM = null; this.HOME = null; this.spread = 0; this.homeX = 0; this.homeZ = 0; this.curX = 0; this.curZ = 0; this.curDir = null;
     this.R = 0; this.HB = null; this.hbI = 0; this.hbT = 0; this.DLY = null; this.obsGrid = null; this.lbd = undefined; this.lbx = 0; this.lby = 0;
-    this.orbA = undefined; this.calfT = undefined; this.hunted = false; this.FLASH = null; this.ALT = null;
+    this.orbA = undefined; this.calfT = undefined; this.hunted = false; this.FLASH = null; this.AX = null; this.OCL = null; this.OCT = null; this.ALT = null;
     this.IFD = null; this.recOn = false; this.recT = 0; this.recI = 0; // recycled drift swarms: per-instance fade-in, active while in their biome
     this.fsq = 1; // pods / pairs bunch up (formation scale < 1) to pass rocks and walls
     this.threats = null; this.threatsNext = null; this.nThreat = 0; this.nThreatNext = 0;
@@ -538,7 +538,7 @@ export class Encounter {
       if (kind === 'octo' && plan.den) this.den = true;
       for (let i = 0; i < n; i++) {
         const bs = this.entry.shape;
-        const [x, z] = this.perched && i === 0 ? [x0, z0] : this._spaced(i, () => [x0 + (rng() - 0.5) * spread, z0 + (rng() - 0.5) * spread * 1.4], this.rbU * this.SZ[i] + 0.1, (2 * bs.r + bs.h + 0.4) * size * 1.1, P, 3);
+        const [x, z] = this.perched && i === 0 ? [x0, z0] : this._spaced(i, () => [x0 + (rng() - 0.5) * spread, z0 + (rng() - 0.5) * spread * 1.4], kind === 'octo' && !this.den ? this._octoR(i) : this.rbU * this.SZ[i] + 0.1, (2 * bs.r + bs.h + 0.4) * size * 1.1, P, 3);
         if (this.perched && i > 0) this.perched[i] = 0;
         const s = -(z + this.anchorZ);
         const nn = sh.floorNormal(x, s), a = rng() * TAU;
@@ -1745,29 +1745,126 @@ export class Encounter {
     this._writeAll(dt);
   }
 
+  // Resting height of octopus i: on the sand or its perch. Never on a rock's collision capsule: the body sphere sat
+  // ~0.2 m above the capsule top and the flat arm spread floated over the domed rock (one over a rock crawls off it).
+  _octoRest(i, px, py, pz, fl) {
+    return (this.perched && this.perched[i] ? this.perchY : fl) + this._restLift(i);
+  }
+  // Clearance an octopus keeps from rocks where it rests: the arm span (~0.62 size, up to +13% per individual) and the
+  // skirt of a rock beyond its collision capsule (with the body radius only, arms lay through rocks and under slabs)
+  _octoR(i) { return 0.7 * this.SZ[i] + 0.15; }
+  // A resting octopus's rock push-out (from ox, oy, oz): only sideways along the sand, at most `cap` m, and not at all
+  // where the push is mostly upward. Lifted, it bounced between the sand and the rock top; deep in a coral thicket the
+  // sideways part flipped from side to side (a 1.2 m jitter every frame); held at its height, the separation push
+  // downhill and this push back uphill ratcheted it ~0.3 m into the bottom. The crawl to free sand takes it out.
+  _octoSlide(i, ox, oy, oz, cap) {
+    const P = this.P, i3 = i * 3, sh = this.sys.shape, az = this.anchorZ;
+    const hx = P[i3] - ox, hz = P[i3 + 2] - oz, hl = h2(hx, hz), c = P[i3 + 1] - oy > hl ? 0 : cap;
+    if (hl > c) { P[i3] = ox + hx / hl * c; P[i3 + 2] = oz + hz / hl * c; }
+    P[i3 + 1] = oy + this._octoRest(i, 0, 0, 0, sh.floorAt(P[i3], -(P[i3 + 2] + az))) - this._octoRest(i, 0, 0, 0, sh.floorAt(ox, -(oz + az)));
+  }
+  // Send octopus i crawling to the nearest clear spot (_octoSpot); with none better nearby it looks again in 3 s
+  // (the search costs ~0.5-1 ms)
+  _octoClear(i, x, z) {
+    const [hx, hz] = this._octoSpot(i, x, z);
+    if (h2(hx - x, hz - z) < 0.1) { this.OCT[i] = -3; return; }
+    this.HOME[i * 2] = hx; this.HOME[i * 2 + 1] = hz; this.OCL[i] = 1; this.OCT[i] = 0;
+  }
+  // Nearest sand spot (relative x, z) where octopus i's arms clear every rock, on rings out to 8 m (_freeSpot tests
+  // 0.5 m up a rock's side and often led it further in). Rare (blocked octopuses only); returns a shared pair.
+  _octoSpot(i, x, z) {
+    const need = 0.45 * this.SZ[i], sh = this.sys.shape, az = this.anchorZ, a0 = this.RP[i * 4] * TAU;
+    let best = this._clear(i, x, sh.floorAt(x, -(z + az)) + this._restLift(i), z, 1) + 0.1; // (else the roomiest spot)
+    _spot[0] = x; _spot[1] = z;
+    for (let r = 0.5; r <= 8; r += r < 4 ? 0.5 : 1) { // (reef crevices: nothing clear for 4 m around)
+      for (let k = 0; k < 8; k++) {
+        const a = a0 + k * (TAU / 8), qx = x + Math.cos(a) * r, qz = z + Math.sin(a) * r;
+        // not onto another octopus (partners and nearby groups went to the same spot, and the separation pushed them back)
+        let near = false;
+        for (const e of this.sys.enc) {
+          if (e.kind !== 'octo') continue;
+          const dz = e.anchorZ - az;
+          for (let j = 0; j < e.n && !near; j++) near = (e !== this || j !== i) && h2(e.P[j * 3] - qx, e.P[j * 3 + 2] + dz - qz) < 0.7 * (this.SZ[i] + e.SZ[j]);
+          if (near) break;
+        }
+        if (near) continue;
+        const d = this._clear(i, qx, sh.floorAt(qx, -(qz + az)) + this._restLift(i), qz, 1);
+        if (d >= need) { _spot[0] = qx; _spot[1] = qz; return _spot; }
+        if (d > best) { best = d; _spot[0] = qx; _spot[1] = qz; }
+      }
+    }
+    return _spot;
+  }
+
+  // Largest arm stream (JET) that keeps the arm tips clear of the bottom by the terrain fix's margin: the clearance is
+  // measured along the floor normal, and the tips (~0.56 size out, see _terrainFix) reach toward the slope both by
+  // trailing behind and, while still spread, by the pitch (up to ~0.95 size per unit of JET).
+  _octoRoom(i, py, fl) {
+    const sz = this.SZ[i];
+    return ((py - fl) * this.NRM[i * 3 + 1] - 0.06 - 0.035 * sz) / (0.95 * sz);
+  }
+
   // Octopus: crawls slowly over the bottom (arms rippling), jets away mantle-first when startled
   // (arms streaming behind, skin blanching), then glides back down and settles.
   _octo(dt, c) {
     const { n, P, V, F, SL, MODE, TMR, JET, NRM, HOME } = this;
     const sh = this.sys.shape, az = this.anchorZ;
     const cx = c.x, cy = c.y, cz = c.z - az;
+    // jet axis the body pitches onto (weighted by JET in _writeAll / _frame): eased toward the velocity while jetting,
+    // held while settling (tied to V itself, the body snapped round whenever V turned with JET still up)
+    if (!this.AX || this.AX.length < n * 3) this.AX = new Float32Array(n * 3);
+    const AX = this.AX;
+    if (!this.OCL || this.OCL.length < n) { this.OCL = new Uint8Array(n); this.OCT = new Float32Array(n); } // crawling clear of a rock (flag, time)
+    const OCL = this.OCL, OCT = this.OCT;
+    this.fc++;
     for (let i = 0; i < n; i++) {
       const i3 = i * 3, o = i * 4;
       const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2], s = -(pz + az);
       const fl = sh.floorAt(px, s);
       const dc = h3(px - cx, (py - cy) * 0.5, pz - cz);
       TMR[i] -= dt;
+      if (this.IFD && this.IFD[i] < 1 && !OCL[i]) this.IFD[i] = Math.min(1, this.IFD[i] + dt * 0.8); // fading back in
+      if (OCT[i] < 0 && !OCL[i]) OCT[i] = Math.min(0, OCT[i] + dt); // no clear spot found: looks again later
       if (MODE[i] === 0) {
         const w = this.age * 0.05 + this.RP[o] * TAU, wr = this.den ? 0 : 1.5;
-        let tx = HOME[i * 2] + Math.sin(w) * wr, tz = HOME[i * 2 + 1] + Math.cos(w * 0.8) * wr;
-        if (this.obs.length && this._clear(i, tx, py, tz, 1) < 0.1) { tx = px; tz = pz; } // don't crawl into rocks
+        // arms in a rock (often one registered after it settled): crawl clear (hysteresis: the spot clears 0.45 size)
+        if (this.obs.length && !OCL[i] && OCT[i] >= 0 && !this.den && !(this.perched && this.perched[i]) && ((this.fc + i + this.uid) & 15) === 0 && this._clear(i, px, py, pz, 1) < 0.3 * this.SZ[i]) this._octoClear(i, px, pz);
+        let tx = HOME[i * 2], tz = HOME[i * 2 + 1];
+        if (OCL[i]) { // straight to the free spot
+          _sphere.center.set(px, py, this.anchorZ + pz - c.Oz); _sphere.radius = this.SZ[i];
+          const hidden = dc > 25 || !c.frustum.intersectsSphere(_sphere);
+          if (h2(tx - px, tz - pz) < 0.1) { OCL[i] = 0; OCT[i] = 0; }
+          else if (hidden || ((OCT[i] += dt) > 4 && this._clear(i, px, py, pz, 1) < 0)) {
+            // out of sight it is just there; still inside a rock after 4 s (pinned by an animal that never moves) it
+            // fades out like camouflage, and back in on the sand
+            const IFD = this.IFD || (this.IFD = new Float32Array(n).fill(1));
+            if (hidden) IFD[i] = Math.min(IFD[i], 0.01); else IFD[i] -= dt * 1.5;
+            if (IFD[i] <= 0.01) {
+              const hs = -(tz + az), nn = sh.floorNormal(tx, hs);
+              P[i3] = tx; P[i3 + 2] = tz; P[i3 + 1] = sh.floorAt(tx, hs) + this._restLift(i); V[i3] = V[i3 + 2] = 0; OCL[i] = 0; OCT[i] = 0; IFD[i] = 0;
+              NRM[i3] = nn.x; NRM[i3 + 1] = nn.y; NRM[i3 + 2] = nn.z;
+            }
+            continue;
+          }
+        }
+        else {
+          tx += Math.sin(w) * wr; tz += Math.cos(w * 0.8) * wr;
+          if (this.obs.length && this._clear(i, tx, py, tz, 1) < 0.45 * this.SZ[i] + 0.1) { tx = px; tz = pz; } // don't crawl into rocks (arms included)
+        }
         let dx = tx - px, dz = tz - pz; const dl = h2(dx, dz) || 1;
-        const spd = this.speed * (0.5 + 0.5 * Math.max(0, Math.sin(this.age * 0.6 + this.RP[o + 1] * 9)));
-        V[i3] = dx / dl * spd; V[i3 + 2] = dz / dl * spd; V[i3 + 1] = 0;
+        // ease in on the target (it moves slower than the octopus, which overshot it and reversed every frame) and
+        // steer the velocity instead of setting it
+        const spd = (OCL[i] ? Math.max(this.speed, 0.15) : this.speed * (0.5 + 0.5 * Math.max(0, Math.sin(this.age * 0.6 + this.RP[o + 1] * 9)))) * Math.min(1, dl / 0.4), kv = Math.min(1, dt * 2);
+        V[i3] += (dx / dl * spd - V[i3]) * kv; V[i3 + 2] += (dz / dl * spd - V[i3 + 2]) * kv; V[i3 + 1] = 0;
         P[i3] = px + V[i3] * dt; P[i3 + 2] = pz + V[i3 + 2] * dt;
-        P[i3 + 1] += ((this.perched && this.perched[i] ? this.perchY : fl) + this._restLift(i) - py) * Math.min(1, dt * 3);
-        if (((i + Math.floor(this.age * 4)) & 7) === 0) { const nn = sh.floorNormal(P[i3], s); NRM[i3] = nn.x; NRM[i3 + 1] = nn.y; NRM[i3 + 2] = nn.z; }
-        if (dc < SL[o + 3] || TMR[i] < 0) { // jet away (or a spontaneous swim)
+        P[i3 + 1] += (this._octoRest(i, px, py, pz, fl) - py) * Math.min(1, dt * 3);
+        if (((i + Math.floor(this.age * 4)) & 7) === 0) { // the body tilts with the floor, eased (sampled in bursts)
+          const nn = sh.floorNormal(P[i3], s), kn = Math.min(1, dt * 5);
+          NRM[i3] += (nn.x - NRM[i3]) * kn; NRM[i3 + 1] += (nn.y - NRM[i3 + 1]) * kn; NRM[i3 + 2] += (nn.z - NRM[i3 + 2]) * kn;
+        }
+        if ((dc < SL[o + 3] || TMR[i] < 0) && this.obs.length && this._clear(i, px, py, pz, 1) < 0.1 * this.SZ[i] + 0.05) {
+          if (TMR[i] < 0) TMR[i] = 20 + this.rng() * 30; // tucked against a rock it stays put (a jet from there shot it up the face)
+        } else if (dc < SL[o + 3] || TMR[i] < 0) { // jet away (or a spontaneous swim)
           if (dc < SL[o + 3]) { // startled: a dark flush, then a puff of ink as it jets off
             if (!this.FLASH) this.FLASH = new Float32Array(n);
             this.FLASH[i] = 0.7;
@@ -1777,42 +1874,93 @@ export class Encounter {
           MODE[i] = 1; TMR[i] = 2.5 + this.rng() * 2;
           let ax = px - cx, az2 = pz - cz; const al = h2(ax, az2) || 1;
           if (dc > SL[o + 3]) { const a = this.rng() * TAU; ax = Math.cos(a); az2 = Math.sin(a); } else { ax /= al; az2 /= al; }
-          V[i3] = ax * 2; V[i3 + 1] = 0.7; V[i3 + 2] = az2 * 2;
+          if (this.obs.length) { // not straight into the rock beside it: turn up to 90 degrees either way
+            const bx = ax, bz = az2;
+            for (let t = 1; t < 5 && this._clear(i, px + ax * 1.2, py + 0.4, pz + az2 * 1.2, 1) < 0.3; t++) {
+              const a = (t & 1 ? 0.8 : -0.8) * ((t + 1) >> 1), ca = Math.cos(a), sa = Math.sin(a);
+              ax = bx * ca - bz * sa; az2 = bx * sa + bz * ca;
+            }
+          }
+          V[i3] = ax * 0.45; V[i3 + 1] = 0.2; V[i3 + 2] = az2 * 0.45; // a push off the bottom; the jet builds up below (from 1 m/s it leapt off)
+          const vn = V[i3] * NRM[i3] + V[i3 + 1] * NRM[i3 + 1] + V[i3 + 2] * NRM[i3 + 2]; // ... away from the slope it sat on
+          if (vn < 0.3) { const k = 0.3 - vn; V[i3] += NRM[i3] * k; V[i3 + 1] += NRM[i3 + 1] * k; V[i3 + 2] += NRM[i3 + 2] * k; }
+          if (JET[i] < 0.05) { const l = h3(V[i3], V[i3 + 1], V[i3 + 2]); AX[i3] = V[i3] / l; AX[i3 + 1] = V[i3 + 1] / l; AX[i3 + 2] = V[i3 + 2] / l; }
         }
         JET[i] = Math.max(0, JET[i] - dt * 1.5);
       } else if (MODE[i] === 1) {
-        const pulse = 0.55 + 0.9 * Math.max(0, Math.sin(this.PH[i] * 2.2));
+        // pulsed jet (~1.5 Hz): thrust while the mantle contracts (shader), a short glide between
+        const pulse = 0.6 + 0.8 * Math.max(0, -Math.sin(this.PH[i] * 2.2));
         const vl = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1;
-        const sp = (1.4 + this.RP[o + 2]) * pulse;
-        V[i3] += (V[i3] / vl * sp - V[i3]) * Math.min(1, dt * 3); V[i3 + 1] += (V[i3 + 1] / vl * sp * 0.6 - V[i3 + 1]) * Math.min(1, dt * 3); V[i3 + 2] += (V[i3 + 2] / vl * sp - V[i3 + 2]) * Math.min(1, dt * 3);
-        JET[i] = Math.min(1, JET[i] + dt * 3);
-        if (TMR[i] < 0) { MODE[i] = 2; }
+        const sp = (0.6 + 0.5 * this.RP[o + 2]) * pulse; // ~0.4-1.5 m/s (escape jets of real octopuses)
+        // keeps rising off the bottom until the arms stream out, then skims along it (rising on, it went 2-3 m up)
+        const ty = JET[i] < 0.9 ? V[i3 + 1] / vl * sp : py - fl > 1.2 ? -0.2 : V[i3 + 1] / vl * sp * 0.15;
+        V[i3] += (V[i3] / vl * sp - V[i3]) * Math.min(1, dt * 3); V[i3 + 1] += (ty - V[i3 + 1]) * Math.min(1, dt * 3); V[i3 + 2] += (V[i3 + 2] / vl * sp - V[i3 + 2]) * Math.min(1, dt * 3);
+        if (this.obs.length) { // veer off rocks ahead (jetting into one, the push-out shot it up the face)
+          const dA = this._clear(i, px + V[i3] * 0.6, py + V[i3 + 1] * 0.6, pz + V[i3 + 2] * 0.6, 1);
+          if (dA < 0.6) { const k = (0.6 - dA) * dt * 6; V[i3] += _hit.nx * k; V[i3 + 1] += Math.max(_hit.ny, 0.3) * k; V[i3 + 2] += _hit.nz * k; }
+        }
+        const vl2 = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1, ka = Math.min(1, dt * 3);
+        AX[i3] += (V[i3] / vl2 - AX[i3]) * ka; AX[i3 + 1] += (V[i3 + 1] / vl2 - AX[i3 + 1]) * ka; AX[i3 + 2] += (V[i3 + 2] / vl2 - AX[i3 + 2]) * ka;
+        // the arms stream out only as far as the room under the body allows (they trail off the bottom on take-off; at
+        // full stream right away their tips went into the sand and the terrain fix threw the body up ~0.6 m)
+        JET[i] = Math.max(0, Math.min(1, JET[i] + dt * 3, this._octoRoom(i, py, fl)));
+        if (TMR[i] < 0) { // glide down onto free sand ahead (it settled on rock tops, floating over them)
+          MODE[i] = 2;
+          const [hx, hz] = this._octoSpot(i, px + V[i3] * 1.5, pz + V[i3 + 2] * 1.5); HOME[i * 2] = hx; HOME[i * 2 + 1] = hz;
+        }
       } else {
+        { // drift toward the landing spot while sinking
+          const hx = HOME[i * 2] - px, hz = HOME[i * 2 + 1] - pz, hl = h2(hx, hz), ks = Math.min(1, dt * 1.2);
+          if (hl > 0.2) { const sp = Math.min(0.4, hl * 0.5); V[i3] += (hx / hl * sp - V[i3]) * ks; V[i3 + 2] += (hz / hl * sp - V[i3 + 2]) * ks; }
+        }
         V[i3] *= 1 - Math.min(1, dt * 0.8); V[i3 + 2] *= 1 - Math.min(1, dt * 0.8);
-        V[i3 + 1] += (-0.35 - V[i3 + 1]) * Math.min(1, dt * 1.5);
-        JET[i] = Math.max(0, JET[i] - dt * 0.7);
-        if (py <= fl + this._restLift(i) + 0.03) { MODE[i] = 0; HOME[i * 2] = px; HOME[i * 2 + 1] = pz; TMR[i] = 40 + this.rng() * 60; }
+        V[i3 + 1] += (-0.45 - V[i3 + 1]) * Math.min(1, dt * 1.5);
+        JET[i] = Math.max(0, Math.min(JET[i] - dt * 1.5, this._octoRoom(i, py, fl))); // arms spread, it sinks arms-first
+        { const nn = sh.floorNormal(px, s), kn = Math.min(1, dt * 1.5); NRM[i3] += (nn.x - NRM[i3]) * kn; NRM[i3 + 1] += (nn.y - NRM[i3 + 1]) * kn; NRM[i3 + 2] += (nn.z - NRM[i3 + 2]) * kn; } // tilts to the bottom below
+        // touchdown within the terrain fix's clearance (it holds the arm tips ~0.08 m up: a 0.03 m test never landed on
+        // open sand, and the fix bounced the sinking body every frame); the crawl eases the rest of the way down
+        if (py <= this._octoRest(i, px, py, pz, fl) + 0.05 + 0.05 * this.SZ[i]) { MODE[i] = 0; HOME[i * 2] = px; HOME[i * 2 + 1] = pz; TMR[i] = 40 + this.rng() * 60; }
       }
       if (MODE[i] !== 0) {
         let nx = px + V[i3] * dt, ny = Math.max(fl + this._restLift(i), py + V[i3 + 1] * dt), nz = pz + V[i3 + 2] * dt;
-        const ex = nx - cx, ey = ny - cy, ez = nz - cz, ed = h3(ex, ey, ez), hr = this.hardR;
+        const ex = nx - cx, ey = ny - cy, ez = nz - cz, ed = h3(ex, ey, ez), hr = this.hardR + this.SZ[i] * 0.2; // the separation pass's bubble (a smaller one here: popped out by 0.2 size whenever that pass touched it)
         if (ed < hr && ed > 1e-4) { nx = cx + ex / ed * hr; ny = cy + ey / ed * hr; nz = cz + ez / ed * hr; }
         P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
       }
       if (this.obs.length) {
-        const ox = P[i3], oz = P[i3 + 2];
-        this._pushOut(i, P, V);
-        if (MODE[i] === 0 && Math.abs(P[i3] - ox) + Math.abs(P[i3 + 2] - oz) > 0.05) { // blocked: crawl off to free sand
-          const [hx, hz] = this._freeSpot(P[i3], P[i3 + 2], this.rbU * this.SZ[i] + 0.2, true); HOME[i * 2] = hx; HOME[i * 2 + 1] = hz;
+        const ox = P[i3], oy = P[i3 + 1], oz = P[i3 + 2];
+        this._pushOut(i, P, MODE[i] === 0 ? null : V); // (crawling, the push took the crawl's velocity and it never got out)
+        const pl = h3(P[i3] - ox, P[i3 + 1] - oy, P[i3 + 2] - oz);
+        if (MODE[i] === 0) {
+          this._octoSlide(i, ox, oy, oz, dt * 0.5);
+          if (pl > 0.01 && !OCL[i] && OCT[i] >= 0 && ((this.fc + i + this.uid) & 7) === 0) this._octoClear(i, P[i3], P[i3 + 2]); // blocked: crawl off to free sand
+        } else if (pl > 0.02) { // jetted into a rock: break off and glide away from it (pressing on, it shot up the face)
+          const hx = P[i3] - ox, hz = P[i3 + 2] - oz, hl = h2(hx, hz) || 1;
+          // no faster than a jet (taking off from inside a coral thicket, the push threw it 1.5 m up in one frame)
+          if (pl > dt * 2.5) { const f = dt * 2.5 / pl; P[i3] = ox + (P[i3] - ox) * f; P[i3 + 1] = oy + (P[i3 + 1] - oy) * f; P[i3 + 2] = oz + hz * f; }
+          V[i3] = V[i3] * 0.4 + hx / hl * 0.3; V[i3 + 2] = V[i3 + 2] * 0.4 + hz / hl * 0.3; V[i3 + 1] = Math.min(V[i3 + 1], 0.1);
+          if (MODE[i] === 1) { MODE[i] = 2; TMR[i] = -1; const [fx, fz] = this._octoSpot(i, P[i3] + hx / hl, P[i3 + 2] + hz / hl); HOME[i * 2] = fx; HOME[i * 2 + 1] = fz; }
         }
       }
-      if (MODE[i] !== 0 && this.terrainOn) this._terrainTick(i, h3(P[i3] - px, P[i3 + 1] - py, P[i3 + 2] - pz), 0.05);
+      // still in the resting pose at the sand (take-off, touchdown): no terrain fix, as at rest (its clearance margin
+      // popped the body ~0.1 m up in one frame at every launch)
+      const atRest = JET[i] < 0.05 && P[i3 + 1] - fl < 0.07 + 0.035 * this.SZ[i];
+      if (MODE[i] !== 0 && this.terrainOn && !atRest) {
+        const y0 = P[i3 + 1];
+        this._terrainTick(i, h3(P[i3] - px, P[i3 + 1] - py, P[i3 + 2] - pz), 0.05);
+        // rising off a slope its spread arms lay on: the lift eases out over a few frames (in one it hopped 4-7 cm a frame)
+        if (MODE[i] === 1 && P[i3 + 1] - y0 > dt * 0.8) P[i3 + 1] = y0 + dt * 0.8;
+        // sinking arms onto the bottom (a slope holds the spread arms up well above the centre's rest height): touchdown
+        if (MODE[i] === 2 && P[i3 + 1] - y0 > 0.005 && P[i3 + 1] - fl < 0.6 * this.SZ[i] + 0.15) { MODE[i] = 0; HOME[i * 2] = P[i3]; HOME[i * 2 + 1] = P[i3 + 2]; TMR[i] = 40 + this.rng() * 60; }
+      }
       const hv = h2(V[i3], V[i3 + 2]);
       if (hv > 0.03) { const k = Math.min(1, dt * 2); F[i3] += (V[i3] / hv - F[i3]) * k; F[i3 + 2] += (V[i3 + 2] / hv - F[i3 + 2]) * k; const l = h2(F[i3], F[i3 + 2]) || 1; F[i3] /= l; F[i3 + 2] /= l; }
-      let ph = this.PH[i] + TAU * (0.4 + hv * 2 + JET[i] * 1.2) * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph;
+      // a steady clock (0.4-0.7 Hz): tied to the jet speed it ran at ~5 Hz and the mantle / thrust fluttered
+      let ph = this.PH[i] + TAU * (0.4 + Math.min(hv, 0.25) * 1.2) * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph;
       this.BEND[i] = JET[i];             // shader: arms stream behind
-      this.AMP[i] = 1 + JET[i] * 1.2;    // shader: blanching when alarmed
-      if (this.FLASH && this.FLASH[i] > 0) { this.FLASH[i] -= dt; this.AMP[i] = 3.4; } // ... after a dark flush
+      let at = 1 + JET[i] * 1.2;         // shader: blanching when alarmed
+      if (this.FLASH && this.FLASH[i] > 0) { this.FLASH[i] -= dt; at = Math.max(at, 2.4 + Math.min(1, this.FLASH[i] / 0.25)); } // ... after a dark flush (fading out)
+      this.AMP[i] += (at - this.AMP[i]) * Math.min(1, dt * 8); // eased: chromatophores flush in ~0.1 s (it switched in one frame)
     }
     this._writeAll(dt);
   }
@@ -1972,7 +2120,7 @@ export class Encounter {
       return;
     }
     if (this.kind === 'octo') {
-      const J = this.JET[i], V = this.V, N = this.NRM, vl = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1;
+      const J = this.JET[i], V = this.AX || this.V, N = this.NRM, vl = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1;
       let Yx = N[i3] * (1 - J) + V[i3] / vl * J, Yy = N[i3 + 1] * (1 - J) + V[i3 + 1] / vl * J, Yz = N[i3 + 2] * (1 - J) + V[i3 + 2] / vl * J;
       const yl = h3(Yx, Yy, Yz) || 1; Yx /= yl; Yy /= yl; Yz /= yl;
       const zx = F[i3] * (1 - J) - N[i3] * J, zz = F[i3 + 2] * (1 - J) - N[i3 + 2] * J, d = zx * Yx + zz * Yz;
@@ -2001,12 +2149,16 @@ export class Encounter {
     const sh = this.sys.shape, P = this.P, V = this.V, F = this.F, i3 = i * 3, az = this.anchorZ, sz = this.SZ[i];
     const sup = this.entry.shape.sup, ns = sup.length / 3, B = _B, T = _TP, top0 = this.topCap, ceil = this.ceilOn, m = 0.03 + 0.035 * sz + this.tPad; // + tail beat
     let moved = 0; // corrections also use up the obstacle clearance budget
+    // a jetting octopus draws its arms in behind the mantle (shader): its rest-pose arm tips, swung down by the pitch,
+    // lifted it ~0.6 m off the sand at every launch
+    const jet = this.kind === 'octo' ? this.JET[i] : 0;
     for (let it = 0; it < 6; it++) {
       this._frame(i, B);
       let worst = 0, wF = true, wx = 0, wz = 0, wk = 0, gap = 1e9;
       let f0 = 1e9, f1 = -1e9, c0 = 1e9, c1 = -1e9;
       for (let k = 0; k < ns; k++) {
-        const lx = sup[k * 3] * sz, ly = sup[k * 3 + 1] * sz, lz = sup[k * 3 + 2] * sz;
+        let lx = sup[k * 3] * sz, ly = sup[k * 3 + 1] * sz, lz = sup[k * 3 + 2] * sz;
+        if (jet > 0) { const r = h2(lx, lz); if (r > ly) ly += (-r - ly) * jet; lx *= 1 - 0.85 * jet; lz *= 1 - 0.85 * jet; }
         const x = P[i3] + B[0] * lx + B[3] * ly + B[6] * lz, y = P[i3 + 1] + B[1] * lx + B[4] * ly + B[7] * lz, z = P[i3 + 2] + B[2] * lx + B[5] * ly + B[8] * lz;
         const s = -(z + az), fl = sh.floorAt(x, s);
         let ce = top0;
@@ -2122,6 +2274,9 @@ export class Encounter {
       MV[cnt] = i; // moved: re-checked by the follow-up rounds
       let dl = h3(dx, dy, dz);
       if (dl > 1.5) { const f = 1.5 / dl; dx *= f; dy *= f; dz *= f; dl = 1.5; }
+      // an octopus slides aside (resting: <= ~0.5 m/s over the up to four rounds) instead of popping 0.2-0.4 m when
+      // something lands next to it or two take off side by side
+      if (k === 'octo') { const cap = this.MODE[i] === 0 ? 0.0025 : 0.006; if (dl > cap) { const f = cap / dl; dx *= f; dy *= f; dz *= f; dl = cap; } }
       const ox = P[i3], oy = P[i3 + 1], oz = P[i3 + 2];
       P[i3] += dx; P[i3 + 1] += dy; P[i3 + 2] += dz;
       D[i3] = 0; D[i3 + 1] = 0; D[i3 + 2] = 0;
@@ -2130,8 +2285,11 @@ export class Encounter {
       if (k === 'walk') P[i3 + 1] = sh.floorAt(P[i3], s);
       else if (k === 'bed') P[i3 + 1] = sh.floorAt(P[i3], s) + 0.006 * this.SZ[i];
       else if ((k === 'rest' || k === 'octo') && this.MODE[i] === 0) {
-        P[i3 + 1] = (this.perched && this.perched[i] ? this.perchY : sh.floorAt(P[i3], s)) + this._restLift(i);
-        if (this.HOME) { this.HOME[i * 2] += dx; this.HOME[i * 2 + 1] += dz; }
+        // octopus: keeps its height above the rest level (set to it, a touchdown still easing down dropped ~0.1 m)
+        P[i3 + 1] = k === 'octo' ? oy + this._octoRest(i, P[i3], oy, P[i3 + 2], sh.floorAt(P[i3], s)) - this._octoRest(i, ox, oy, oz, sh.floorAt(ox, -(oz + az)))
+          : (this.perched && this.perched[i] ? this.perchY : sh.floorAt(P[i3], s)) + this._restLift(i);
+        // (an octopus crawling clear of a rock keeps its target: pushed back by the rock every frame, the home ran off 260 m)
+        if (this.HOME && !(k === 'octo' && this.OCL && this.OCL[i])) { this.HOME[i * 2] += dx; this.HOME[i * 2 + 1] += dz; }
       } else {
         swim = true;
         const vn = (V[i3] * dx + V[i3 + 1] * dy + V[i3 + 2] * dz) / dl;
@@ -2143,10 +2301,20 @@ export class Encounter {
       this.CLR[i] -= dl;
       if (this.obs.length && this.CLR[i] < 0.05) {
         const qx = P[i3], qy = P[i3 + 1], qz = P[i3 + 2];
-        this._pushOut(i, P, V); this.CLR[i] = 0;
+        const oc = k === 'octo' && !swim;
+        this._pushOut(i, P, oc ? null : V); this.CLR[i] = 0;
+        if (oc) this._octoSlide(i, qx, qy, qz, 0.008); // a resting octopus slides out slowly and keeps crawling clear (see _octo)
         dl += h3(P[i3] - qx, P[i3 + 1] - qy, P[i3 + 2] - qz);
       }
-      if (swim && this.terrainOn) this._terrainTick(i, dl, 0); // last: the push-out above can move the body toward the rock face
+      // octopus still in the resting pose at the sand (take-off, touchdown): kept on the sand only, as in _octo (the
+      // terrain fix's margin popped a nudged one ~0.08 m up at launch)
+      const fo = k === 'octo' && swim && this.JET[i] < 0.05 ? sh.floorAt(P[i3], -(P[i3 + 2] + az)) : -1e9;
+      if (P[i3 + 1] - fo < 0.07 + 0.035 * this.SZ[i]) P[i3 + 1] = Math.max(P[i3 + 1], fo + this._restLift(i));
+      else if (swim && this.terrainOn) {
+        const y0 = P[i3 + 1];
+        this._terrainTick(i, dl, 0); // last: the push-out above can move the body toward the rock face
+        if (k === 'octo' && this.MODE[i] === 1 && P[i3 + 1] - y0 > 0.015) P[i3 + 1] = y0 + 0.015; // eased, as in _octo
+      }
       // wedged (the floor, a rock or the camera bubble took back most of the push): it holds still in the follow-up
       // rounds, so the other animal makes the room (a jack under a manta gliding low over the reef)
       if (swim && (P[i3] - ox) * dx + (P[i3 + 1] - oy) * dy + (P[i3 + 2] - oz) * dz < 0.5 * (dx * dx + dy * dy + dz * dz)) { this.SB[i] = 1; this.nBlk++; }
@@ -2371,7 +2539,7 @@ export class Encounter {
           Xx = hXx * cyw - zx * syw; Xy = hXy * cyw - zy * syw; Xz = hXz * cyw - zz * syw;
           Yx = hYx; Yy = hYy; Yz = hYz;
         } else if (kind === 'octo' || kind === 'walk') {
-          const J = this.JET[i], V = this.V, vl = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1;
+          const J = this.JET[i], V = this.AX || this.V, vl = h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1; // octopus: jet axis
           Yx = this.NRM[i3] * (1 - J) + V[i3] / vl * J; Yy = this.NRM[i3 + 1] * (1 - J) + V[i3 + 1] / vl * J; Yz = this.NRM[i3 + 2] * (1 - J) + V[i3 + 2] / vl * J;
           const yl = h3(Yx, Yy, Yz) || 1; Yx /= yl; Yy /= yl; Yz /= yl;
           let zx = F[i3] * (1 - J) - this.NRM[i3] * J, zz = F[i3 + 2] * (1 - J) - this.NRM[i3 + 2] * J; const d = zx * Yx + zz * Yz;
@@ -2451,4 +2619,5 @@ function h2(x, y) { return Math.sqrt(x * x + y * y); }
 function h3(x, y, z) { return Math.sqrt(x * x + y * y + z * z); }
 function gauss(r) { return (r() + r() + r() + r() - 2) * 1.73; } // ~N(0, 1)
 const _sphere = new THREE.Sphere();
+const _spot = [0, 0];
 function kindNeedsExpose(k) { return k === 'colony' || k === 'peek'; }

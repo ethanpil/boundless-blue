@@ -142,13 +142,18 @@ void crDeform(inout vec3 p, inout vec3 n) {
       float w = sin(ph * 0.35 + aG.z * 1.7 - d * 3.0);
       p.y += d * d * 0.16 * (0.6 + 0.4 * w) * (1.0 - J);
       vec2 dir = normalize(p.xz + vec2(1e-4));
-      p.xz += vec2(-dir.y, dir.x) * sin(ph * 0.25 + aG.z * 2.3 - d * 4.0) * d * 0.07 * (1.0 - J);
+      // a slow wave travelling out to the tip on top of a resting curl of its own per arm and individual (straight
+      // radial arms read as a toy)
+      float cu = sin(ph * 0.25 + aG.z * 2.3 + aVar.x * 19.0 - d * 4.0) + 0.6 * sin(aG.z * 3.7 + aVar.x * 41.0);
+      p.xz += vec2(-dir.y, dir.x) * cu * (d * 0.05 + d * d * 0.3) * (1.0 - J);
       float r = length(p.xz);
       vec2 rd = p.xz / max(r, 1e-4);
       p.xz = rd * mix(r, 0.035 + d * 0.07 + 0.02 * sin(ph * 1.6 - d * 7.0 + aG.z), J);
       p.y = mix(p.y, 0.04 - d * 0.95, J);
     } else {
-      p *= 1.0 + (0.035 + 0.07 * J) * sin(ph * (0.8 + 1.6 * J)) * smoothstep(0.1, 0.45, p.y);
+      // fixed frequencies, blended amplitudes (scaling ph by J swept the phase wildly whenever J changed); the jet
+      // contraction (x2.2) is in step with the thrust pulse in encounter.js _octo
+      p *= 1.0 + (0.035 * sin(ph * 0.8) * (1.0 - J) + 0.09 * sin(ph * 2.2) * J) * smoothstep(0.1, 0.45, p.y);
     }
   } else if (mode < 7.5) {
     // mola: stiff body, big sculling dorsal + anal fins
@@ -363,7 +368,7 @@ vec3 crPos = position;
     else if (pt > 0.5 && pt < 1.5) crPos.xy *= vec2(gi, gi * fs);
     else if (pt > 1.5 && pt < 2.5 || pt > 6.5 && pt < 7.5) crPos.xy *= gi * mix(1.0, fs, 0.6);
     else if (pt > 2.5 && pt < 3.5) crPos.xy *= fs;
-  }
+  } else if (md < 6.5) crPos.xz *= pt > 5.5 && pt < 6.5 ? mix(1.0, fs, 0.6) : gi; // octopus: arm span, mantle girth
 }
 crDeform(crPos, objectNormal);
 objectNormal = normalize(objectNormal);
@@ -466,6 +471,37 @@ if (crMode == 0.0 && crPart == 0.0 && crNoGill < 0.5) { // gill cover: a fine cu
   crCol *= 1.0 - 0.3 * gEdge;
   crCol = mix(crCol, crCol * 1.1 + 0.006, (1.0 - smoothstep(tg - 0.07, tg - 0.01, crT)) * smoothstep(0.03, 0.08, crT) * 0.35 * (1.0 - smoothstep(0.5, 0.8, abs(vN))));
 }
+float crBump = 0.0, crTip = 0.0; // octopus: skin relief (m, normal_fragment_maps below), translucent arm tips
+if (crMode == 6.0 && crPart != 4.0) {
+  // octopus skin. Three planar lookups give a 3D-ish field (one planar map streaked down the mantle sides): a coarse
+  // mottle that darkens and clears slowly in place, papillae (lighter tips, darker creases)
+  vec3 lp = vLoc * 7.0 + sd;
+  float mo = clamp(((crFbm(lp.xz) + crFbm(lp.xy + 3.7) + crFbm(lp.zy + 7.1)) * 0.3333 - 0.5) * 3.0 + 0.5, 0.0, 1.0); // (the average is flat: stretched)
+  float th = 0.5 + 0.15 * sin(uTime * 0.13 + crNoise(lp.xz * 0.35) * 6.28);
+  crCol *= mix(1.12, 0.58, smoothstep(th - 0.1, th + 0.1, mo));
+  vec3 lq = vLoc * 30.0 + sd;
+  float pap = clamp(((crNoise(lq.xz) + crNoise(lq.xy + 5.3) + crNoise(lq.zy + 9.1)) * 0.3333 - 0.5) * 3.5, -1.0, 1.0);
+  crCol *= 0.9 + 0.2 * pap;
+  crBump = (pap * 0.0035 + mo * 0.004) * (crPart == 6.0 ? 0.5 : 1.0);
+  if (crPart == 6.0) {
+    // arm cross-section from the rest pose (buildOctopus): the underside is paler, with two staggered rows of rimmed suckers
+    float d = vGv.w, f = clamp(d / 0.55, 0.0, 1.0), k = vGv.z, c = max(f - 0.75, 0.0) * 4.0;
+    float a = (k + 0.5) * 0.7853982 + 0.5 * sin(k * 1.7 + 1.0) * f;
+    vec2 dir = vec2(cos(a), sin(a));
+    float rad = max(0.045 * (1.0 - 0.9 * pow(f, 0.8)), 0.003);
+    float lat = dot(vLoc.xz, vec2(-dir.y, dir.x));
+    float und = smoothstep(0.1, -0.6, (vLoc.y - 0.07 * exp(-f * 6.0) - 0.018 - c * c * 0.06) / rad);
+    crCol = mix(crCol, cB * 0.9, und * 0.65);
+    float u = d * 83.0 + step(0.0, lat) * 0.5;
+    float sk = length(vec2((fract(u) - 0.5) / 83.0, abs(lat) - rad * 0.4)) / min(rad * 0.4, 0.0055);
+    float suck = (1.0 - smoothstep(0.75, 1.0, sk)) * und;
+    crCol = mix(crCol, mix(cB * 0.55, cB * 1.08, smoothstep(0.35, 0.6, sk)), suck * 0.8);
+    crBump += suck * smoothstep(0.25, 0.7, sk) * 0.0015;
+    crTip = smoothstep(0.55, 1.0, f);
+    crCol = mix(crCol, cB, crTip * 0.25);
+  }
+  crBump *= 1.0 - smoothstep(2.5, 7.0, length(vViewPosition)); // relief only up close (it shimmers when minified)
+}
 if (crMode == 6.0) { // blanching when alarmed; a dark flush of the chromatophores at the moment of the startle
   crCol = mix(crCol, cB * 1.15, clamp(vExc - 1.0, 0.0, 1.0) * 0.55);
   crCol = mix(crCol, cP * 0.45, clamp(vExc - 2.4, 0.0, 1.0) * 0.85);
@@ -500,6 +536,20 @@ if (glowMode == 4.0) {          // ctenophore comb rows: travelling rainbow
   crCol = mix(crCol, rb, row * 0.5);
 }
 diffuseColor.rgb = crCol;
+`;
+
+// Skin relief from crBump (view-space metres): surface-gradient bump mapping (Mikkelsen 2010). The derivatives are
+// taken in uniform control flow; only the octopus uses the result.
+const FRAG_BUMP = /* glsl */`
+{
+  vec3 crDpx = dFdx(-vViewPosition), crDpy = dFdy(-vViewPosition);
+  float crBx = dFdx(crBump), crBy = dFdy(crBump);
+  if (crMode == 6.0) {
+    vec3 r1 = cross(crDpy, normal), r2 = cross(normal, crDpx);
+    float det = dot(crDpx, r1);
+    if (abs(det) > 1e-12) normal = normalize(abs(det) * normal - sign(det) * (crBx * r1 + crBy * r2));
+  }
+}
 `;
 
 const FRAG_SHEEN = /* glsl */`
@@ -550,12 +600,13 @@ function patchShader(shader, jelly) {
   let fs = shader.fragmentShader
     .replace('#include <color_fragment>', FRAG_COLOR)
     .replace('#include <roughnessmap_fragment>', 'float roughnessFactor = crRough;')
+    .replace('#include <normal_fragment_maps>', '#include <normal_fragment_maps>\n' + FRAG_BUMP)
     .replace('#include <aomap_fragment>', FRAG_SHEEN);
-  const finT = `if (crFin) {
+  const finT = `if (crFin || crTip > 0.0) { // thin fins and octopus arm tips let light through
       vec3 vdir = normalize(vWPos - cameraPosition);
       float bl = pow(max(dot(vdir, uSunDir), 0.0), 3.0);
       float dB = max(0.0, uSurfaceY - vWPos.y);
-      crGlow += diffuseColor.rgb * (uSunColor * uSunScatter * bl * 0.55 * exp(-uLightSigma * dB) * skyVis(vWPos) + 0.05 * uAmbientScale);
+      crGlow += diffuseColor.rgb * (uSunColor * uSunScatter * bl * 0.55 * exp(-uLightSigma * dB) * skyVis(vWPos) + 0.05 * uAmbientScale) * (crFin ? 1.0 : crTip * 0.6);
     }
   `;
   const emis = finT + (jelly
