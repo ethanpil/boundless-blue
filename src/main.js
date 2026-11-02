@@ -290,8 +290,9 @@ const app = {
   // Skip to the end of the current zone. Returns a promise (the deck covers the rebuild); onProgress(0..1).
   nextZone(onProgress) {
     if (jumping) return;
+    // land just past the cross-fade (90 m each side of the boundary), so the cover lifts on the new zone
     const g = seq.segs[seq.segAt(s)];
-    s = g.end - 60;
+    s = g.end + 100;
     jumping = true;
     return terrain.primeAsync(s, onProgress, paint).finally(() => { jumping = false; });
   },

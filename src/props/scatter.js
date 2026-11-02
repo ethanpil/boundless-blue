@@ -109,7 +109,7 @@ export function putAt(ctx, batch, spec, x, y, s, nx, ny, nz, rng, sizeK = 1, fs 
   const it = batch.last;
   if (fs) it.g = 1;
   if (drape) { it.drape = fs.fs; it.s0 = ctx.s0; }
-  const base = spec.lbl || tpl.label, label = giant && base ? 'Giant ' + base.charAt(0).toLowerCase() + base.slice(1) : null;
+  const base = spec.lbl || tpl.label, label = giant && base ? (/^giant /i.test(base) ? base : 'Giant ' + base.charAt(0).toLowerCase() + base.slice(1)) : null;
   batch.tag(rng(), label, spec.fact);
   if (spec.lbl && !giant) it.name = spec.lbl; // regional species name for a shared template
   if (support && fs && fs.addSupport) fs.addSupport(it, s);

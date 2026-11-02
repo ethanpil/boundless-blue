@@ -30,7 +30,7 @@ export const JELLY_PAD = 0.1;
 export function bodyShape(sp, g) {
   const pos = g.pos, ga = g.g, nv = pos.length / 3, ya = YAXIS.has(sp.plan);
   const soft = sp.plan === 'jelly' || sp.plan === 'siphon'; // trailing tentacles may brush things
-  let amin = 1e9, amax = -1e9, rb = 0, rf = 0;
+  let amin = 1e9, amax = -1e9, rb = 0, rf = 0, ty = 0;
   const best = new Float32Array(8).fill(-1e9), sup8 = new Float32Array(24), ext = new Float32Array(26 * 4);
   for (let j = 0; j < 26; j++) ext[j * 4] = -1e9;
   for (let v = 0; v < nv; v++) {
@@ -52,7 +52,7 @@ export function bodyShape(sp, g) {
     const a = ya ? y : z, rad = ya ? Math.hypot(x, z) : Math.hypot(x, y);
     const body = part === PART.BODY || part === PART.SHELL || arm;
     if (body || part === PART.CAUDAL) { if (a < amin) amin = a; if (a > amax) amax = a; }
-    if (body) { if (rad > rb) rb = rad; } else if (rad > rf) rf = rad;
+    if (body) { if (rad > rb) rb = rad; if (!ya && Math.abs(y) > ty) ty = Math.abs(y); } else if (rad > rf) rf = rad;
   }
   let r = Math.max(rb, rf * 0.75);
   if (sp.plan === 'octopus') r *= 0.8;          // arms drape and curl
@@ -71,7 +71,8 @@ export function bodyShape(sp, g) {
     if (wj < 0) break;
     pts.push(ext[wj * 4 + 1], ext[wj * 4 + 2], ext[wj * 4 + 3]);
   }
-  return { ya, c: (amin + amax) * 0.5, h: Math.max(0, half - r), r, sup: Float32Array.from(pts) };
+  // ty: half the body's height (fish frame), so flat animals (rays) get a thin tap target in pickRay
+  return { ya, c: (amin + amax) * 0.5, h: Math.max(0, half - r), r, ty: ya ? r : Math.min(r, ty), sup: Float32Array.from(pts) };
 }
 
 const SLOW = new Set(['drift', 'hover', 'rest', 'walk', 'octo']);

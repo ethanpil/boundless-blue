@@ -151,7 +151,9 @@ export class Creatures {
         const px = cx + ax * u, py = cy + ay * u, pz = cz + azz * u, t = px * dx + py * dy + pz * dz;
         if (t < 0 || t > bd) continue;
         const rx = px - dx * t, ry = py - dy * t, rz = pz - dz * t, rad = Math.max(sh.r * s * 1.25, 0.021 * t, 0.06);
-        if (rx * rx + ry * ry + rz * rz > rad * rad) continue;
+        // an ellipsoid as tall as the body: a manta's tap target is its disc, not a 3.6 m ball around it
+        const rv = up ? rad : Math.max(sh.ty * s * 1.25, 0.021 * t, 0.06);
+        if ((rx * rx + rz * rz) / (rad * rad) + (ry * ry) / (rv * rv) > 1) continue;
         bd = t; best = e;
       }
     }
