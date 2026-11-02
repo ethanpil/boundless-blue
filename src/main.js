@@ -420,7 +420,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'w') app.nextWeather();
   else if (e.key === 'ArrowRight') app.faster();
   else if (e.key === 'ArrowLeft') app.slower();
-  else if (k === 'n') { if (hud) hud.nextZone(); else app.nextZone(); }
+  else if (k === 'n') { if (hud) hud.nextZone(); }   // not while loading: boot is priming the start
   else if (k === 'l') app.setLamp(lampMode === 'auto' ? 'on' : lampMode === 'on' ? 'off' : 'auto');
   else if (k === 'd') app.setIdentify(!identifyOn);
   else if (k === 'a') app.setSound(!soundOn);
@@ -525,7 +525,7 @@ const paint = () => new Promise((r) => {
 });
 
 // ---------- picking (tap to identify) ----------
-const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2(), _pv = new THREE.Vector3(), _pickNames = [];
+const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2(), _pv = new THREE.Vector3(), _pickNames = [], _pickSubj = [];
 function pickAt(cx, cy) {
   const rect = renderer.domElement.getBoundingClientRect();
   _ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
@@ -538,6 +538,28 @@ function pickAt(cx, cy) {
     if (r && (!best || r.dist < best.dist)) best = r;
   }
   if (best) return best;
+  // A tap between the fish of a school (a milling ring of jacks can be empty in the middle) names the school:
+  // the nearest group sphere the ray crosses, named by its label (creatures put it on the member nearest the
+  // centre), i.e. the closest label that no other animal or group is nearer to.
+  _pickSubj.length = 0;
+  if (creatures && creatures.subjects) creatures.subjects(_pickSubj);
+  let gt = 120, g = null;
+  for (const e of _pickSubj) {
+    if (e.id % 1000 !== 999) continue;   // groups only: single animals were ray-tested above
+    const px = e.x - o.x, py = e.y - o.y, pz = e.z - Oz - o.z, t = px * d.x + py * d.y + pz * d.z;
+    if (t > 0 && t < gt && px * px + py * py + pz * pz - t * t < e.r * e.r) { gt = t; g = e; }
+  }
+  if (g) {
+    _pickNames.length = 0;
+    creatures.labels(_pickNames);
+    const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
+    let bd = (g.r + 4) ** 2, bn = null;
+    for (const e of _pickNames) {
+      const dg = d2(e, g);
+      if (dg < bd && !_pickSubj.some((q) => q !== g && d2(e, q) < dg)) { bd = dg; bn = e; }
+    }
+    if (bn) return { name: bn.name, fact: bn.fact || '', dist: gt };
+  }
   // fall back to the nearest named thing whose anchor projects near the tap (props, set pieces, groups)
   _pickNames.length = 0;
   for (const p of labels.providers) { try { p(_pickNames); } catch (e) { /* ignore */ } }
@@ -574,34 +596,46 @@ async function jumpInPlace(key, onProgress) {
 
 // ---------- boot (staged so the title card shows real progress) ----------
 const ldBar = document.getElementById('ld-bar'), ldTxt = document.getElementById('ld-txt'), ldPct = document.getElementById('ld-pct');
-function bootProgress(f, label) {
-  if (ldBar) ldBar.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(3)})`;
+// ms: how long the bar takes to ease there (default .35 s, index.html)
+function bootProgress(f, label, ms) {
+  if (ldBar) {
+    if (ms) ldBar.style.transitionDuration = ms + 'ms'; else ldBar.style.removeProperty('transition-duration');
+    ldBar.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(3)})`;
+    ldBar.parentNode.setAttribute('aria-valuenow', String(Math.round(f * 100)));
+  }
   if (ldPct) ldPct.textContent = Math.round(f * 100) + '%';
   if (label && ldTxt) ldTxt.textContent = label;
 }
+// A boot step that holds the main thread (registerProps alone is ~0.9 s on a fast laptop, all of it one call):
+// the bar starts easing toward the step's end first, and a transform transition runs on the compositor, so the
+// bar keeps moving while the step blocks. ms ~ 1.5x the step's cost on a fast laptop; the fractions follow costs.
+async function bootStep(to, ms, fn) { bootProgress(to, null, ms); await paint(); fn(); }
 let C = conditions.update(0), hud = null;
 const timer = new THREE.Timer();
 let time = 0, simTime = 0, lastFrame = 0, causticFrame = 0;
 async function boot() {
-  bootProgress(0.04, 'filling the ocean'); await paint();
-  registerProps(terrain, env);
-  bootProgress(0.36, 'raising wrecks and sunken cities'); await paint();
-  registerNewBiomeProps(terrain, env); bootProgress(0.42); await paint();
-  registerNewBiomeProps2(terrain, env); bootProgress(0.47); await paint();
-  registerNewBiomeProps3(terrain, env); bootProgress(0.51); await paint();
-  registerNewBiomeProps4(terrain, env);
-  bootProgress(0.55, 'waking the sea life'); await paint();
-  creatures = new Creatures(world, env);
-  surprises = new Surprises(world, env);
-  window.__ocean.creatures = creatures; window.__ocean.surprises = surprises;
-  ambience = new Ambience(env, app);
-  ambience.setVolume(soundVol); ambience.setEnabled(soundOn);
-  window.__ocean.ambience = ambience;
-  blendParams(s);
-  placeCamera(0, 0, C);
+  bootProgress(0.1, 'filling the ocean'); await paint();   // the scripts have loaded (index.html creeps to 8% meanwhile)
+  await bootStep(0.34, 1300, () => registerProps(terrain, env));
+  bootProgress(0.34, 'raising wrecks and sunken cities');
+  await bootStep(0.37, 250, () => registerNewBiomeProps(terrain, env));
+  await bootStep(0.45, 600, () => registerNewBiomeProps2(terrain, env));
+  await bootStep(0.47, 150, () => registerNewBiomeProps3(terrain, env));
+  await bootStep(0.57, 750, () => registerNewBiomeProps4(terrain, env));
+  bootProgress(0.57, 'waking the sea life');
+  await bootStep(0.6, 300, () => {
+    creatures = new Creatures(world, env);
+    surprises = new Surprises(world, env);
+    window.__ocean.creatures = creatures; window.__ocean.surprises = surprises;
+    ambience = new Ambience(env, app);
+    ambience.setVolume(soundVol); ambience.setEnabled(soundOn);
+    window.__ocean.ambience = ambience;
+    blendParams(s);
+    placeCamera(0, 0, C);
+  });
   bootProgress(0.6, 'descending'); await paint();
-  await terrain.primeAsync(s, (f) => bootProgress(0.6 + 0.3 * f), paint);
-  bootProgress(0.92, 'warming up the lights'); await paint();
+  await terrain.primeAsync(s, (f) => bootProgress(0.6 + 0.28 * f), paint);
+  // shader compiles report no progress: the bar eases most of the way meanwhile
+  bootProgress(0.98, 'warming up the lights', 2500); await paint();
   if (noiseJob) {
     await noiseJob.promise;
     U.uNoiseTex.value.image.data.set(noiseJob.result || noiseTextureData(256));

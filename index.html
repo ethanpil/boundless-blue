@@ -16,19 +16,25 @@
     #loader p { margin: 1.4em 0 0; font: 300 13px/1.6 system-ui, sans-serif; letter-spacing: .32em; text-transform: uppercase; opacity: .7; }
     #ld-track { width: min(320px, 60vw); height: 2px; margin: 1.6em auto 0; background: rgba(207,238,248,.16); border-radius: 2px; overflow: hidden; }
     #ld-bar { height: 100%; background: linear-gradient(90deg, #6fd3ee, #cfeef8); transform: scaleX(0); transform-origin: left; transition: transform .35s ease-out; box-shadow: 0 0 8px #6fd3ee; }
+    /* while the scripts download (before main.js sets the bar's style) it creeps a little, so it never looks stuck */
+    #ld-bar:not([style]) { animation: ld-wait 8s cubic-bezier(.2, .7, .3, 1) forwards; }
+    @keyframes ld-wait { to { transform: scaleX(.08); } }
     #loader #ld-pct { margin-top: .9em; font-size: 11px; letter-spacing: .2em; opacity: .45; font-variant-numeric: tabular-nums; }
     #loader .rays { position: absolute; inset: 0; pointer-events: none; opacity: .35;
       background: repeating-linear-gradient(105deg, transparent 0 60px, rgba(180, 235, 255, .07) 60px 90px, transparent 90px 170px);
       mask-image: linear-gradient(to bottom, #000, transparent 70%); -webkit-mask-image: linear-gradient(to bottom, #000, transparent 70%);
       animation: drift 9s ease-in-out infinite alternate; }
     @keyframes drift { from { transform: translateX(-30px); } to { transform: translateX(30px); } }
+    /* one line where it fits; on a phone they wrap inside the screen (max-content: a fixed box at left 50% would
+       otherwise wrap at half the screen width) */
     #note { position: fixed; left: 50%; bottom: 4.5vh; transform: translateX(-50%); color: #dff4fb; opacity: 0;
       font: italic 300 clamp(12px, 1.25vw, 16px)/1.3 Georgia, serif; letter-spacing: .08em; transition: opacity 2.5s, translate .35s ease;
-      text-shadow: 0 2px 12px rgba(0, 20, 40, .9); pointer-events: none; white-space: nowrap; }
+      text-shadow: 0 2px 12px rgba(0, 20, 40, .9); pointer-events: none;
+      width: max-content; max-width: calc(100vw - 24px); text-align: center; text-wrap: balance; }
     #caption { position: fixed; left: 50%; bottom: 9vh; transform: translateX(-50%); color: #e6f6fb;
       font: 200 clamp(18px, 2.6vw, 34px)/1 Georgia, 'Times New Roman', serif; letter-spacing: .35em;
       text-transform: uppercase; opacity: 0; transition: opacity 3s, translate .35s ease; pointer-events: none;
-      text-shadow: 0 2px 18px rgba(0, 20, 40, .8); white-space: nowrap; }
+      text-shadow: 0 2px 18px rgba(0, 20, 40, .8); width: max-content; max-width: calc(100vw - 24px); text-align: center; text-wrap: balance; }
     #caption small { display: block; margin-top: .7em; font-size: .38em; letter-spacing: .4em; opacity: .75; text-align: center; }
     #stats { position: fixed; left: calc(10px + env(safe-area-inset-left, 0px)); top: calc(10px + env(safe-area-inset-top, 0px)); z-index: 3;
       color: #bfe; font: 12px monospace; white-space: pre; display: none; pointer-events: none; padding: 6px 8px; border-radius: 6px;
@@ -105,7 +111,7 @@
     .dk-btn[hidden] { display: none; }
     .dk-mb { width: 52px; height: 50px; gap: 3px; padding-top: 2px; }
     .dk-hb { height: 50px; gap: 3px; padding: 2px 4px 0; box-sizing: border-box; }
-    .dk-mb span, .dk-hb span { font: 700 7.5px/1 var(--dk-sans); letter-spacing: .12em; white-space: nowrap; }
+    .dk-mb span, .dk-hb span { font: 700 8.5px/1 var(--dk-sans); letter-spacing: .12em; white-space: nowrap; } /* 7.5px on phones */
     /* quick settings: labels carry the state (LAMPS AUTO, MUTED), so the buttons size to them */
     .dk-quick .dk-mb { width: auto; min-width: 52px; padding: 2px 5px 0; box-sizing: border-box; }
     #dk-lampq.off, #dk-snd.off { color: var(--dk-tdim); }
@@ -182,7 +188,8 @@
     .dk-band.z0 { background: linear-gradient(#7fe3f0, #1d86a6); border-radius: 4px 4px 0 0; }
     .dk-band.z1 { background: linear-gradient(#1d6f93, #143f6a); }
     .dk-band.z2 { background: linear-gradient(#162f5c, #0a1434); }
-    .dk-band.z3 { background: #04050d; border-radius: 0 0 4px 4px; box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .18); }
+    .dk-band.z3 { background: #04050d; box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .18); }
+    .dk-band.z4 { background: #000; border-radius: 0 0 4px 4px; box-shadow: inset 0 0 0 1px rgba(160, 140, 255, .3); }
     .dk-bl { position: absolute; right: 0; width: 15px; transform: translateY(-50%); writing-mode: vertical-rl; text-orientation: mixed;
       font: 700 7px/15px var(--dk-sans); letter-spacing: .16em; text-align: center; color: rgba(255, 255, 255, .72); pointer-events: none; }
     .dk-bl:first-of-type { color: rgba(0, 30, 40, .7); }
@@ -201,6 +208,7 @@
     .dk-dzone.z1 { background: #2a7fa8; color: #e8fbff; }
     .dk-dzone.z2 { background: #22336e; color: #dfe6ff; }
     .dk-dzone.z3 { background: #0a0c1c; color: #c9d2ff; box-shadow: inset 0 0 0 1px rgba(150, 170, 255, .45); }
+    .dk-dzone.z4 { background: #000; color: #d9ccff; box-shadow: inset 0 0 0 1px rgba(180, 150, 255, .55); }
     .dk-row { display: grid; gap: 3px; }
     .dk-row b { font: 600 12.5px/1 var(--dk-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
     /* right column: sonar and environment */
@@ -361,8 +369,9 @@
     body.deck-open #caption small { font-size: max(8px, .38em); }
     body.dk-sheet-open #caption, body.dk-sheet-open #note { left: var(--dk-cap-xs); max-width: var(--dk-cap-ws); }
     body.dk-sheet-open #caption { font-size: min(clamp(18px, 2.6vw, 34px), var(--dk-cap-fss)); }
+    /* hidden at once (visibility): fading out over 3 s, they would show squeezed into the narrow span meanwhile */
     body.deck-open.dk-cap-off:not(.dk-sheet-open) #caption, body.deck-open.dk-cap-off:not(.dk-sheet-open) #note,
-    body.dk-sheet-open.dk-cap-off-s #caption, body.dk-sheet-open.dk-cap-off-s #note { opacity: 0 !important; }
+    body.dk-sheet-open.dk-cap-off-s #caption, body.dk-sheet-open.dk-cap-off-s #note { opacity: 0 !important; visibility: hidden; }
     body.deck-open #stats { left: 50%; top: calc(var(--dk-top-m) + 6px); transform: translateX(-50%); }
     /* toast, hint, page fade */
     #dk-toast { position: fixed; z-index: 4; left: 50%; top: calc(14px + var(--sa-t)); display: flex; gap: 11px; align-items: center; box-sizing: border-box;
@@ -429,7 +438,10 @@
       .dk-tools { justify-content: center; }
       .dk-nav { width: auto; justify-self: stretch; }
       .dk-compass { width: auto; justify-self: stretch; }
-      .dk-time { width: clamp(124px, 31vw, 290px); }
+      /* weather under the clock (as on phones), so AFTERNOON fits beside it */
+      .dk-time { flex-direction: column; width: clamp(176px, 24vw, 220px); }
+      .dk-clockbtn { flex: none; }
+      .dk-wxbtn { flex: none; display: flex; justify-content: center; gap: 6px; border-left: 0; border-top: 1px solid var(--dk-line); padding: 5px 6px; }
     }
     @media (max-width: 599px) and (orientation: portrait) {
       :root { --dk-pad: 8px; --dk-gap: 8px; --dk-sheet-w: 100vw; }
@@ -437,7 +449,7 @@
       .dk-sheet { max-height: calc(100vh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t));
         max-height: calc(100dvh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t)); }
       /* no room beside the instruments here: while the deck is open, zone captions and notes come up as deck toasts */
-      body.deck-open #caption, body.deck-open #note { opacity: 0 !important; }
+      body.deck-open #caption, body.deck-open #note { opacity: 0 !important; visibility: hidden; }
       .dk-navbtn { padding: 8px 11px 7px; gap: 3px; }
       .dk-zone { font-size: 17px; }
       .dk-sub { font-size: 11px; }
@@ -448,6 +460,9 @@
       .dk-clock { width: 36px; height: 36px; }
       .dk-hh { height: 9px; } .dk-mh { height: 13px; }
       .dk-time .dk-big { font-size: 17px; }
+      /* AFTERNOON must fit beside the clock: no glyph (the label says it), tighter type */
+      .dk-tod { font-size: 9px; letter-spacing: .05em; }
+      .dk-tod .dk-g { display: none; }
       .dk-wxbtn { flex: none; display: flex; justify-content: center; gap: 6px; border-left: 0; border-top: 1px solid var(--dk-line); padding: 5px 6px; }
       #deck .dk-wxbtn .dk-i { width: 18px; height: 18px; }
       .dk-compass { padding: 6px 8px 7px; gap: 4px; }
@@ -482,6 +497,7 @@
       .dk-helm, .dk-quick, .dk-menu { justify-content: space-between; gap: 3px; padding: 5px; }
       .dk-speed { flex: 1; justify-content: center; min-width: 0; padding: 0 2px; }
       .dk-btn { min-width: 44px; height: 46px; }
+      .dk-mb span, .dk-hb span { font-size: 7.5px; }
       .dk-hb { height: 48px; padding: 2px 2px 0; }
       .dk-mb { width: auto; flex: 1 1 0; max-width: 56px; }
       .dk-quick .dk-mb { flex: 1 1 auto; max-width: none; padding: 2px 3px 0; }
@@ -499,6 +515,10 @@
     }
     @media (max-width: 599px) and (orientation: portrait) and (max-height: 600px) {
       .dk-env { display: none; }
+      /* the depth panel is ~145 px tall here: gauge, depth and zone only (BED/ALT/V/S would be clipped) */
+      .dk-dread .dk-row { display: none; }
+      .dk-depth { grid-template-rows: auto minmax(56px, 1fr) auto; }
+      .dk-dg { min-height: 56px; }
     }
     @media (max-width: 599px) and (orientation: portrait) and (max-height: 720px) {
       .dk-sonar { width: 112px; }
@@ -524,7 +544,9 @@
       .dk-tape { height: 26px; }
       .dk-hdgrow .dk-big { font-size: 15px; }
       .dk-att { width: 20px; height: 20px; }
-      .dk-time { width: clamp(180px, 20vw, 250px); }
+      .dk-time { width: clamp(206px, 22vw, 260px); }
+      .dk-tod { font-size: 9px; letter-spacing: .05em; }   /* AFTERNOON beside the clock, as on phones */
+      .dk-tod .dk-g { display: none; }
       .dk-clockbtn { padding: 6px 8px; gap: 7px; }
       .dk-clock { width: 34px; height: 34px; }
       .dk-hh { height: 8px; } .dk-mh { height: 12px; }
@@ -549,6 +571,7 @@
       .dk-helm, .dk-quick, .dk-menu { padding: 4px; gap: 4px; }
       .dk-btn { min-width: 44px; height: 44px; }
       .dk-hb { height: 46px; }
+      .dk-hb span { font-size: 7.5px; }
       .dk-mb, .dk-quick .dk-mb { width: 46px; min-width: 46px; height: 46px; padding: 0; }
       .dk-mb span { display: none; }
       .dk-sheet { max-height: calc(100vh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t));
@@ -575,7 +598,7 @@
   </script>
 </head>
 <body>
-  <div id="loader"><div class="rays"></div><div><h1>Boundless Blue</h1><p id="ld-txt">descending&hellip;</p><div id="ld-track" role="progressbar" aria-label="Loading"><div id="ld-bar"></div></div><p id="ld-pct">0%</p></div></div>
+  <div id="loader"><div class="rays"></div><div><h1>Boundless Blue</h1><p id="ld-txt">preparing the dive&hellip;</p><div id="ld-track" role="progressbar" aria-label="Loading" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div id="ld-bar"></div></div><p id="ld-pct">0%</p></div></div>
   <div id="note"></div>
   <div id="caption"></div>
   <div id="stats"></div>

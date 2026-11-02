@@ -39,6 +39,8 @@ function tf(el, s) { if (el.__t !== s) { el.__t = s; el.style.transform = s; } }
 function flag(el, cls, on) { if (el.classList.contains(cls) !== on) el.classList.toggle(cls, on); }
 const speedAngle = (v) => Math.round(-90 + 180 * Math.sqrt(Math.min(16, Math.max(0, v)) / 16)); // dial: sqrt scale 0..16 m/s
 function pressed(el, on) { const v = on ? 'true' : 'false'; if (el.getAttribute('aria-pressed') !== v) el.setAttribute('aria-pressed', v); }
+// resolves once two more frames have been drawn (a timer stands in where rAF is throttled, e.g. a hidden tab)
+const twoFrames = () => new Promise((r) => { const t = setTimeout(r, 200); requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(t); r(); })); });
 
 export class Hud {
   constructor(app) {
@@ -367,9 +369,9 @@ export class Hud {
   nextZone() {
     const a = this.app;
     if (this.busy || a.jumping) return;
-    const name = a.info().nextZone;
+    const name = a.info().nextZone, z = a.zones.find((q) => q.label === name);
     this._progress(0);
-    this._rebuild(name, '', (p) => a.nextZone(p));
+    this._rebuild(name, z ? z.subtitle || '' : '', (p) => a.nextZone(p));
   }
   // In-place zone change: fade to dark with the zone's name and a thin progress bar, let start(onProgress)
   // rebuild the world (it returns a promise), then fade back in. The deck closes under the cover unless pinned.
@@ -381,6 +383,7 @@ export class Hud {
     if (this.pinned) this.closeSheet(false); else this.hide();
     try { await start((f) => this._progress(f)); } catch (e) { console.error(e); }
     this._progress(1);
+    await twoFrames();             // the new cast of animals spawns (and its shaders compile) under the cover
     this.busy = false;
     this.fade.classList.remove('on');
     setTimeout(() => { if (!this.busy) this.fade.classList.remove('jump'); }, 700);
@@ -674,9 +677,11 @@ export class Hud {
         txt(R.volv, vol + '%');
         flag(R.volrow, 'off', !a.soundOn);
         const supported = 'wakeLock' in navigator;
-        txt(R.tg_wake, !supported ? 'not supported by this browser' : !a.wakeLock ? 'off: the screen may dim'
-          : a.wakeLockActive ? 'active: the screen stays on'
-          : a.wakeLockError ? 'refused by the browser (low battery or settings); retrying on tap' : 'waiting: tap the view to activate');
+        // a stored refusal reads as off (app.wakeLock), but says why; tapping the switch retries
+        txt(R.tg_wake, !supported ? 'not supported by this browser'
+          : a.wakeLockError ? 'refused by the browser (low battery or settings): tap to retry'
+          : !a.wakeLock ? 'off: the screen may dim'
+          : a.wakeLockActive ? 'active: the screen stays on' : 'waiting: tap the view to activate');
         flag(R.tg_wake, 'ok', supported && a.wakeLock && a.wakeLockActive);
         for (const b of this.lampBtns) pressed(b, b.dataset.lamp === a.lampMode);
         for (const b of this.camBtns) pressed(b, (b.dataset.cam === '1') === (a.curiosity >= 0.5));

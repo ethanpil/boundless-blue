@@ -1,14 +1,15 @@
 // Control-deck markup (built once). Styles live in index.html under "control deck".
 import { icon } from './icons.js';
 
-// Depth gauge: a log scale so a 10 m reef and a 4000 m plain both read clearly.
-const DMAX = 6000, DK = 5;
-export const depthFrac = (d) => Math.log10(1 + Math.max(0, d) / DK) / Math.log10(1 + DMAX / DK);
+// Depth gauge: a log scale so a 10 m reef, a 4000 m plain and the 8000 m hadal trench all read clearly.
+const DMAX = 11000, DK = 5;
+export const depthFrac = (d) => Math.min(1, Math.log10(1 + Math.max(0, d) / DK) / Math.log10(1 + DMAX / DK));
 export const DEPTH_ZONES = [
   { to: 200, name: 'SUNLIT ZONE', cls: 'z0' },
   { to: 1000, name: 'TWILIGHT ZONE', cls: 'z1' },
   { to: 4000, name: 'MIDNIGHT ZONE', cls: 'z2' },
-  { to: Infinity, name: 'ABYSSAL ZONE', cls: 'z3' },
+  { to: 6000, name: 'ABYSSAL ZONE', cls: 'z3' },
+  { to: Infinity, name: 'HADAL ZONE', cls: 'z4' },
 ];
 
 export const TIME_INFO = {
@@ -34,7 +35,7 @@ function depthScale() {
   }
   h += `<span class="dk-bl" style="top:${pct(27)}%">SUNLIT</span><span class="dk-bl" style="top:${pct(450)}%">TWILIGHT</span>`
     + `<span class="dk-bl" style="top:${pct(2000)}%">MIDNIGHT</span>`;
-  for (const [d, t, minor] of [[0, '0'], [10, '10'], [30, '30', 1], [100, '100'], [200, '200'], [500, '500', 1], [1000, '1k'], [2000, '2k', 1], [4000, '4k']]) {
+  for (const [d, t, minor] of [[0, '0'], [10, '10'], [30, '30', 1], [100, '100', 1], [200, '200'], [500, '500', 1], [1000, '1k'], [2000, '2k', 1], [4000, '4k'], [8000, '8k', 1]]) {
     h += `<span class="dk-tk${minor ? ' minor' : ''}" style="top:${pct(d)}%">${t}</span>`;
   }
   return h;
@@ -61,11 +62,12 @@ function speedDial() {
   return `<svg viewBox="0 0 60 33" class="dk-dialf" aria-hidden="true"><path class="dk-darc" d="M4 30A26 26 0 0 1 56 30"/><path class="dk-dred" d="M48.38 11.62A26 26 0 0 1 56 30"/><g class="dk-fticks">${t}</g></svg>`;
 }
 
-// helm buttons keep their labels at every size; menu and quick-bar labels hide on narrow landscape screens
-const helmBtn = (id, ic, text, label) => `<button type="button" class="dk-btn dk-hb" id="${id}" aria-label="${label}">${icon(ic)}<span>${text}</span></button>`;
-const quickBtn = (id, ic, text, label, extra = '') => `<button type="button" class="dk-btn dk-mb" id="${id}" aria-label="${label}" ${extra}>${icon(ic)}<span>${text}</span></button>`;
-const menuBtn = (sheet, ic, text, label) =>
-  `<button type="button" class="dk-btn dk-mb" data-sheet="${sheet}" aria-label="${label}" aria-expanded="false" aria-controls="dk-sh-${sheet}">${icon(ic)}<span>${text}</span></button>`;
+// helm buttons keep their labels at every size; menu and quick-bar labels hide on narrow landscape screens.
+// title: the mouse tooltip (what it does, and its key), so icon-only buttons explain themselves too
+const helmBtn = (id, ic, text, label, title) => `<button type="button" class="dk-btn dk-hb" id="${id}" aria-label="${label}" title="${title}">${icon(ic)}<span>${text}</span></button>`;
+const quickBtn = (id, ic, text, label, title, extra = '') => `<button type="button" class="dk-btn dk-mb" id="${id}" aria-label="${label}" title="${title}" ${extra}>${icon(ic)}<span>${text}</span></button>`;
+const menuBtn = (sheet, ic, text, label, title = label) =>
+  `<button type="button" class="dk-btn dk-mb" data-sheet="${sheet}" aria-label="${label}" title="${title}" aria-expanded="false" aria-controls="dk-sh-${sheet}">${icon(ic)}<span>${text}</span></button>`;
 const sheetHead = (ic, title) =>
   `<header class="dk-sh-h"><span class="dk-sh-t">${icon(ic)}${title}</span><button type="button" class="dk-x" data-close aria-label="Close panel">${icon('close')}</button></header>`;
 const tog = (key, ic, title, sub) =>
@@ -145,30 +147,30 @@ export function deckHTML(app) {
 
 <div class="dk-bottom">
 <section class="dk-p dk-helm" aria-label="Helm">
-  ${helmBtn('dk-pause', 'pause', 'PAUSE', 'Pause')}
-  ${helmBtn('dk-slower', 'minus', 'SLOWER', 'Slower')}
+  ${helmBtn('dk-pause', 'pause', 'PAUSE', 'Pause', 'Pause or play (Space)')}
+  ${helmBtn('dk-slower', 'minus', 'SLOWER', 'Slower', 'Slower (←)')}
   <div class="dk-speed" aria-live="off">
     <span class="dk-dial" aria-hidden="true">${speedDial()}<i class="dk-needle dk-set" id="dk-setm"></i><i class="dk-needle" id="dk-needle"></i></span>
     <span class="dk-spcol"><span class="dk-k">SPEED</span><b class="dk-big" id="dk-spd">0.0</b><small>m/s</small><span class="dk-paused" id="dk-paused">PAUSED</span><span class="dk-kn" id="dk-kn">0.0 kn</span></span>
   </div>
-  ${helmBtn('dk-faster', 'plus', 'FASTER', 'Faster')}
-  ${helmBtn('dk-nextz', 'nextzone', 'NEXT ZONE', 'Next zone')}
+  ${helmBtn('dk-faster', 'plus', 'FASTER', 'Faster', 'Faster (→)')}
+  ${helmBtn('dk-nextz', 'nextzone', 'NEXT ZONE', 'Next zone', 'Skip ahead to the next zone (N)')}
 </section>
 <div class="dk-tools">
 <section class="dk-p dk-quick" aria-label="Quick settings">
-  ${quickBtn('dk-id', 'identify', 'IDENTIFY', 'Identify mode', 'aria-pressed="false"')}
-  ${quickBtn('dk-lampq', 'lampauto', 'LAMPS AUTO', 'Lamps: auto. Tap to cycle auto, on and off')}
-  ${quickBtn('dk-snd', 'sound', 'SOUND', 'Sound')}
-  ${quickBtn('dk-full', 'full', 'FULLSCREEN', 'Fullscreen', 'aria-pressed="false"')}
-  ${quickBtn('dk-pin', 'pin', 'PIN', 'Keep the deck open', 'aria-pressed="false"')}
+  ${quickBtn('dk-id', 'identify', 'IDENTIFY', 'Identify mode', 'Identify: tap or click anything to name it (D)', 'aria-pressed="false"')}
+  ${quickBtn('dk-lampq', 'lampauto', 'LAMPS AUTO', 'Lamps: auto. Tap to cycle auto, on and off', 'Lamps: auto, on or off (L)')}
+  ${quickBtn('dk-snd', 'sound', 'SOUND', 'Sound', 'Sound on or off (A)')}
+  ${quickBtn('dk-full', 'full', 'FULLSCREEN', 'Fullscreen', 'Fullscreen (F)', 'aria-pressed="false"')}
+  ${quickBtn('dk-pin', 'pin', 'PIN', 'Keep the deck open', 'Keep the deck open', 'aria-pressed="false"')}
 </section>
 <section class="dk-p dk-menu" aria-label="Deck menu">
-  ${menuBtn('zones', 'zones', 'ZONES', 'Zones')}
+  ${menuBtn('zones', 'zones', 'ZONES', 'Zones', 'Zones: dive anywhere')}
   ${menuBtn('time', 'clock', 'TIME', 'Time of day')}
   ${menuBtn('weather', 'cloud', 'WEATHER', 'Weather')}
   ${menuBtn('log', 'log', 'LOG', 'Sightings log')}
   ${menuBtn('systems', 'systems', 'SYSTEMS', 'Systems and settings')}
-  <button type="button" class="dk-btn dk-mb" id="dk-close" aria-label="Close the deck">${icon('close')}<span>CLOSE</span></button>
+  <button type="button" class="dk-btn dk-mb" id="dk-close" aria-label="Close the deck" title="Close the deck (Esc)">${icon('close')}<span>CLOSE</span></button>
 </section>
 </div>
 </div>
