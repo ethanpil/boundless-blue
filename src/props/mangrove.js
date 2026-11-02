@@ -18,7 +18,7 @@ import {
 import { encrust, oysterCluster, tunicates, fuzzTuft, bez, ground } from './nb_shapes.js';
 
 const M = {};
-const DROPS = [2.2, 3.0, 3.9, 4.9];
+export const DROPS = [2.2, 3.0, 3.9, 4.9];
 const EXT = 0.45; // root length continuing straight down below its nominal mud point
 
 // root sponges: orange, red, purple (no yellow: in the green water it turned into lime 'corn cobs')
@@ -28,7 +28,7 @@ const SPONGE = [[0.95, 0.28, 0.03], [0.7, 0.05, 0.04], [0.32, 0.06, 0.42], [0.55
 // One prop root, like an arm of an upside-down candelabra: it leaves the trunk above the waterline at a
 // shallow angle, arches out and down in a smooth curve, forks into 2-3 at mid-height, and splays into
 // the mud with small kinks. Thick at the trunk, thinning after each fork.
-function rootTpl(seed, drop, far) {
+export function rootTpl(seed, drop, far) {
   const b = new Builder(), rng = mulberry32(seed);
   const radial = far ? 4 : 5, segs = far ? 8 : 12;
   const age = 0.55 + rng() * 0.9, spread = drop * (0.75 + rng() * 0.65);
@@ -112,7 +112,7 @@ function rootTpl(seed, drop, far) {
   return t;
 }
 
-function trunkTpl(seed) {
+export function trunkTpl(seed) {
   const b = new Builder(), rng = mulberry32(seed), H = 3.4, R = 0.14 + rng() * 0.1, lx = (rng() - 0.5) * 0.4, lz = (rng() - 0.5) * 0.4;
   b.lathe(9, 9, (v) => [v < 0.07 ? R * 0.95 * Math.sqrt(v / 0.07) + 0.012 : R * (1 + 0.3 * (1 - v)), v * H],
     (a, v) => 1 + 0.08 * vn3(Math.cos(a) * 2, v * 6, Math.sin(a) * 2, seed),
@@ -147,7 +147,7 @@ function pneuPatch(seed, n, R) {
 }
 
 const LEAF = [[0.55, 0.42, 0.06], [0.42, 0.2, 0.05], [0.16, 0.09, 0.03], [0.3, 0.32, 0.07], [0.6, 0.3, 0.05]];
-function leafPatch(seed, n, R, floating = false) {
+export function leafPatch(seed, n, R, floating = false) {
   const b = new Builder(), rng = mulberry32(seed), base = [];
   for (let k = 0; k < n; k++) {
     const a = rng() * TAU, rr = R * Math.sqrt(rng()), cx = Math.cos(a) * rr, cz = Math.sin(a) * rr;

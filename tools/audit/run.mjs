@@ -9,6 +9,7 @@ const { registerProps } = await import(SRC + 'props/index.js');
 const { registerNewBiomeProps } = await import(SRC + 'props/newbiomes.js');
 const { registerNewBiomeProps2 } = await import(SRC + 'props/newbiomes2.js');
 const { registerNewBiomeProps3 } = await import(SRC + 'props/newbiomes3.js');
+const { registerNewBiomeProps4 } = await import(SRC + 'props/newbiomes4.js');
 const NB = await import(SRC + 'props/nb_common.js');
 const { mulberry32 } = await import(SRC + 'noise.js');
 
@@ -30,6 +31,7 @@ t0 = performance.now();
 registerNewBiomeProps(term, env);
 registerNewBiomeProps2(term, env);
 registerNewBiomeProps3(term, env);
+registerNewBiomeProps4(term, env);
 console.log(`init: old props ${tOld.toFixed(0)} ms, new biomes ${(performance.now() - t0).toFixed(0)} ms; populators ${nOld} old + ${term.populators.length - nOld} new`);
 const popNames = Object.keys(NB.NBSTATS.pops || {});
 
@@ -37,6 +39,17 @@ const DX = 1.5, DZ = 64 / 42;
 function makeFloor(shape) {
   const cache = new Map();
   const node = (i, s) => { const k = i * 1048576 + Math.round(s / DZ); let v = cache.get(k); if (v === undefined) { v = shape.floorExact(i * DX, s); cache.set(k, v); } return v; };
+  return (x, s) => {
+    const idx = Math.floor(s / 64), s0 = idx * 64, v = (s - s0) / DZ, j = Math.min(41, Math.floor(v)), u = x / DX, i = Math.floor(u);
+    const fu = u - i, fv = v - j, sa = s0 + j * DZ, sb = s0 + (j + 1) * DZ;
+    const ha = node(i, sa), hb = node(i + 1, sa), hc = node(i, sb), hd = node(i + 1, sb);
+    return fu + fv <= 1 ? ha + (hb - ha) * fu + (hc - ha) * fv : hd + (hc - hd) * (1 - fu) + (hb - hd) * (1 - fv);
+  };
+}
+// the rendered ceiling mesh: exact heights at the lattice nodes, the same triangle split in between
+function makeCeil(shape) {
+  const cache = new Map();
+  const node = (i, s) => { const k = i * 1048576 + Math.round(s / DZ); let v = cache.get(k); if (v === undefined) { v = shape.ceilingExact(i * DX, s); cache.set(k, v); } return v; };
   return (x, s) => {
     const idx = Math.floor(s / 64), s0 = idx * 64, v = (s - s0) / DZ, j = Math.min(41, Math.floor(v)), u = x / DX, i = Math.floor(u);
     const fu = u - i, fv = v - j, sa = s0 + j * DZ, sb = s0 + (j + 1) * DZ;
@@ -108,7 +121,7 @@ for (const key of biomes) {
   const R = report[key] = { km: 0, chunks: 0, items: 0, maxBase: -1e9, maxLow: -1e9, worst: [], tris: [], calls: [], layoutMs: [], counts: {}, tk: {}, pois: {}, labels: 0 };
   for (const seed of seeds) {
     seq = new BiomeSequence(seed, key, 20000 + seed * 3000); shape = new WorldShape(seq);
-    const g = seq.segs[0], floor = makeFloor(shape);
+    const g = seq.segs[0], floor = makeFloor(shape), ceil = makeCeil(shape);
     let n = 0;
     for (let idx = Math.ceil(g.start / 64); idx * 64 < g.end + 60 && n < maxCh; idx++, n++) {
       R.chunks++; R.km += 0.064;
@@ -157,6 +170,7 @@ for (const key of biomes) {
           let gb = -1e9, gl = 1e9;
           const gapAt = (p) => {
             if (sup === 'floor') return p[1] - floor(p[0], actx.s0 - p[2]);
+            if (sup === 'ceil') return ceil(p[0], actx.s0 - p[2]) - p[1]; // hanging: base point below the ice underside
             if (sup.root) return meshDist(p, worldTris(sup.root, { ...sup.root, z: -(sup.root.s - actx.s0) }));
             if (sup.item) return Math.min(meshDist(p, worldTris(sup.item, sup.item)), p[1] - floor(p[0], actx.s0 - p[2]));
             return 0;
@@ -190,5 +204,5 @@ for (const key of biomes) {
   }
 }
 console.log('\nstage ms p50/p90/max (warm):', STG.map((a, i) => a && pct(a, 0.9) > 0.3 ? names[i] + ' ' + pct(a, 0.5).toFixed(1) + '/' + pct(a, 0.9).toFixed(1) + '/' + Math.max(...a).toFixed(1) : null).filter(Boolean).join('  '));
-const stg = Object.entries(NB.NBSTATS.pops || {}).map(([k, v]) => [k, +v.max.toFixed(2), Math.round(v.maxTris / 1000) + 'k']).filter((x) => x[1] > 0.3 || x[2] !== '0k');
+const stg = Object.entries((window.__props && window.__props.pops) || NB.NBSTATS.pops || {}).map(([k, v]) => [k, +v.max.toFixed(2), Math.round(v.maxTris / 1000) + 'k']).filter((x) => x[1] > 0.3 || x[2] !== '0k');
 console.log('\nstage max ms / max tris:', JSON.stringify(stg));

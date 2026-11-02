@@ -12,6 +12,7 @@ const POI_INTEREST = {
   'wall-overhang': 0.5, 'amphora-den': 0.5, 'kelp-clearing': 0.5, 'garden-eel-field': 0.45, 'mangrove-roots': 0.4,
   bluehole: 0.85, stalactites: 0.75, flotsam: 0.7, 'champagne-vent': 0.65, pinnacle: 0.6, anemone: 0.55,
   'sargassum-raft': 0.55, 'drowned-tree': 0.5, 'limestone-notch': 0.45, 'fallen-log': 0.4, anchor: 0.6, 'lost-instrument': 0.6,
+  'kelp-canopy': 0.55, plankton: 0.45, 'glow-field': 0.6, brinicle: 0.7, 'xeno-field': 0.45, 'sea-pigs': 0.6, 'glass-sponge': 0.55, 'sea-lily': 0.5,
 };
 
 // critically damped spring toward target (x, v) -> mutates state object {x, v}

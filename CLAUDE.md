@@ -88,6 +88,10 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - wrecks: hulls are lofted in `wreck_types*.js`; time-sliced jobs look 460 m ahead
   - ruins: city plans, building kits and styles live in the `ruins_*.js` files
   - Big flat props should keep encrusting growth `aFx.x` ≤ ~0.25, or it reads as camouflage.
+  - **Domes need support:** `ruins_kit.domeOn()` builds a dome only if `carried()` finds a wall or column top under all 72 sample points of its base ring; otherwise it builds nothing or a `fallenDome()` (broken shell pieces on the floor). Khmer/pagoda crowns (`prangTop`) follow the same rule. Before this, decayed buildings left domes floating. Audit: `node tools/audit/domes.mjs`.
+  - Decorations on rock must sit flush on the rock surface (`grips` / `pressOn` in nb4), or they hang in crevices.
+  - Instanced meshes need their own copy of shared shape data: a shared buffer is freed when one chunk unloads, which crashed WebGL.
+- **nb4 zones** (`nb4_*.js`): otterkelp, whaleshark, biobay, iceedge and hadal. Their gaps are audited by `tools/audit/run.mjs`, not by `window.__propsAudit`.
 - **New-zone props:**
   - `nb2_*.js` covers seamount, bluehole, sunkenforest and champagne. Its encrusting skin is `nb2_crust.js`.
   - `nb3_*.js` covers sargassum, jellylake and anemone.
