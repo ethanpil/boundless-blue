@@ -609,6 +609,15 @@ export class BiomeSequence {
     if (!this._far(s1)) this._extend(s1);
     return this.segs.filter((g) => g.end > s0 && g.start < s1);
   }
+  // Plain copy of the live segment list, sent with every world-worker job (src/worker/).
+  snapshot() { return this.segs.map(({ key, start, end, id, seed, camStart }) => ({ key, start, end, id, seed, camStart })); }
+  // Read-only sequence over such a copy (in the worker): the same lookups, but it never grows or prunes, so the
+  // owner first looks up every s the job will read (that grows its own sequence exactly as a local build would).
+  static replica(segs) {
+    const q = Object.create(BiomeSequence.prototype);
+    q.segs = segs; q._extend = () => {};
+    return q;
+  }
 }
 
 // ---------- World shape: path, floor, ceiling ----------

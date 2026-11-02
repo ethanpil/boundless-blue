@@ -59,6 +59,7 @@ The share link reproduces the world (seed and starting zone) without your own se
 | `ruinstyle=<style>` | force a sunken-city style: `greco egypt maya khmer minoan pagoda atlantis` |
 | `captions=0` | hide zone captions |
 | `start=<metres>` | start further along the path |
+| `worker=0` | build the world on the main thread instead of in Web Workers (for A/B tests and debugging) |
 
 ## How it works
 
@@ -78,7 +79,7 @@ The share link reproduces the world (seed and starting zone) without your own se
 - **Endless.**
   - **Floating origin:** the world is rebased in steps of 1024 m, so tiled patterns stay seamless.
   - **Shader time:** wraps every 4096 s.
-  - **Streaming:** chunks are built over several frames and disposed behind the camera.
+  - **Streaming:** chunks are built over several frames and disposed behind the camera. Their terrain is computed in Web Workers; the main thread adds the props.
   - **Adaptive resolution:** render resolution adjusts to frame time.
 
 ## Layout
@@ -88,6 +89,7 @@ index.html          import map + overlay UI
 src/main.js         renderer, camera path, biome blending, frame loop
 src/biomes.js       biome catalogue, endless sequence, world shape (path/floor/ceiling)
 src/terrain.js      streamed floor/ceiling chunks + sky-visibility map
+src/worker/         world-building workers: chunk heightfields and vertex data, sky map, noise texture
 src/water.js        shared uniforms, applyWater(), caustics, noise texture
 src/env.js          background water, surface from below, marine snow
 src/post.js         light shafts, bloom, composite

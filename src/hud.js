@@ -314,7 +314,7 @@ export class Hud {
     else if (ds.cam) a.setCuriosity(ds.cam === '1' ? 1 : 0);
     else if (ds.q) { if (ds.q !== a.quality) this._reload(() => a.setQuality(ds.q)); }
     else if (ds.tog) this._toggle(ds.tog);
-    else if (ds.act === 'next') { this._next(); this.closeSheet(false); }
+    else if (ds.act === 'next') { this.nextZone(); this.closeSheet(false); }
     else if (ds.act === 'skiptime') a.skipTime();
     else if (ds.act === 'nextwx') a.nextWeather();
     else {
@@ -322,7 +322,7 @@ export class Hud {
         case 'dk-pause': a.togglePause(); break;
         case 'dk-slower': a.slower(); break;
         case 'dk-faster': a.faster(); break;
-        case 'dk-nextz': this._next(); break;
+        case 'dk-nextz': this.nextZone(); break;
         case 'dk-lamp': case 'dk-lampq': a.setLamp(LAMP_NEXT[a.lampMode] || 'auto'); break;
         case 'dk-id': a.setIdentify(!a.identifyOn); break;
         case 'dk-snd': a.setSound(!a.soundOn); break;
@@ -362,14 +362,14 @@ export class Hud {
     this._rebuild(z.label, z.subtitle || '', (p) => this.app.jumpTo(key, p))
       .then(() => { b.classList.remove('go'); this._arm(null); });
   }
-  // Next zone: instant while app.nextZone() is synchronous; if it returns a promise it gets the jump's cover.
-  _next() {
+  // Next zone (button and N key): skips ahead under the same cover as a zone jump, so the half-built
+  // zone is never on screen.
+  nextZone() {
     const a = this.app;
     if (this.busy || a.jumping) return;
     const name = a.info().nextZone;
     this._progress(0);
-    const r = a.nextZone((f) => this._progress(f));
-    if (r && typeof r.then === 'function') this._rebuild(name, '', () => r);
+    this._rebuild(name, '', (p) => a.nextZone(p));
   }
   // In-place zone change: fade to dark with the zone's name and a thin progress bar, let start(onProgress)
   // rebuild the world (it returns a promise), then fade back in. The deck closes under the cover unless pinned.

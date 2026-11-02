@@ -1,30 +1,23 @@
 // Terrain chunks (floor + optional ceiling) streamed along the path, built incrementally
 // across frames so generation never causes a hitch. Also maintains the sky-visibility map.
+// The heightfields, vertex data and sky map are made by world workers (src/worker/) when there are any; this
+// thread wraps them in geometry and runs the prop populators. Without workers the same generators run here.
 import * as THREE from 'three';
 import { BIOMES, sv } from './biomes.js';
 import { applyWater, U, waterQuality } from './water.js';
-import { mulberry32, noise2, smoothstep, clamp } from './noise.js';
+import { mulberry32 } from './noise.js';
 import { obstacles } from './obstacles.js';
 import { PRESETS } from './quality.js';
+import { CHUNK, DX, NZ, NO_CEIL, rowS, chunkData, skyData } from './worker/terrain_gen.js';
 
-export const CHUNK = 64;          // metres of travel per chunk
-const DX = 1.5;                   // lateral grid spacing (globally aligned)
-const HALF_W = 165;               // half width of a chunk around the path
-const NZ = 43;                    // rows per chunk (spacing 64/42)
+export { CHUNK };
 const AHEAD = 330, BEHIND = 40;
-const NO_CEIL = 60;
 // Distance (m ahead of the camera) up to which tagged prop LOD classes are drawn (per GPU tier, see quality.js).
 const LOD = { high: { near: 70, mid: 150 }, low: { near: 45, mid: 100 } };
-
-// Encrusting life on the seabed per zone: [amount 0..1, palette 0 tropical .. 0.5 temperate .. 1 bacterial mats].
-const LIFE = {
-  reef: [1, 0], softcoral: [0.9, 0], wall: [1, 0.05], kelp: [0.8, 0.5], seagrass: [0.45, 0.2], mangrove: [0.35, 0.45],
-  sandflat: [0.2, 0.1], pelagic: [0, 0], cave: [0.15, 0.4], wreck: [0.55, 0.35], ruins: [0.6, 0.2], vents: [0.75, 1],
-  deepplain: [0.12, 0.85], tidepool: [1, 0.15], abyss: [0, 0], polar: [0.3, 0.6], seamount: [0.85, 0.1],
-  sargassum: [0, 0], champagne: [0.65, 0.05], jellylake: [0.4, 0.4], sunkenforest: [0.45, 0.5], anemone: [0.8, 0],
-  bluehole: [0.7, 0.05], otterkelp: [0.85, 0.5], whaleshark: [0.15, 0.1], biobay: [0.3, 0.45], iceedge: [0.25, 0.6],
-  hadal: [0.08, 0.9],
-};
+// Builds waiting for workers go ahead here once the pool has stalled this long (ms): a caller running the
+// simulation in a synchronous loop (__ocean.advance, devfly), during which no worker message can arrive.
+const OVERDUE = 2000;
+const WAIT = 'wait'; // yielded by a build that is waiting for a worker
 // Colour grade per zone: [saturation, contrast, white balance vs. the water cast, vibrance,
 // shadow lift r g b (display-linear, added), highlight gain r g b]. Read by the post composite through U.
 const GRADE = {
@@ -277,19 +270,34 @@ function ceilingMaterial() {
   });
 }
 
-const TINT = new Float32Array(6);
+// Wrap chunk vertex data (see gridData in terrain_gen.js) in a geometry.
+function gridGeometry(a, isCeil) {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(a.pos, 3));
+  geo.setAttribute('normal', new THREE.BufferAttribute(a.nor, 3));
+  geo.setAttribute('color', new THREE.BufferAttribute(a.col, 3));
+  if (isCeil) geo.setAttribute('aIce', new THREE.BufferAttribute(a.det, 1));
+  else geo.setAttribute('aDetail', new THREE.BufferAttribute(a.det, 4));
+  geo.setIndex(new THREE.BufferAttribute(a.idx, 1));
+  geo.computeBoundingSphere();
+  return geo;
+}
 
 export class Terrain {
-  constructor(world, shape, seq, tier = 'high') {
+  // pool: world workers (src/worker/pool.js), or null to build everything on this thread (tools, ?worker=0)
+  constructor(world, shape, seq, tier = 'high', pool = null) {
     this.world = world; this.shape = shape; this.seq = seq;
     this.tier = tier;
     this.lod = (PRESETS[tier] && PRESETS[tier].lod) || LOD[tier] || LOD.high;
     this.chunks = new Map();     // index -> chunk
-    this.queue = [];             // pending build generators
+    this.queue = [];             // pending builds {idx, job (worker job or null), it (generator), f (progress 0..1)}
     this.populators = [];        // (ctx) => {object, dispose} | null
+    this.pool = pool;
+    this.generation = 0;         // bumped by reset(): an older primeAsync stops
+    this._sync = false;          // inside prime(): build everything now, on this thread
     this.floorMat = floorMaterial();
     this.ceilMat = ceilingMaterial();
-    this.sky = new SkyMap(shape, seq);
+    this.sky = new SkyMap(shape, seq, pool);
     // Exact samplers over built meshes: O(1), allocation-free, identical to what is rendered.
     shape.gridFloor = (x, s) => this._sample(x, s, false);
     shape.gridCeil = (x, s) => this._sample(x, s, true);
@@ -311,58 +319,45 @@ export class Terrain {
     return fu + fv <= 1 ? ha + (hb - ha) * fu + (hc - ha) * fv : hd + (hc - hd) * (1 - fu) + (hb - hd) * (1 - fv);
   }
 
-  // Row data depends only on s; cache per build.
-  _row(s) {
-    const ws = this.seq.weights(s);
-    return { s, ws, px: this.shape.pathX(s), py: this.shape.pathY(s), hasCeil: ws.some((e) => BIOMES[e.key].ceil) };
+  // Queue chunk idx. With workers its data is requested at once, so they work ahead while props are built here.
+  _queueChunk(idx) {
+    const q = { idx, job: null, it: null, f: 0 };
+    if (this.pool && !this.pool.failed && !this._sync) {
+      // look the rows up here first: the sequence grows (and prunes) exactly as for a build on this thread,
+      // and the snapshot then holds every segment the rows touch
+      for (let j = -1; j <= NZ; j++) this.seq.weights(rowS(idx, j));
+      q.job = this.pool.run({ type: 'chunk', idx, segs: this.seq.snapshot(), surfaceY: U.uSurfaceY.value });
+    }
+    q.it = this._buildChunk(q);
+    return q;
   }
 
-  *_buildChunk(idx) {
-    const s0 = idx * CHUNK;
-    const rows = [];
-    for (let j = -1; j <= NZ; j++) rows.push(this._row(s0 + (j * CHUNK) / (NZ - 1)));
-    const pxMid = rows[(NZ / 2) | 0].px;
-    const x0 = Math.floor((pxMid - HALF_W) / DX) * DX;
-    const NX = Math.round((2 * HALF_W) / DX) + 1;
-    const W = NX + 2, H = NZ + 2;
-    const hf = new Float32Array(W * H);
-    const hc = new Float32Array(W * H);
-    let anyCeil = false, minCeil = 1e9;
-    const shape = this.shape;
-    for (let j = 0; j < H; j++) {
-      const r = rows[j];
-      for (let i = 0; i < W; i++) {
-        const x = x0 + (i - 1) * DX;
-        const dx = x - r.px, ad = Math.abs(dx);
-        let h = 0;
-        for (const e of r.ws) { const b = BIOMES[e.key]; h += (r.py - b.clearance + b.floor(x, r.s, ad, e.g, dx)) * e.w; }
-        hf[j * W + i] = Math.min(h, r.py - 2.2 + Math.max(0, ad - 4) * 2.5);
-        if (r.hasCeil) {
-          let c = 0;
-          for (const e of r.ws) { const b = BIOMES[e.key]; c += (b.ceil ? r.py + b.ceil(x, r.s, ad, e.g, dx) : NO_CEIL) * e.w; }
-          c = Math.max(c, r.py + 2.4 - Math.max(0, ad - 4) * 2.5);
-          hc[j * W + i] = c; anyCeil = true; if (c < minCeil) minCeil = c;
-        } else hc[j * W + i] = NO_CEIL;
-      }
-      if ((j & 7) === 7) yield;
+  *_buildChunk(q) {
+    const idx = q.idx, s0 = idx * CHUNK, job = q.job;
+    let d = null;
+    if (job) {
+      while (!job.done && !this._sync && !this.pool.stalled(OVERDUE)) yield WAIT;
+      d = job.result;
+      if (!d) this.pool.cancel(job); // failed, stalled, or prime() wants it now: build it here
     }
+    if (!d) d = yield* chunkData(this.shape, this.seq, idx, U.uSurfaceY.value);
     const chunk = { idx, s0, group: new THREE.Group(), floor: null, ceil: null, props: [], obstacles: [], labels: [], pois: [],
-      lodNear: [], lodMid: [], grid: { hf, hc, x0, NX, W, anyCeil } };
+      lodNear: [], lodMid: [], grid: { hf: d.hf, hc: d.hc, x0: d.x0, NX: d.NX, W: d.W, anyCeil: d.anyCeil } };
     chunk.group.position.set(0, 0, -s0);
-    chunk.floor = new THREE.Mesh(this._gridGeometry(hf, rows, x0, NX, false), this.floorMat);
+    chunk.floor = new THREE.Mesh(gridGeometry(d.floor, false), this.floorMat);
     chunk.floor.receiveShadow = !!this.shadows;
     chunk.group.add(chunk.floor);
-    yield;
-    if (anyCeil && minCeil < U.uSurfaceY.value + 0.5) {
-      chunk.ceil = new THREE.Mesh(this._gridGeometry(hc, rows, x0, NX, true), this.ceilMat);
+    if (d.ceil) {
+      chunk.ceil = new THREE.Mesh(gridGeometry(d.ceil, true), this.ceilMat);
       chunk.group.add(chunk.ceil);
-      yield;
     }
     this.world.add(chunk.group);
     this.chunks.set(idx, chunk);
     // props
-    const ctx = this._ctx(chunk, x0, x0 + (NX - 1) * DX);
-    for (const pop of this.populators) {
+    const ctx = this._ctx(chunk, d.x0, d.x0 + (d.NX - 1) * DX);
+    for (let k = 0; k < this.populators.length; k++) {
+      const pop = this.populators[k];
+      q.f = k / this.populators.length;
       yield;
       if (this.chunks.get(idx) !== chunk) return; // chunk was unloaded mid-build
       try {
@@ -406,83 +401,6 @@ export class Terrain {
     };
   }
 
-  _gridGeometry(hgt, rows, x0, NX, isCeil) {
-    const W = NX + 2;
-    const n = NX * NZ;
-    const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
-    const det = isCeil ? new Float32Array(n) : new Float32Array(n * 4);
-    const dz = CHUNK / (NZ - 1);
-    const s0 = rows[1].s;
-    let k = 0;
-    for (let j = 0; j < NZ; j++) {
-      const r = rows[j + 1];
-      for (let i = 0; i < NX; i++, k++) {
-        const g = (j + 1) * W + (i + 1);
-        const h = hgt[g];
-        const x = x0 + i * DX;
-        pos[k * 3] = x; pos[k * 3 + 1] = h; pos[k * 3 + 2] = -(r.s - s0);
-        // normal from central differences (z = -s)
-        const hx = hgt[g + 1] - hgt[g - 1];
-        const hs = hgt[g + W] - hgt[g - W];
-        let nx = -hx / (2 * DX), ny = 1, nz = hs / (2 * dz);
-        const l = Math.hypot(nx, ny, nz); nx /= l; ny /= l; nz /= l;
-        if (isCeil) { nx = -nx; ny = -ny; nz = -nz; }
-        nor[k * 3] = nx; nor[k * 3 + 1] = ny; nor[k * 3 + 2] = nz;
-        // occlusion from local concavity
-        const mean = (hgt[g + 1] + hgt[g - 1] + hgt[g + W] + hgt[g - W]) * 0.25;
-        const conc = isCeil ? h - mean : mean - h;
-        const ao = clamp(1 - conc * 0.35, 0.45, 1.1);
-        // colour blend across biomes
-        const slope = 1 - Math.abs(ny);
-        const nn = noise2(x / 7, r.s / 7, 5);
-        const rocky = smoothstep(0.2, 0.5, slope + nn * 0.12);
-        let cr = 0, cg = 0, cb = 0, ice = 0, rip = 0, life = 0, hue = 0;
-        for (const e of r.ws) {
-          const b = BIOMES[e.key];
-          if (isCeil) {
-            if (b.iceCeiling) { cr += 0.72 * e.w; cg += 0.86 * e.w; cb += 0.95 * e.w; ice += e.w; }
-            else { cr += b.rock[0] * 0.8 * e.w; cg += b.rock[1] * 0.8 * e.w; cb += b.rock[2] * 0.8 * e.w; }
-            continue;
-          }
-          // biome seabed colours plus its optional tint (see floorTint in biomes.js)
-          const T = TINT;
-          T[0] = b.sand[0]; T[1] = b.sand[1]; T[2] = b.sand[2]; T[3] = b.rock[0]; T[4] = b.rock[1]; T[5] = b.rock[2];
-          if (b.floorTint) b.floorTint(x, r.s, nn, T);
-          cr += (T[0] + (T[3] - T[0]) * rocky) * e.w;
-          cg += (T[1] + (T[4] - T[1]) * rocky) * e.w;
-          cb += (T[2] + (T[5] - T[2]) * rocky) * e.w;
-          rip += (b.ripple ?? 1) * e.w;
-          const L = LIFE[e.key];
-          if (L) { life += L[0] * (0.65 + 0.7 * sv(e.g, 21)) * e.w; hue += L[1] * e.w; }
-        }
-        const v = 0.9 + 0.2 * nn;
-        col[k * 3] = cr * ao * v; col[k * 3 + 1] = cg * ao * v; col[k * 3 + 2] = cb * ao * v;
-        if (isCeil) det[k] = ice;
-        else {
-          det[k * 4] = rip * (1 - rocky) * smoothstep(0.08, 0.0, slope - 0.05); det[k * 4 + 1] = rocky;
-          det[k * 4 + 2] = Math.min(1, life); det[k * 4 + 3] = hue;
-        }
-      }
-    }
-    const idx = new Uint32Array((NX - 1) * (NZ - 1) * 6);
-    let t = 0;
-    for (let j = 0; j < NZ - 1; j++) for (let i = 0; i < NX - 1; i++) {
-      const a = j * NX + i, b = a + 1, c = a + NX, d = c + 1;
-      // rows advance toward -z; winding chosen so floor faces +y
-      if (!isCeil) { idx[t++] = a; idx[t++] = b; idx[t++] = c; idx[t++] = b; idx[t++] = d; idx[t++] = c; }
-      else { idx[t++] = a; idx[t++] = c; idx[t++] = b; idx[t++] = b; idx[t++] = c; idx[t++] = d; }
-    }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
-    geo.setAttribute('normal', new THREE.BufferAttribute(nor, 3));
-    geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
-    if (isCeil) geo.setAttribute('aIce', new THREE.BufferAttribute(det, 1));
-    else geo.setAttribute('aDetail', new THREE.BufferAttribute(det, 4));
-    geo.setIndex(new THREE.BufferAttribute(idx, 1));
-    geo.computeBoundingSphere();
-    return geo;
-  }
-
   _disposeChunk(c) {
     this.world.remove(c.group);
     c.floor.geometry.dispose();
@@ -506,28 +424,43 @@ export class Terrain {
   // Label provider for the "i" overlay.
   labels(out) { for (const c of this.chunks.values()) for (const l of c.labels) out.push(l); }
 
-  // Build everything needed immediately (synchronous; prefer primeAsync, which lets the page paint).
+  // Build everything needed immediately (synchronous, on this thread; prefer primeAsync, which lets the page paint).
   prime(camS) {
     this.update(camS, Infinity);
   }
   // Build what the camera needs at camS in time slices, yielding between them; onProgress(0..1).
   async primeAsync(camS, onProgress, yieldFn) {
+    const gen = this.generation;
     this.update(camS, 0);
     const total = Math.max(1, this.queue.length);
+    // from here on only build: when the frame loop runs too (zone jumps), its update() keeps the queue in step
+    // with the moving camera, and re-queueing chunks for camS here would fight it over the chunk just behind
     while (this.queue.length) {
-      this.update(camS, 24);
-      if (onProgress) onProgress(1 - this.queue.length / total);
-      await yieldFn();
+      this._work(24);
+      const q = this.queue[0];
+      if (onProgress) onProgress(1 - (this.queue.length - (q ? q.f : 0)) / total);
+      // while the next chunk is with a worker, go on as soon as it is back (or after a paint)
+      await (q && q.job && !q.job.done ? Promise.race([q.job.promise, yieldFn()]) : yieldFn());
+      if (gen !== this.generation) return; // reset meanwhile: the caller of reset() primes the new world
     }
-    while (this.sky.job) { this.sky.update(camS, 24); await yieldFn(); }
+    while (this.sky.job) {
+      this.sky.update(camS, 24);
+      const j = this.sky.pending;
+      await (j && !j.done ? Promise.race([j.promise, yieldFn()]) : yieldFn());
+      if (gen !== this.generation) return;
+    }
     if (onProgress) onProgress(1);
   }
   // Drop the whole world (zone jump without a page reload); the caller then primes the new start.
+  // Worker jobs still queued are cancelled; one already running finishes and its result is discarded.
   reset() {
+    this.generation++;
     for (const c of this.chunks.values()) this._disposeChunk(c);
     this.chunks.clear();
+    for (const q of this.queue) if (q.job) this.pool.cancel(q.job);
     this.queue.length = 0;
-    this.sky.job = null; this.sky.origin = null;
+    if (this.sky.pending) this.pool.cancel(this.sky.pending);
+    this.sky.job = null; this.sky.pending = null; this.sky.origin = null;
   }
 
   // Colour grade of the zone around the camera, blended across cross-fades (read by the post composite),
@@ -547,6 +480,7 @@ export class Terrain {
   }
 
   update(camS, budgetMs = 4, visDist = AHEAD) {
+    this._sync = budgetMs === Infinity;
     this._grade(camS);
     // props in chunks entirely beyond the fog's visibility are hidden (terrain stays: it's cheap)
     for (const c of this.chunks.values()) {
@@ -560,24 +494,34 @@ export class Terrain {
     }
     const first = Math.floor((camS - BEHIND) / CHUNK), last = Math.floor((camS + AHEAD) / CHUNK);
     for (const [i, c] of this.chunks) if (i < first || i > last + 2) { this._disposeChunk(c); this.chunks.delete(i); }
-    this.queue = this.queue.filter((q) => q.idx >= first && q.idx <= last + 2);
+    this.queue = this.queue.filter((q) => {
+      if (q.idx >= first && q.idx <= last + 2) return true;
+      if (q.job) this.pool.cancel(q.job);
+      return false;
+    });
     for (let i = first; i <= last; i++) {
-      if (!this.chunks.has(i) && !this.queue.some((q) => q.idx === i)) this.queue.push({ idx: i, gen: this._buildChunk(i) });
+      if (!this.chunks.has(i) && !this.queue.some((q) => q.idx === i)) this.queue.push(this._queueChunk(i));
     }
     this.queue.sort((a, b) => a.idx - b.idx);
+    this._work(budgetMs);
+    this.sky.update(camS, budgetMs === Infinity ? Infinity : 2);
+    this._sync = false;
+  }
+  // Run the queued builds in order for up to budgetMs.
+  _work(budgetMs) {
     const t0 = performance.now();
     while (this.queue.length && performance.now() - t0 < budgetMs) {
-      const q = this.queue[0];
-      if (q.gen.next().done) this.queue.shift();
+      const r = this.queue[0].it.next();
+      if (r.done) this.queue.shift();
+      else if (r.value === WAIT) break; // the next chunk in line is still with a worker
     }
-    this.sky.update(camS, budgetMs === Infinity ? Infinity : 2);
   }
 }
 
 // ---------- Sky visibility map: 128x128 texels @ 2m, recentred as we travel ----------
 class SkyMap {
-  constructor(shape, seq) {
-    this.shape = shape; this.seq = seq;
+  constructor(shape, seq, pool) {
+    this.shape = shape; this.seq = seq; this.pool = pool;
     this.N = 128; this.cell = 2;
     this.data = new Uint8Array(this.N * this.N * 4).fill(255);
     this.tex = new THREE.DataTexture(this.data, this.N, this.N, THREE.RGBAFormat);
@@ -586,46 +530,29 @@ class SkyMap {
     U.uSkyMap.value = this.tex;
     U.uSkySize.value = this.N * this.cell;
     this.origin = null; // global {x, s} of texel row 0 (s increases with rows)
-    this.job = null;
+    this.job = null;     // generator making the next map
+    this.pending = null; // its worker job, while one is out
+    this.sync = false;   // inside prime(): finish on this thread
   }
+  // The map with row 0 at global (ox, os): from a worker when there is one, else time-sliced here.
   *_compute(ox, os) {
-    const N = this.N, cell = this.cell, buf = new Float32Array(N * N);
-    const surf = U.uSurfaceY.value;
-    for (let j = 0; j < N; j++) {
-      const s = os + j * cell;
-      const ws = this.seq.weights(s);
-      const hasCeil = ws.some((e) => BIOMES[e.key].ceil);
-      const hasCanopy = ws.some((e) => BIOMES[e.key].canopy);
-      const iceT = ws.reduce((a, e) => a + (BIOMES[e.key].iceLight || 0) * e.w, 0); // light through sea ice
-      for (let i = 0; i < N; i++) {
-        let v = 1;
-        if (hasCeil) {
-          const c = this.shape.ceilingExact(ox + i * cell, s);
-          v = Math.max(smoothstep(-1.2, 0.6, c - surf), iceT + 0.03);
-        }
-        if (hasCanopy) v *= this.shape.canopyAt(ox + i * cell, s);
-        buf[j * N + i] = v;
-      }
-      if ((j & 15) === 15) yield;
+    const N = this.N, cell = this.cell, surf = U.uSurfaceY.value;
+    let out = null;
+    if (this.pool && !this.pool.failed && !this.sync) {
+      for (let j = 0; j < N; j++) this.seq.weights(os + j * cell); // grow the sequence as a build here would
+      const job = this.pending = this.pool.run({ type: 'sky', segs: this.seq.snapshot(), ox, os, N, cell, surf });
+      while (!job.done && !this.sync && !this.pool.stalled(OVERDUE)) yield WAIT;
+      this.pending = null;
+      out = job.result;
+      if (!out) this.pool.cancel(job);
     }
-    // 3x3 blur for soft light pools
-    const out = new Uint8Array(N * N * 4);
-    for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
-      let a = 0, n = 0;
-      for (let y = -1; y <= 1; y++) for (let x = -1; x <= 1; x++) {
-        const ii = i + x, jj = j + y;
-        if (ii >= 0 && jj >= 0 && ii < N && jj < N) { a += buf[jj * N + ii]; n++; }
-      }
-      // texel (i, j): u -> x, v -> render z. Row j is at s = os + j*cell, i.e. z = -s,
-      // so store rows flipped so that v increases with z.
-      const o = ((N - 1 - j) * N + i) * 4;
-      out[o] = out[o + 1] = out[o + 2] = (a / n) * 255; out[o + 3] = 255;
-    }
+    if (!out) out = yield* skyData(this.shape, this.seq, ox, os, N, cell, surf);
     this.data.set(out);
     this.tex.needsUpdate = true;
     this.origin = { x: ox, s: os };
   }
   update(camS, budgetMs) {
+    this.sync = budgetMs === Infinity;
     const active = this.seq.segmentsBetween(camS - 60, camS + 260).some((g) => BIOMES[g.key].ceil || BIOMES[g.key].canopy);
     U.uSkyActive.value = active && this.origin ? 1 : 0;
     if (!active) { this.origin = null; return; }
@@ -637,7 +564,11 @@ class SkyMap {
     }
     if (this.job) {
       const t0 = performance.now();
-      while (performance.now() - t0 < budgetMs) { if (this.job.next().done) { this.job = null; break; } }
+      while (performance.now() - t0 < budgetMs) {
+        const r = this.job.next();
+        if (r.done) { this.job = null; break; }
+        if (r.value === WAIT) break;
+      }
     }
   }
   // Called each frame with the floating origin offset (render = global - O)

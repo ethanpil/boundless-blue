@@ -91,6 +91,33 @@ export function worley2(x, y, seed = 0) {
   return Math.sqrt(d);
 }
 
+// Pixels of the tileable noise texture (RGBA: 3 fbm + ridged) behind U.uNoiseTex; see makeNoiseTexture in water.js.
+// Here (no three.js) so the world-building worker can make it.
+function periodicNoise(x, y, P, seed) {
+  const ix = Math.floor(x), iy = Math.floor(y);
+  const fx = x - ix, fy = y - iy;
+  const h = (a, b) => hash2i(((a % P) + P) % P, ((b % P) + P) % P, seed);
+  const u = fx * fx * (3 - 2 * fx), v = fy * fy * (3 - 2 * fy);
+  const a = h(ix, iy), b = h(ix + 1, iy), c = h(ix, iy + 1), d = h(ix + 1, iy + 1);
+  return a + (b - a) * u + (c - a) * v + (a - b - c + d) * u * v;
+}
+export function noiseTextureData(size = 256) {
+  const data = new Uint8Array(size * size * 4);
+  for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) {
+    const o = (y * size + x) * 4;
+    for (let ch = 0; ch < 4; ch++) {
+      let s = 0, amp = 0.5, P = 8, tot = 0;
+      for (let k = 0; k < 5; k++) {
+        let n = periodicNoise((x / size) * P, (y / size) * P, P, ch * 101 + k * 7);
+        if (ch === 3) n = 1 - Math.abs(n * 2 - 1);
+        s += n * amp; tot += amp; amp *= 0.5; P *= 2;
+      }
+      data[o + ch] = Math.max(0, Math.min(255, (s / tot) * 255));
+    }
+  }
+  return data;
+}
+
 export const smoothstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 export const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 export { lerp };

@@ -14,19 +14,22 @@ import { registerNewBiomeProps4 } from './props/newbiomes4.js';
 import { Ambience } from './audio/index.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
-import { noise1, mulberry32, smoothstep, clamp } from './noise.js';
+import { noise1, mulberry32, smoothstep, clamp, noiseTextureData } from './noise.js';
 import { obstacles } from './obstacles.js';
 import { Labels } from './labels.js';
 import { Conditions, WEATHER_KEYS, TIME_KEYS } from './conditions.js';
 import { CameraDirector } from './camera.js';
 import { PRESETS, detectTier, gpuName, AdaptiveResolution } from './quality.js';
 import { Hud } from './hud.js';
+import { WorkerPool } from './worker/pool.js';
 
 const qs = new URLSearchParams(location.search);
 const SEED = qs.has('seed') ? parseInt(qs.get('seed'), 10) : (Math.random() * 1e9) | 0;
 let speed = qs.has('speed') ? parseFloat(qs.get('speed')) : 3.2;
 const QUALITY = qs.get('quality') || 'auto'; // auto | low | medium | high | ultra
 const FPS_CAP = qs.has('fps') ? Math.max(0, parseFloat(qs.get('fps'))) : 60; // 0 = uncapped
+// world-building workers (terrain chunks, sky map, noise texture); ?worker=0 builds everything on this thread
+const workers = qs.get('worker') === '0' ? null : WorkerPool.create();
 
 // ---------- renderer ----------
 const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance', stencil: false });
@@ -48,7 +51,9 @@ scene.add(camera);
 const world = new THREE.Group();   // everything at global coordinates lives here
 scene.add(world);
 
-U.uNoiseTex.value = makeNoiseTexture(256);
+// the noise texture's pixels come from a worker; boot waits for them before the first frame
+const noiseJob = workers && workers.run({ type: 'noise', size: 256 });
+U.uNoiseTex.value = makeNoiseTexture(256, noiseJob ? new Uint8Array(256 * 256 * 4) : undefined);
 const caustics = new Caustics(Q.caustics);
 
 const sun = new THREE.DirectionalLight(0xffffff, 2.5);
@@ -72,7 +77,7 @@ const START_KEY = qs.get('biome') || BIOME_KEYS[Math.floor(startRng() * BIOME_KE
 const START_S = Math.floor(startRng() * 1e6);
 const seq = new BiomeSequence(SEED, START_KEY, START_S);
 const shape = new WorldShape(seq);
-const terrain = new Terrain(world, shape, seq, tier);
+const terrain = new Terrain(world, shape, seq, tier, workers);
 terrain.shadows = SHADOWS;
 const env = {
   shape, seq, world, scene, camera, renderer, U, BIOMES, seed: SEED, shadows: SHADOWS, obstacles, tier,
@@ -282,7 +287,14 @@ const app = {
   togglePause() { paused = !paused; }, setPaused(v) { paused = !!v; },
   faster() { speed = Math.min(40, speed * 1.4); }, slower() { speed = Math.max(0.5, speed / 1.4); },
   setSpeed(v) { speed = Math.min(40, Math.max(0.5, v)); },
-  nextZone() { if (jumping) return; const g = seq.segs[seq.segAt(s)]; s = g.end - 60; terrain.prime(s); },
+  // Skip to the end of the current zone. Returns a promise (the deck covers the rebuild); onProgress(0..1).
+  nextZone(onProgress) {
+    if (jumping) return;
+    const g = seq.segs[seq.segAt(s)];
+    s = g.end - 60;
+    jumping = true;
+    return terrain.primeAsync(s, onProgress, paint).finally(() => { jumping = false; });
+  },
   // Jump to a zone in place (no page reload). Returns a promise; onProgress(0..1) reports the rebuild.
   jumpTo(key, onProgress) { return jumpInPlace(key, onProgress); },
   get jumping() { return jumping; },
@@ -408,7 +420,7 @@ addEventListener('keydown', (e) => {
   else if (k === 'w') app.nextWeather();
   else if (e.key === 'ArrowRight') app.faster();
   else if (e.key === 'ArrowLeft') app.slower();
-  else if (k === 'n') app.nextZone();
+  else if (k === 'n') { if (hud) hud.nextZone(); else app.nextZone(); }
   else if (k === 'l') app.setLamp(lampMode === 'auto' ? 'on' : lampMode === 'on' ? 'off' : 'auto');
   else if (k === 'd') app.setIdentify(!identifyOn);
   else if (k === 'a') app.setSound(!soundOn);
@@ -590,6 +602,11 @@ async function boot() {
   bootProgress(0.6, 'descending'); await paint();
   await terrain.primeAsync(s, (f) => bootProgress(0.6 + 0.3 * f), paint);
   bootProgress(0.92, 'warming up the lights'); await paint();
+  if (noiseJob) {
+    await noiseJob.promise;
+    U.uNoiseTex.value.image.data.set(noiseJob.result || noiseTextureData(256));
+    U.uNoiseTex.value.needsUpdate = true;
+  }
   updateEnvironment(C);
   try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compiles on first frame */ }
   bootProgress(1, 'diving in');

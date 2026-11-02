@@ -37,6 +37,10 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
 - **Distance softening:** the composite pass mixes in a quarter-res blurred scene by view depth (turbidity).
 - **Dev server:** `python -m http.server` let the browser serve stale ES modules, so use a server that sends `Cache-Control: no-store`.
 
+- **World workers** (`src/worker/`): 1-3 module workers (`WorkerPool`, hardwareConcurrency - 2) build the chunk heightfields and vertex data, the sky map and the noise texture; the main thread wraps the typed arrays in geometry and runs the populators.
+  - Jobs carry `seq.snapshot()`. Before posting, the main thread calls `seq.weights` for every row the job reads, so its own sequence grows and prunes exactly as a local build would; the worker reads a `BiomeSequence.replica`, which never grows.
+  - The worker's module graph (biomes.js, noise.js, `terrain_gen.js`) must not import `'three'`: import maps do not reach workers.
+  - The same generators run on the main thread with `?worker=0`, without Worker (Node tools), after a worker error, in `prime()` (sync), and once the pool has not answered for 2 s (a synchronous loop such as `__ocean.advance` cannot receive worker messages).
 - **Exact terrain sampling:** `shape.floorAt` / `ceilingAt` sample the rendered chunk meshes (same triangle split as the index buffer). This is O(1), allocation-free and exact, so anything placed with it cannot float. `floorExact` / `ceilingExact` are the analytic fallbacks, used before a chunk is built.
 - **Per-segment variety:** `seq.weights(s)` entries carry the segment `g`. Biome `floor` / `ceil` receive `(x, s, ad, g, dx)`, and `sv(g, k)` gives deterministic per-segment randoms for shape, water clarity and tint.
 - **LOD:** prop meshes tagged `userData.lod = 'near' | 'mid'` are hidden beyond per-tier distances (`LOD` in terrain.js). Untagged meshes are only fog-culled.
