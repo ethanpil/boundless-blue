@@ -23,4 +23,5 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 - A zone jump could hang forever or land in the wrong zone (93da93e, 6193e98).
 - Audio nodes leaked; shaders were warmed for the wrong render target and stalled first draws (6193e98).
 - Manta tap targets were far larger than the animal; some labels read "Giant giant" (578a810).
+- Black squares with white halos on phones: invalid (NaN/overflowing) pixels are now replaced before fog, bloom and the final image.
 - After an update the page could stay at 0% forever when the browser mixed cached old files with new ones; it now re-fetches and reloads once, then shows the error.

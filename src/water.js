@@ -172,7 +172,16 @@ vec3 causticRGB(vec3 wp) {
   return c * (0.25 + 1.2 * m) * (0.8 + 0.4 * lf.a);
 }
 
+// Phone GPUs (mediump maths, half-float targets) can turn a lighting term into NaN or Inf; one such pixel showed
+// as a black block with a bloom halo. Drop it (the water colour shows through the fog) and stay far inside
+// half-float range (65504). Comparisons are false for NaN, so the test also catches it.
+vec3 finiteCol(vec3 c) {
+  bool ok = c.r < 1e4 && c.g < 1e4 && c.b < 1e4 && c.r > -1e4 && c.g > -1e4 && c.b > -1e4;
+  return ok ? clamp(c, 0.0, 256.0) : vec3(0.0);
+}
+
 vec3 waterFog(vec3 col, vec3 wp) {
+  col = finiteCol(col);
   vec3 toP = wp - cameraPosition;
   float d = length(toP);
   vec3 T = exp(-uSigma * d);
@@ -252,7 +261,7 @@ export function applyWater(material, opts = {}) {
       .replace('#include <common>', '#include <common>\n' + FRAG_HEAD + (opts.fragmentHead || ''));
     if (!opts.noLight) fs = fs.replace('#include <lights_fragment_end>', LIGHT_PATCH);
     const fog = opts.additive
-      ? `{ float d_ = length(vWPos - cameraPosition); outgoingLight *= exp(-uSigma * d_); }`
+      ? `{ float d_ = length(vWPos - cameraPosition); outgoingLight = finiteCol(outgoingLight) * exp(-uSigma * d_); }`
       : `outgoingLight = waterFog(outgoingLight, vWPos);`;
     fs = fs.replace('#include <opaque_fragment>', fog + '\n#include <opaque_fragment>');
     shader.fragmentShader = fs;

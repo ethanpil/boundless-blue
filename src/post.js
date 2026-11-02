@@ -103,12 +103,14 @@ export class Post {
       vertexShader: QUAD_VERT,
       fragmentShader: /* glsl */`
         varying vec2 vUv; uniform sampler2D tSrc; uniform vec2 uTexel;
+        // a NaN/Inf scene pixel (phone GPUs) must not bloom into a glowing block: comparisons are false for NaN
+        vec3 fin(vec3 c) { return c.r < 1e4 && c.g < 1e4 && c.b < 1e4 && c.r >= 0.0 && c.g >= 0.0 && c.b >= 0.0 ? c : vec3(0.0); }
         void main() {
           vec3 c = vec3(0.0);
-          c += texture2D(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb;
-          c += texture2D(tSrc, vUv + uTexel * vec2( 1.0, -1.0)).rgb;
-          c += texture2D(tSrc, vUv + uTexel * vec2(-1.0,  1.0)).rgb;
-          c += texture2D(tSrc, vUv + uTexel * vec2( 1.0,  1.0)).rgb;
+          c += fin(texture2D(tSrc, vUv + uTexel * vec2(-1.0, -1.0)).rgb);
+          c += fin(texture2D(tSrc, vUv + uTexel * vec2( 1.0, -1.0)).rgb);
+          c += fin(texture2D(tSrc, vUv + uTexel * vec2(-1.0,  1.0)).rgb);
+          c += fin(texture2D(tSrc, vUv + uTexel * vec2( 1.0,  1.0)).rgb);
           c *= 0.25;
           float l = max(c.r, max(c.g, c.b));
           float k = smoothstep(0.75, 2.0, l);
@@ -291,6 +293,11 @@ export class Post {
             col.r = texture2D(tScene, uv - ca).r;
             col.g = texture2D(tScene, uv).g;
             col.b = texture2D(tScene, uv + ca).b;
+          }
+          // a NaN/Inf scene pixel (phone GPUs) would show as a black block: use the blurred surroundings instead
+          if (!(col.r < 1e4 && col.g < 1e4 && col.b < 1e4 && col.r >= 0.0 && col.g >= 0.0 && col.b >= 0.0)) {
+            col = texture2D(tSoft, uv).rgb;
+            if (!(col.r < 1e4 && col.g < 1e4 && col.b < 1e4 && col.r >= 0.0 && col.g >= 0.0 && col.b >= 0.0)) col = vec3(0.0);
           }
           float zd = texture2D(tDepth, uv).x * 2.0 - 1.0;
           float vz = 2.0 * uNear * uFar / (uFar + uNear - zd * (uFar - uNear));

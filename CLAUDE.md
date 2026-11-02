@@ -35,6 +35,7 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - Terrain marks opaque prop meshes as casting and receiving shadows. The floor only receives.
   - Shadow depth ignores vertex sway, so swaying plants cast static shadows. This is an accepted trade-off.
 - **Distance softening:** the composite pass mixes in a quarter-res blurred scene by view depth (turbidity).
+- **Finite colours:** phone GPUs produced NaN/Inf scene pixels (seen in Jellyfish Lake on Android), which showed as black squares with a bloom halo. `finiteCol()` in water.js (inside `waterFog` and the additive branch), the bloom bright pass and the composite's scene read all drop non-finite values (tests use comparisons, which are false for NaN) and clamp to 256, far inside half-float range. The source shader was not identified: it does not reproduce on desktop GPUs.
 - **Load guard** (inline script in index.html): GitHub Pages lets each file be cached for 10 minutes (`max-age=600`), so right after a deploy a browser can link a new module against an old cached one; the import fails and main.js never runs (the title card sat at 0% forever). If `window.__ocean.ready` is missing 1.5 s after `load`, the guard re-fetches every loaded script with `cache: 'reload'` and reloads once (sessionStorage flag), then shows the error on the title card.
 - **Dev server:** `python -m http.server` let the browser serve stale ES modules, so use a server that sends `Cache-Control: no-store`.
 
