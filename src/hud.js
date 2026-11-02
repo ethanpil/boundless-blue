@@ -1,4 +1,6 @@
 // Submarine control deck: tap/click anywhere on the view to show it (M or Tab on a keyboard, Esc closes).
+// In identify mode (app.identifyOn) a tap on the view names what is there instead (app.pick), and a
+// "controls" handle in the corner opens the deck. Zone jumps rebuild the world in place behind a dark cover.
 // Instruments read app.info() at 5 Hz (the slower readouts in 1 Hz slices); the sonar and compass canvases draw
 // at <= 20 fps; while the deck is hidden only a 1 Hz check of the sightings log runs (for the toasts). Every
 // control works by touch, pen or mouse, and buttons are keyboard-focusable. Styles: index.html ("control deck").
@@ -15,8 +17,11 @@ const IDLE_MS = 8000, IDLE_SHEET_MS = 20000;
 // so the type is capped at span / CAP_EM; below CAP_MIN_FS the caption and notes are hidden and come up as toasts.
 const CAP_EM = 13, CAP_MIN_FS = 14;
 const TOAST_MS = 4800;
+const PICK_MS = 4000, PICK_NONE_MS = 1600;     // identify card: a name, or "nothing to identify here"
 const CARD = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const LAMP_NEXT = { auto: 'on', on: 'off', off: 'auto' };
+// Systems switches (data-tog) and the app getter each one shows
+const TOG_STATE = { labels: 'labelsOn', captions: 'captionsOn', alerts: 'alertsOn', sound: 'soundOn', wake: 'wakeLock', full: 'fullscreen', stats: 'statsOn' };
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -54,17 +59,24 @@ export class Hud {
     this.dPrev = null; this.tPrev = 0; this.vs = 0; this.slice = 0;
     this.last = null;                // last info() snapshot
     this.mv = {}; this.measureDirty = false; this.capOff = false; this.capOffS = false; this.nudgeT = -1e9;
+    this.idOn = null;                // identify mode as last shown (handle)
+    this.busy = false;               // an in-place zone change is running
     this._build();
     this._bind();
     this.sonar = new Sonar(this.R.sonar, app, this.reduced);
     this.tape = new CompassTape(this.R.tape, this.reduced);
     pressed(this.R.pin, this.pinned);
     const ft = this.deck.querySelector('[data-tog="full"]');
-    if (ft && app.canFullscreen === false) ft.hidden = true;   // e.g. iPhone Safari has no element fullscreen
+    if (ft && app.canFullscreen === false) { ft.hidden = true; this.R.full.hidden = true; } // e.g. iPhone Safari has no element fullscreen
     if (app.onNote) app.onNote((text) => this._onNote(text));
     if (window.__ocean) window.__ocean.hud = this;              // debugging: __ocean.hud.show(), .cost
-    // first-load hint, after the loader has faded
-    setTimeout(() => { if (!this.open && !this.everOpened) this.hint.classList.add('on'); }, 3800);
+    // first-load hint, after the loader has faded (identify mode shows its handle instead)
+    setTimeout(() => {
+      if (this.open || this.everOpened || app.identifyOn) return;
+      const snd = app.soundOn && !app.soundActive ? ' and sound' : '';   // browsers start audio on the first tap
+      this.hint.innerHTML = `<i></i>${this.coarse ? `tap anywhere for controls${snd}` : `click anywhere for controls${snd} <kbd>M</kbd>`}`;
+      this.hint.classList.add('on');
+    }, 3800);
     setTimeout(() => this.hint.classList.remove('on'), 11500);
   }
 
@@ -81,8 +93,23 @@ export class Hud {
     this.hint = document.createElement('div');
     this.hint.id = 'dk-hint';
     this.hint.setAttribute('aria-hidden', 'true');
-    this.hint.innerHTML = `<i></i>${this.coarse ? 'tap anywhere for controls' : 'click anywhere for controls <kbd>M</kbd>'}`;
     document.body.appendChild(this.hint);
+
+    // identify mode: the corner handle opens the deck (a tap on the view names things instead)
+    this.handle = document.createElement('div');
+    this.handle.id = 'dk-handle';
+    this.handle.innerHTML = `<span class="dk-hl">${icon('identify')}${this.coarse ? 'tap' : 'click'} anything to identify it</span>`
+      + `<button type="button" aria-label="Open the controls">${icon('systems')}<span>CONTROLS</span></button>`;
+    document.body.appendChild(this.handle);
+
+    // identify card, placed at the tap point
+    this.tag = document.createElement('div');
+    this.tag.id = 'dk-pick';
+    this.tag.setAttribute('role', 'status');
+    this.tag.setAttribute('aria-live', 'polite');
+    this.tag.innerHTML = '<i class="dk-pr"></i><div class="dk-pb"></div>';
+    this.tagBox = this.tag.lastChild;
+    document.body.appendChild(this.tag);
 
     this.toastEl = document.createElement('div');
     this.toastEl.id = 'dk-toast';
@@ -92,6 +119,8 @@ export class Hud {
 
     this.fade = document.createElement('div');
     this.fade.id = 'dk-fade';
+    this.fade.innerHTML = '<div class="dk-fz" role="status"><b></b><small></small><span class="dk-fbar"><i></i></span></div>';
+    [this.fzName, this.fzSub, this.fzBar] = this.fade.querySelectorAll('b, small, i');
     document.body.appendChild(this.fade);
 
     // A note wrapped beside the open deck lifts the caption above it by its extra lines (CSS --dk-note-x).
@@ -108,8 +137,8 @@ export class Hud {
     const ids = ['zone', 'sub', 'prog', 'next', 'tonext', 'dive', 'dist', 'species', 'tape', 'hor', 'hdg', 'card', 'pitch',
       'watchrow', 'watch', 'hh', 'mh', 'clock', 'todg', 'tod', 'wxg', 'wx', 'smk', 'dmk', 'depth', 'dzone', 'seabed', 'alt', 'vs',
       'sonar', 'rangev', 'ncont', 'temp', 'vis', 'light', 'lightv', 'lamp', 'lampv', 'lampled', 'cura', 'curv', 'curd',
-      'pause', 'needle', 'setm', 'spd', 'kn', 'paused', 'pin', 'logn', 'loglist', 'qnote', 'sharest', 'shareurl',
-      'fps', 'res', 'tier', 'cost', 'gpu', 'seed', 'tg-wake'];
+      'pause', 'needle', 'setm', 'spd', 'kn', 'paused', 'pin', 'id', 'lampq', 'snd', 'full', 'logn', 'loglist', 'qnote', 'sharest', 'shareurl',
+      'fps', 'res', 'tier', 'cost', 'gpu', 'seed', 'tg-wake', 'tg-sound', 'vol', 'volv', 'volrow'];
     this.R = {};
     for (const id of ids) this.R[id.replace('-', '_')] = $(id);
     this.sheets = {};
@@ -123,16 +152,17 @@ export class Hud {
     this.wxBtns = deck.querySelectorAll('[data-weather]');
     this.zoneBtns = deck.querySelectorAll('[data-zone]');
     this.topPanels = deck.querySelectorAll('.dk-nav, .dk-compass, .dk-time');
-    this.barPanels = deck.querySelectorAll('.dk-helm, .dk-menu');
+    this.barPanels = deck.querySelectorAll('.dk-helm, .dk-quick, .dk-menu');
     this.leftPanels = deck.querySelectorAll('.dk-depth');
     this.rightPanels = deck.querySelectorAll('.dk-sonar, .dk-env');
-    this.glyph = { tod: '', wx: '', pause: null };
+    this.glyph = { tod: '', wx: '', pause: null, lamp: '', snd: null, full: null };
   }
 
   _bind() {
     const deck = this.deck;
-    const inUI = (t) => !!(t && t.closest && t.closest('.dk-p, .dk-sheet, #dk-toast'));
-    // A tap on the view (not on the deck) toggles the deck. Pointer events cover mouse, touch and pen.
+    const inUI = (t) => !!(t && t.closest && t.closest('.dk-p, .dk-sheet, #dk-toast, #dk-handle button, #dk-fade'));
+    // A tap on the view (not on the deck) toggles the deck, or in identify mode names what is under it.
+    // An open sheet is closed first either way. Pointer events cover mouse, touch and pen.
     let down = null;
     addEventListener('pointerdown', (e) => {
       if (!e.isPrimary || e.button > 0) { down = null; return; }
@@ -144,6 +174,7 @@ export class Hud {
       if (!d || e.pointerId !== d.id || inUI(e.target)) return;
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 14 || performance.now() - d.t > 800) return;
       if (this.open && this.sheet) { this.closeSheet(false); this.poke(); return; }
+      if (this.app.identifyOn) { this._identify(e.clientX, e.clientY); this.poke(); return; }
       this.toggle(false);
     }, { passive: true });
     addEventListener('pointercancel', () => { down = null; }, { passive: true });
@@ -156,6 +187,13 @@ export class Hud {
 
     deck.addEventListener('click', (e) => this._onClick(e));
     this.toastEl.addEventListener('click', () => { this.show(false); this.openSheet('log', null, false); });
+    this.handle.lastChild.addEventListener('click', (e) => { if (e.detail) e.currentTarget.blur(); this.show(e.detail === 0); });
+    this.R.vol.addEventListener('input', () => {
+      const v = +this.R.vol.value;
+      this.app.setSoundVolume(v / 100);
+      txt(this.R.volv, v + '%');
+      this.poke();
+    });
 
     addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -167,7 +205,8 @@ export class Hud {
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
       if (e.key === 'm' || e.key === 'M') { this.toggle(true); return; }
       if (e.key === 'Tab' && !this.open) { e.preventDefault(); this.show(true); return; }
-      if (this.open) this.poke();
+      // shortcuts (main.js, which runs first) may have changed a setting: show it at the next update
+      if (this.open) { this.poke(); this.nextUI = 0; this.forceFull = true; }
     });
     addEventListener('resize', () => { this.sizeDirty = true; });
     document.addEventListener('fullscreenchange', () => { this.nextUI = 0; this.forceFull = true; });
@@ -275,7 +314,7 @@ export class Hud {
     else if (ds.cam) a.setCuriosity(ds.cam === '1' ? 1 : 0);
     else if (ds.q) { if (ds.q !== a.quality) this._reload(() => a.setQuality(ds.q)); }
     else if (ds.tog) this._toggle(ds.tog);
-    else if (ds.act === 'next') { a.nextZone(); this.closeSheet(false); }
+    else if (ds.act === 'next') { this._next(); this.closeSheet(false); }
     else if (ds.act === 'skiptime') a.skipTime();
     else if (ds.act === 'nextwx') a.nextWeather();
     else {
@@ -283,8 +322,11 @@ export class Hud {
         case 'dk-pause': a.togglePause(); break;
         case 'dk-slower': a.slower(); break;
         case 'dk-faster': a.faster(); break;
-        case 'dk-nextz': a.nextZone(); break;
-        case 'dk-lamp': a.setLamp(LAMP_NEXT[a.lampMode] || 'auto'); break;
+        case 'dk-nextz': this._next(); break;
+        case 'dk-lamp': case 'dk-lampq': a.setLamp(LAMP_NEXT[a.lampMode] || 'auto'); break;
+        case 'dk-id': a.setIdentify(!a.identifyOn); break;
+        case 'dk-snd': a.setSound(!a.soundOn); break;
+        case 'dk-full': a.toggleFullscreen(); break;
         case 'dk-range': txt(this.R.rangev, this.sonar.cycleRange() + ' m'); break;
         case 'dk-pin': this.pinned = !this.pinned; store.set('ocean.deck.pinned', this.pinned ? '1' : '0'); pressed(b, this.pinned); break;
         case 'dk-close': this.hide(); return;
@@ -301,6 +343,11 @@ export class Hud {
     else if (k === 'stats') a.toggleStats();
     else if (k === 'full') a.toggleFullscreen();
     else if (k === 'wake') a.setWakeLock(!a.wakeLock);
+    else if (k === 'sound') a.setSound(!a.soundOn);
+    else if (k === 'alerts') {
+      a.setAlerts(!a.alertsOn);
+      if (!a.alertsOn) this.tq = this.tq.filter((q) => q.kind !== 'new' && q.kind !== 'rare');
+    }
   }
   _arm(key) {
     this.armed = key;
@@ -308,8 +355,56 @@ export class Hud {
   }
   _zone(key, b) {
     if (this.armed !== key) { this._arm(key); return; }
+    const z = this.app.zones.find((q) => q.key === key);
+    if (!z || this.busy || this.app.jumping) return;     // double tap while a jump runs
     b.classList.add('go');
-    this._reload(() => this.app.jumpTo(key));
+    this._progress(0);
+    this._rebuild(z.label, z.subtitle || '', (p) => this.app.jumpTo(key, p))
+      .then(() => { b.classList.remove('go'); this._arm(null); });
+  }
+  // Next zone: instant while app.nextZone() is synchronous; if it returns a promise it gets the jump's cover.
+  _next() {
+    const a = this.app;
+    if (this.busy || a.jumping) return;
+    const name = a.info().nextZone;
+    this._progress(0);
+    const r = a.nextZone((f) => this._progress(f));
+    if (r && typeof r.then === 'function') this._rebuild(name, '', () => r);
+  }
+  // In-place zone change: fade to dark with the zone's name and a thin progress bar, let start(onProgress)
+  // rebuild the world (it returns a promise), then fade back in. The deck closes under the cover unless pinned.
+  async _rebuild(name, sub, start) {
+    this.busy = true;
+    txt(this.fzName, name); txt(this.fzSub, sub);
+    this.fade.classList.add('on', 'jump');
+    await new Promise((r) => setTimeout(r, this.reduced.matches ? 60 : 650));
+    if (this.pinned) this.closeSheet(false); else this.hide();
+    try { await start((f) => this._progress(f)); } catch (e) { console.error(e); }
+    this._progress(1);
+    this.busy = false;
+    this.fade.classList.remove('on');
+    setTimeout(() => { if (!this.busy) this.fade.classList.remove('jump'); }, 700);
+  }
+  _progress(f) { tf(this.fzBar, `scaleX(${Math.max(0, Math.min(1, f)).toFixed(3)})`); }
+
+  // Identify mode: name what is under a tap in a small card there; it fades after a few seconds.
+  _identify(x, y) {
+    let r = null;
+    try { r = this.app.pick(x, y); } catch (e) { console.error(e); }
+    const el = this.tag, box = this.tagBox;
+    flag(el, 'none', !r);
+    box.innerHTML = r ? `<b>${esc(r.name)}</b>${r.fact ? `<small>${esc(r.fact)}</small>` : ''}<span class="dk-k">${Math.round(r.dist)} m away</span>`
+      : '<i>nothing to identify here</i>';
+    // above the tap point (below it near the top edge), kept inside the view
+    const W = innerWidth, H = innerHeight, m = 10, w = box.offsetWidth, h = box.offsetHeight;
+    const bx = Math.max(m, Math.min(x - w / 2, W - m - w));
+    let by = y - h - 18;
+    if (by < m) by = Math.max(m, Math.min(y + 18, H - m - h));
+    el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
+    box.style.transform = `translate(${Math.round(bx - x)}px, ${Math.round(by - y)}px)`;
+    el.classList.add('on');
+    clearTimeout(this.tagT);
+    this.tagT = setTimeout(() => el.classList.remove('on'), r ? PICK_MS : PICK_NONE_MS);
   }
   // fade to the loader colour, then let the app reload the page
   _reload(fn) {
@@ -353,10 +448,11 @@ export class Hud {
     if (!r || !r.length || r[0] === this.head) return;
     let i = 0;
     while (i < r.length && r[i] !== this.head) i++;
+    const alerts = this.app.alertsOn !== false;   // "New species alerts" off: logged, but no toast (rare ones too)
     for (let j = i - 1; j >= 0; j--) {      // oldest first
       const e = r[j], rare = !!(this.app.isRare && this.app.isRare(e.name));
       if (rare) this.rare.add(e.name);
-      this.tq.push({ kind: rare ? 'rare' : 'new', name: e.name, fact: e.fact || '' });
+      if (alerts) this.tq.push({ kind: rare ? 'rare' : 'new', name: e.name, fact: e.fact || '' });
     }
     if (this.tq.length > 10) this.tq.splice(0, this.tq.length - 10);
     this.head = r[0];
@@ -416,6 +512,13 @@ export class Hud {
   // ---------- per frame ----------
   update(dt) {
     const now = performance.now();
+    const id = !!this.app.identifyOn;    // may change from the keyboard (main.js) as well as from the deck
+    if (id !== this.idOn) {
+      this.idOn = id;
+      flag(this.handle, 'on', id);
+      flag(document.body, 'dk-id', id);    // lifts the caption and note above the handle (index.html)
+      if (id) this.hint.classList.remove('on');
+    }
     if (now >= this.nextSight) { this.nextSight = now + 1000; this._checkSightings(); if (this.sheet === 'log') this._renderLog(); }
     this._toastTick(now);
     if (!this.open) return;
@@ -519,8 +622,30 @@ export class Hud {
       flag(R.paused, 'on', o.paused);
       if (this.glyph.pause !== o.paused) {
         this.glyph.pause = o.paused;
-        R.pause.innerHTML = icon(o.paused ? 'play' : 'pause');
+        R.pause.innerHTML = icon(o.paused ? 'play' : 'pause') + `<span>${o.paused ? 'PLAY' : 'PAUSE'}</span>`;
         R.pause.setAttribute('aria-label', o.paused ? 'Play' : 'Pause');
+      }
+      // quick settings: state in the icon and label (lamps on: amber; lamps off, muted: dimmed)
+      pressed(R.id, !!a.identifyOn);
+      const lm = a.lampMode;
+      if (this.glyph.lamp !== lm) {
+        this.glyph.lamp = lm;
+        R.lampq.innerHTML = icon(lm === 'on' ? 'lamp' : lm === 'off' ? 'lampoff' : 'lampauto') + `<span>LAMPS ${lm.toUpperCase()}</span>`;
+        R.lampq.className = 'dk-btn dk-mb ' + lm;
+        R.lampq.setAttribute('aria-label', `Lamps: ${lm}. Tap to cycle auto, on and off`);
+      }
+      const snd = !!a.soundOn;
+      if (this.glyph.snd !== snd) {
+        this.glyph.snd = snd;
+        R.snd.innerHTML = icon(snd ? 'sound' : 'mute') + `<span>${snd ? 'SOUND' : 'MUTED'}</span>`;
+        flag(R.snd, 'off', !snd);
+        R.snd.setAttribute('aria-label', snd ? 'Sound on. Tap to mute' : 'Sound off. Tap to turn it on');
+      }
+      const fs = !!a.fullscreen;
+      if (this.glyph.full !== fs) {
+        this.glyph.full = fs;
+        R.full.innerHTML = icon(fs ? 'exitfull' : 'full') + '<span>FULLSCREEN</span>';
+        pressed(R.full, fs);
       }
       const p = Math.round(o.pitch);
       txt(R.pitch, (p > 0 ? '+' : p < 0 ? '−' : '±') + Math.abs(p) + '°');
@@ -541,10 +666,13 @@ export class Hud {
       case 'weather': for (const b of this.wxBtns) pressed(b, b.dataset.weather === o.weatherKey); break;
       case 'log': break;
       case 'systems': {
-        for (const b of this.togs) {
-          const k = b.dataset.tog;
-          pressed(b, k === 'labels' ? a.labelsOn : k === 'captions' ? a.captionsOn : k === 'stats' ? a.statsOn : k === 'full' ? a.fullscreen : a.wakeLock);
-        }
+        for (const b of this.togs) pressed(b, !!a[TOG_STATE[b.dataset.tog]]);
+        txt(R.tg_sound, !a.soundOn ? 'off' : a.soundActive ? 'on: ambient sea sounds' : 'waiting: browsers start sound on a tap or key');
+        flag(R.tg_sound, 'ok', a.soundOn && a.soundActive);
+        const vol = Math.round(a.soundVolume * 100);
+        if (document.activeElement !== R.vol && +R.vol.value !== vol) R.vol.value = vol;
+        txt(R.volv, vol + '%');
+        flag(R.volrow, 'off', !a.soundOn);
         const supported = 'wakeLock' in navigator;
         txt(R.tg_wake, !supported ? 'not supported by this browser' : !a.wakeLock ? 'off: the screen may dim'
           : a.wakeLockActive ? 'active: the screen stays on'

@@ -245,6 +245,8 @@ function updateSightings(dt) {
 
 // ---------- the control API (used by the keyboard handler below and by hud.js) ----------
 let paused = false, statsOn = false, lampMode = 'auto';
+// viewer settings kept between visits: tap-to-identify mode (off by default) and the deck's sighting alerts
+let identifyOn = loadPref('identify', 'off') === 'on', alertsOn = loadPref('alerts', 'on') !== 'off';
 const statsEl = document.getElementById('stats'), helpEl = document.getElementById('help');
 let helpTimer = 0;
 const reloadWith = (params) => {
@@ -280,7 +282,7 @@ const app = {
   togglePause() { paused = !paused; }, setPaused(v) { paused = !!v; },
   faster() { speed = Math.min(40, speed * 1.4); }, slower() { speed = Math.max(0.5, speed / 1.4); },
   setSpeed(v) { speed = Math.min(40, Math.max(0.5, v)); },
-  nextZone() { const g = seq.segs[seq.segAt(s)]; s = g.end - 60; terrain.prime(s); },
+  nextZone() { if (jumping) return; const g = seq.segs[seq.segAt(s)]; s = g.end - 60; terrain.prime(s); },
   // Jump to a zone in place (no page reload). Returns a promise; onProgress(0..1) reports the rebuild.
   jumpTo(key, onProgress) { return jumpInPlace(key, onProgress); },
   get jumping() { return jumping; },
@@ -292,6 +294,10 @@ const app = {
   // What is under a screen point (CSS px)? Precise per-animal ray picks first, then the nearest named
   // object or set piece on screen. Returns { name, fact, dist } or null.
   pick(clientX, clientY) { return pickAt(clientX, clientY); },
+  // tap-to-identify mode: the deck sends taps on the view to pick() instead of opening itself
+  get identifyOn() { return identifyOn; }, setIdentify(v) { identifyOn = !!v; savePref('identify', identifyOn ? 'on' : 'off'); },
+  // new-species (and rare-encounter) toasts on the deck; the sightings log fills either way
+  get alertsOn() { return alertsOn; }, setAlerts(v) { alertsOn = !!v; savePref('alerts', alertsOn ? 'on' : 'off'); },
   skipTime(f = 1 / 8) { conditions.skipTime(f); }, setTime(name) { conditions.setPhase(name); },
   nextWeather() { conditions.nextWeather(); }, setWeather(k) { conditions.setWeather(k); },
   toggleLabels() { labels.toggle(); }, setLabels(v) { if (labels.on !== !!v) labels.toggle(); },
@@ -404,6 +410,8 @@ addEventListener('keydown', (e) => {
   else if (e.key === 'ArrowLeft') app.slower();
   else if (k === 'n') app.nextZone();
   else if (k === 'l') app.setLamp(lampMode === 'auto' ? 'on' : lampMode === 'on' ? 'off' : 'auto');
+  else if (k === 'd') app.setIdentify(!identifyOn);
+  else if (k === 'a') app.setSound(!soundOn);
 });
 addEventListener('mousemove', () => { helpTimer = 3; document.body.style.cursor = 'default'; });
 addEventListener('resize', () => {

@@ -18,7 +18,9 @@ Then open http://localhost:8000. (`tools/serve.py` disables caching so edited mo
 
 ## Controls
 
-Tap or click anywhere to open the **control deck**: zone, depth gauge, compass, speed, water current, temperature, visibility, clock, weather, sonar, dive log, and buttons for every function below (zones, time, weather, lamps, camera mode, quality, wake lock, share link). It hides itself when idle. Everything works by touch or mouse; the keyboard shortcuts remain.
+Tap or click anywhere to open the **control deck**: zone, depth gauge, compass, speed, water current, temperature, visibility, clock, weather, sonar, dive log, and buttons for every function below (zones, time, weather, lamps, camera mode, quality, wake lock, share link). It hides itself when idle. Everything works by touch or mouse; the keyboard shortcuts remain. The quick row beside the menu toggles identify mode, lamps, sound and fullscreen. With identify mode on, a tap names whatever is under it, and the deck opens from its handle instead. New-species alerts can be switched off under Systems.
+
+Ambient sound (generated in the browser, no audio files) starts on the first tap or key press, because browsers block autoplay.
 
 The screen is kept awake while the dive is visible (where the browser supports it; `wake=0` turns this off).
 
@@ -37,13 +39,15 @@ The share link reproduces the world (seed and starting zone) without your own se
 | `←` / `→` | slower / faster |
 | `N` | jump to the next zone |
 | `L` | camera lamps: auto / on / off |
+| `D` | identify mode: tap or click anything to name it (off by default) |
+| `A` | ambient sound on / off |
 
 ## URL parameters
 
 | Param | Meaning |
 | --- | --- |
 | `seed=<int>` | fixed world seed (default: random each load) |
-| `biome=<key>` | starting zone: `reef softcoral wall kelp seagrass mangrove sandflat pelagic cave wreck ruins vents deepplain tidepool abyss polar seamount sargassum champagne jellylake sunkenforest anemone bluehole` (default: random) |
+| `biome=<key>` | starting zone: `reef softcoral wall kelp seagrass mangrove sandflat pelagic cave wreck ruins vents deepplain tidepool abyss polar seamount sargassum champagne jellylake sunkenforest anemone bluehole otterkelp whaleshark biobay iceedge hadal` (default: random) |
 | `time=<phase>` | starting time of day: `dawn morning day afternoon dusk night` (default: random) |
 | `weather=<kind>` | lock the weather: `clear crystal overcast rain plankton surge` |
 | `day=<minutes>` | length of a full day/night cycle (default 60) |

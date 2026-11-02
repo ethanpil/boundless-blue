@@ -61,7 +61,9 @@ function speedDial() {
   return `<svg viewBox="0 0 60 33" class="dk-dialf" aria-hidden="true"><path class="dk-darc" d="M4 30A26 26 0 0 1 56 30"/><path class="dk-dred" d="M48.38 11.62A26 26 0 0 1 56 30"/><g class="dk-fticks">${t}</g></svg>`;
 }
 
-const btn = (id, ic, label, extra = '') => `<button type="button" class="dk-btn" id="${id}" aria-label="${label}" ${extra}>${icon(ic)}</button>`;
+// helm buttons keep their labels at every size; menu and quick-bar labels hide on narrow landscape screens
+const helmBtn = (id, ic, text, label) => `<button type="button" class="dk-btn dk-hb" id="${id}" aria-label="${label}">${icon(ic)}<span>${text}</span></button>`;
+const quickBtn = (id, ic, text, label, extra = '') => `<button type="button" class="dk-btn dk-mb" id="${id}" aria-label="${label}" ${extra}>${icon(ic)}<span>${text}</span></button>`;
 const menuBtn = (sheet, ic, text, label) =>
   `<button type="button" class="dk-btn dk-mb" data-sheet="${sheet}" aria-label="${label}" aria-expanded="false" aria-controls="dk-sh-${sheet}">${icon(ic)}<span>${text}</span></button>`;
 const sheetHead = (ic, title) =>
@@ -141,32 +143,41 @@ export function deckHTML(app) {
   </section>
 </div>
 
+<div class="dk-bottom">
 <section class="dk-p dk-helm" aria-label="Helm">
-  ${btn('dk-pause', 'pause', 'Pause')}
-  ${btn('dk-slower', 'minus', 'Slower')}
+  ${helmBtn('dk-pause', 'pause', 'PAUSE', 'Pause')}
+  ${helmBtn('dk-slower', 'minus', 'SLOWER', 'Slower')}
   <div class="dk-speed" aria-live="off">
     <span class="dk-dial" aria-hidden="true">${speedDial()}<i class="dk-needle dk-set" id="dk-setm"></i><i class="dk-needle" id="dk-needle"></i></span>
-    <span class="dk-spcol"><b class="dk-big" id="dk-spd">0.0</b><small>m/s</small><span class="dk-paused" id="dk-paused">PAUSED</span><span class="dk-kn" id="dk-kn">0.0 kn</span></span>
+    <span class="dk-spcol"><span class="dk-k">SPEED</span><b class="dk-big" id="dk-spd">0.0</b><small>m/s</small><span class="dk-paused" id="dk-paused">PAUSED</span><span class="dk-kn" id="dk-kn">0.0 kn</span></span>
   </div>
-  ${btn('dk-faster', 'plus', 'Faster')}
-  ${btn('dk-nextz', 'next', 'Skip to the next zone')}
+  ${helmBtn('dk-faster', 'plus', 'FASTER', 'Faster')}
+  ${helmBtn('dk-nextz', 'nextzone', 'NEXT ZONE', 'Next zone')}
 </section>
-
+<div class="dk-tools">
+<section class="dk-p dk-quick" aria-label="Quick settings">
+  ${quickBtn('dk-id', 'identify', 'IDENTIFY', 'Identify mode', 'aria-pressed="false"')}
+  ${quickBtn('dk-lampq', 'lampauto', 'LAMPS AUTO', 'Lamps: auto. Tap to cycle auto, on and off')}
+  ${quickBtn('dk-snd', 'sound', 'SOUND', 'Sound')}
+  ${quickBtn('dk-full', 'full', 'FULLSCREEN', 'Fullscreen', 'aria-pressed="false"')}
+  ${quickBtn('dk-pin', 'pin', 'PIN', 'Keep the deck open', 'aria-pressed="false"')}
+</section>
 <section class="dk-p dk-menu" aria-label="Deck menu">
   ${menuBtn('zones', 'zones', 'ZONES', 'Zones')}
   ${menuBtn('time', 'clock', 'TIME', 'Time of day')}
   ${menuBtn('weather', 'cloud', 'WEATHER', 'Weather')}
   ${menuBtn('log', 'log', 'LOG', 'Sightings log')}
   ${menuBtn('systems', 'systems', 'SYSTEMS', 'Systems and settings')}
-  <button type="button" class="dk-btn dk-mb" id="dk-pin" aria-label="Keep the deck open" aria-pressed="false">${icon('pin')}<span>PIN</span></button>
   <button type="button" class="dk-btn dk-mb" id="dk-close" aria-label="Close the deck">${icon('close')}<span>CLOSE</span></button>
 </section>
+</div>
+</div>
 
 <div class="dk-sheet" id="dk-sh-zones" role="dialog" aria-label="Zones">
   ${sheetHead('zones', 'Zones')}
   <div class="dk-sh-b">
-    <button type="button" class="dk-wbtn" data-act="next">${icon('next')}<span>Skip ahead to the next zone <small>same dive</small></span></button>
-    <p class="dk-note">Or pick a zone, then tap it again to dive there. That starts a new dive in a freshly generated ocean.</p>
+    <button type="button" class="dk-wbtn" data-act="next">${icon('nextzone')}<span>Skip ahead to the next zone <small>same dive</small></span></button>
+    <p class="dk-note">Or pick a zone, then tap it again to dive there. The dive and its log carry on in a freshly generated stretch of ocean.</p>
     <div class="dk-zgrid">${zones}</div>
   </div>
 </div>
@@ -203,6 +214,9 @@ export function deckHTML(app) {
     <div class="dk-togs">
       ${tog('labels', 'eye', 'Names', 'label creatures and objects')}
       ${tog('captions', 'cc', 'Captions', 'zone titles and notes')}
+      ${tog('alerts', 'fish', 'New species alerts', 'a card when a species is first logged, rare ones too')}
+      ${tog('sound', 'sound', 'Sound', 'ambient sea sounds')}
+      <label class="dk-vol" id="dk-volrow"><span class="dk-k">VOLUME</span><input type="range" id="dk-vol" min="0" max="100" step="1" value="60"><b id="dk-volv">60%</b></label>
       ${tog('wake', 'awake', 'Keep screen awake', 'checking…')}
       ${tog('full', 'full', 'Fullscreen', 'hide the browser')}
       ${tog('stats', 'stats', 'Stats overlay', 'frame rate and draw calls')}
@@ -223,7 +237,7 @@ export function deckHTML(app) {
       <div class="dk-dw"><span class="dk-k">GPU</span><b id="dk-gpu">—</b></div>
       <div class="dk-dw"><span class="dk-k">SEED</span><b id="dk-seed">—</b></div>
     </div>
-    <p class="dk-keys"><b>Keys</b> M deck · Space pause · ←/→ speed · N next zone · T time · W weather · I names · H captions · L lamps · S stats · F fullscreen · Esc close</p>
+    <p class="dk-keys"><b>Keys</b> M deck · Space pause · ←/→ speed · N next zone · D identify · L lamps · A sound · F fullscreen · T time · W weather · I names · H captions · S stats · Esc close</p>
   </div>
 </div>`;
 }

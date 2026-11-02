@@ -64,7 +64,7 @@
     #deck { position: fixed; inset: 0; z-index: 4; pointer-events: none; display: grid; gap: var(--dk-gap);
       padding: calc(var(--dk-pad) + var(--sa-t)) calc(var(--dk-pad) + var(--sa-r)) calc(var(--dk-pad) + var(--sa-b)) calc(var(--dk-pad) + var(--sa-l));
       grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr) auto;
-      grid-template-areas: "nav compass time" "depth . right" "helm . menu";
+      grid-template-areas: "nav compass time" "depth . right" "bar bar bar";
       font: 400 12px/1.25 var(--dk-sans); color: var(--dk-text); -webkit-user-select: none; user-select: none;
       -webkit-tap-highlight-color: transparent; opacity: 0; visibility: hidden; transition: opacity .3s ease, visibility 0s linear .3s; }
     #deck.open { opacity: 1; visibility: visible; transition: opacity .25s ease, visibility 0s; }
@@ -79,7 +79,7 @@
     .dk-big { font: 600 20px/1 var(--dk-mono); color: var(--dk-teal); text-shadow: 0 0 9px rgba(98, 240, 220, .45);
       font-variant-numeric: tabular-nums; white-space: nowrap; }
     /* panels: dark instrument glass in a brass bezel, faint scanlines, corner rivets */
-    .dk-p, .dk-sheet, #dk-toast { border: 1.5px solid transparent; border-radius: 14px; background: var(--dk-glass) padding-box, var(--dk-brass) border-box;
+    .dk-p, .dk-sheet, #dk-toast, .dk-pb { border: 1.5px solid transparent; border-radius: 14px; background: var(--dk-glass) padding-box, var(--dk-brass) border-box;
       box-shadow: 0 8px 26px rgba(0, 8, 16, .45), inset 0 1px 0 rgba(255, 255, 255, .07), inset 0 0 0 1px rgba(0, 0, 0, .55); }
     .dk-p { pointer-events: auto; position: relative; padding: 9px 11px; cursor: default; contain: layout paint;
       transition: transform .35s cubic-bezier(.2, .7, .2, 1); }
@@ -94,16 +94,21 @@
     #deck:not(.open) .dk-time { transform: translate(12px, -8px); }
     #deck:not(.open) .dk-depth { transform: translateX(-14px); }
     #deck:not(.open) .dk-right > * { transform: translateX(14px); }
-    #deck:not(.open) .dk-helm, #deck:not(.open) .dk-menu { transform: translateY(12px); }
+    #deck:not(.open) .dk-helm, #deck:not(.open) .dk-quick, #deck:not(.open) .dk-menu { transform: translateY(12px); }
     /* buttons */
     .dk-btn { min-width: 46px; height: 46px; border-radius: 12px; display: inline-grid; place-items: center; place-content: center; color: var(--dk-teal);
       background: radial-gradient(circle at 50% 28%, rgba(98, 240, 220, .17), rgba(98, 240, 220, .03) 70%), rgba(0, 0, 0, .28);
       box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .33), inset 0 -2px 0 rgba(0, 0, 0, .45); transition: background .15s, transform .1s, box-shadow .15s; }
     #deck .dk-btn:active, #deck .dk-opt:active, #deck .dk-wbtn:active, #deck .dk-zt:active, #deck .dk-tog:active { transform: scale(.96); }
-    .dk-btn[aria-pressed="true"], .dk-btn[aria-expanded="true"] { color: #1d1405; background: linear-gradient(#ffd283, #e8962c);
+    .dk-btn[aria-pressed="true"], .dk-btn[aria-expanded="true"], #dk-lampq.on { color: #1d1405; background: linear-gradient(#ffd283, #e8962c);
       box-shadow: 0 0 12px rgba(255, 181, 74, .55), inset 0 0 0 1px rgba(255, 225, 170, .85); }
+    .dk-btn[hidden] { display: none; }
     .dk-mb { width: 52px; height: 50px; gap: 3px; padding-top: 2px; }
-    .dk-mb span { font: 700 7.5px/1 var(--dk-sans); letter-spacing: .12em; }
+    .dk-hb { height: 50px; gap: 3px; padding: 2px 4px 0; box-sizing: border-box; }
+    .dk-mb span, .dk-hb span { font: 700 7.5px/1 var(--dk-sans); letter-spacing: .12em; white-space: nowrap; }
+    /* quick settings: labels carry the state (LAMPS AUTO, MUTED), so the buttons size to them */
+    .dk-quick .dk-mb { width: auto; min-width: 52px; padding: 2px 5px 0; box-sizing: border-box; }
+    #dk-lampq.off, #dk-snd.off { color: var(--dk-tdim); }
     @media (hover: hover) {
       .dk-btn:hover, .dk-opt:hover, .dk-wbtn:hover, .dk-tog:hover, .dk-mini:hover, .dk-seg button:hover { background-color: rgba(98, 240, 220, .1); }
       .dk-navbtn:hover .dk-zone, .dk-clockbtn:hover .dk-big, .dk-wxbtn:hover .dk-wxl, .dk-chip:hover b, .dk-lampbtn:hover b { color: #fff; }
@@ -228,8 +233,12 @@
     .dk-cur .dk-k { grid-column: 1 / -1; }
     .dk-curd { font: 500 10px/1 var(--dk-mono); color: var(--dk-tdim); text-align: right; white-space: nowrap; }
     .dk-cura { display: grid; width: 22px; height: 22px; color: var(--dk-teal); }
+    /* bottom bar: the helm on the left; quick settings and the menu on the right, side by side where they fit,
+       else the quick settings ride on a row above the menu */
+    .dk-bottom { grid-area: bar; align-self: end; display: flex; align-items: flex-end; justify-content: space-between; gap: var(--dk-gap); }
+    .dk-tools { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: flex-end; gap: var(--dk-gap); }
     /* helm */
-    .dk-helm { grid-area: helm; justify-self: start; align-self: end; display: flex; align-items: center; gap: 6px; padding: 6px; }
+    .dk-helm { flex: none; display: flex; align-items: center; gap: 6px; padding: 6px; }
     .dk-speed { display: flex; align-items: center; gap: 8px; padding: 0 6px; min-width: 140px; }
     .dk-dial { position: relative; width: 60px; height: 33px; flex: none; }
     .dk-dialf { display: block; width: 100%; height: 100%; overflow: visible; }
@@ -239,13 +248,14 @@
       background: var(--dk-amber); box-shadow: 0 0 5px rgba(255, 181, 74, .8); }
     .dk-needle.dk-set { width: 3px; margin-left: -1.5px; height: 29px; background: linear-gradient(var(--dk-teal) 0 6px, transparent 6px); box-shadow: none; }
     .dk-spcol { display: grid; grid-template-columns: auto auto; align-items: baseline; justify-content: start; gap: 2px 4px; }
+    .dk-spcol > .dk-k { grid-column: 1 / -1; font-size: 8px; }
     .dk-spcol small { font: 700 9px/1 var(--dk-sans); color: var(--dk-tdim); }
-    .dk-kn, .dk-paused { grid-column: 1 / -1; grid-row: 2; font: 500 10px/1.2 var(--dk-mono); color: var(--dk-tdim); white-space: nowrap; }
+    .dk-kn, .dk-paused { grid-column: 1 / -1; grid-row: 3; font: 500 10px/1.2 var(--dk-mono); color: var(--dk-tdim); white-space: nowrap; }
     .dk-paused { visibility: hidden; font: 800 9.5px/1.2 var(--dk-sans); letter-spacing: .22em; color: var(--dk-amber); }
     .dk-paused.on { visibility: visible; animation: dk-blink 1.6s ease-in-out infinite; }
     .dk-paused.on ~ .dk-kn { visibility: hidden; }
-    /* menu */
-    .dk-menu { grid-area: menu; justify-self: end; align-self: end; display: flex; gap: 5px; padding: 6px; }
+    /* quick settings and menu */
+    .dk-quick, .dk-menu { display: flex; gap: 5px; padding: 6px; }
     /* sheets (one at a time) */
     .dk-sheet { position: fixed; z-index: 1; pointer-events: auto; display: flex; flex-direction: column; box-sizing: border-box;
       right: calc(var(--dk-pad) + var(--sa-r)); bottom: calc(var(--dk-bar-m) + var(--dk-gap));
@@ -315,6 +325,11 @@
     .dk-tog[aria-pressed="true"] .dk-sw { background: rgba(98, 240, 220, .32); }
     .dk-tog[aria-pressed="true"] .dk-sw::after { transform: translateX(18px); background: linear-gradient(#fff3c4, #ffb54a); box-shadow: 0 0 8px #ffb54a; }
     .dk-tog[hidden] { display: none; }
+    .dk-vol { display: grid; grid-template-columns: auto minmax(0, 1fr) 3.2em; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border-radius: 10px;
+      background: rgba(0, 0, 0, .24); box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .2); }
+    .dk-vol input { width: 100%; height: 30px; margin: 0; accent-color: var(--dk-teal); cursor: pointer; }
+    .dk-vol b { font: 600 12px/1 var(--dk-mono); color: var(--dk-teal); text-align: right; }
+    .dk-vol.off { opacity: .5; }
     .dk-segrow { display: grid; gap: 7px; }
     .dk-segrow .dk-k { display: flex; align-items: center; gap: 6px; }
     .dk-segrow .dk-k .dk-i { width: 14px; height: 14px; }
@@ -369,13 +384,49 @@
     #dk-hint i { width: 8px; height: 8px; border-radius: 50%; background: var(--dk-teal); box-shadow: 0 0 8px var(--dk-teal); animation: dk-blink 1.8s ease-in-out infinite; }
     #dk-hint:not(.on) i { animation: none; }
     #dk-hint kbd { font: 700 10px/1 var(--dk-mono); padding: 3px 6px; border-radius: 4px; box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .55); color: var(--dk-teal); }
-    #dk-fade { position: fixed; inset: 0; z-index: 6; background: #021826; opacity: 0; pointer-events: none; transition: opacity .6s ease; }
+    #dk-fade { position: fixed; inset: 0; z-index: 6; display: grid; place-items: center; background: #021826; opacity: 0; pointer-events: none; transition: opacity .6s ease; }
     #dk-fade.on { opacity: 1; pointer-events: auto; }
+    /* in-place zone jump: the zone's name and a thin progress bar on the cover (like the loader's title card) */
+    .dk-fz { display: none; justify-items: center; gap: 14px; padding: 0 20px; text-align: center; color: #cfeef8; }
+    #dk-fade.jump .dk-fz { display: grid; }
+    .dk-fz b { font: 200 clamp(20px, 3.6vw, 42px)/1.2 var(--dk-serif); letter-spacing: .32em; padding-left: .32em; text-transform: uppercase;
+      text-shadow: 0 4px 30px rgba(0, 30, 60, .7); }
+    .dk-fz small { font: 300 12px/1.5 var(--dk-sans); letter-spacing: .3em; text-transform: uppercase; opacity: .65; }
+    .dk-fz small:empty { display: none; }
+    .dk-fbar { display: block; width: min(320px, 60vw); height: 2px; margin-top: 8px; border-radius: 2px; overflow: hidden; background: rgba(207, 238, 248, .16); }
+    .dk-fbar i { display: block; height: 100%; transform: scaleX(0); transform-origin: left; transition: transform .3s ease-out;
+      background: linear-gradient(90deg, #6fd3ee, #cfeef8); box-shadow: 0 0 8px #6fd3ee; }
+    /* identify mode: the handle that opens the deck, and the card at the tap point */
+    #dk-handle { position: fixed; z-index: 4; right: calc(12px + var(--sa-r)); bottom: calc(12px + var(--sa-b)); max-width: calc(100vw - 24px - var(--sa-l) - var(--sa-r));
+      box-sizing: border-box; display: none; align-items: center; gap: 10px; padding: 3px 3px 3px 13px; border-radius: 26px; pointer-events: none;
+      font: 500 12px/1.25 var(--dk-sans); letter-spacing: .03em; color: #d6f4f0; background: rgba(3, 22, 30, .66); box-shadow: inset 0 0 0 1px rgba(217, 181, 108, .55); }
+    #dk-handle.on { display: flex; }
+    body.deck-open #dk-handle { display: none; }
+    body.dk-id:not(.deck-open) #caption, body.dk-id:not(.deck-open) #note { translate: 0 min(0px, calc(4.5vh - 68px - var(--sa-b))); }
+    .dk-hl { display: flex; align-items: center; gap: 7px; min-width: 0; }
+    .dk-hl .dk-i { width: 18px; height: 18px; color: var(--dk-amber); }
+    #dk-handle button { pointer-events: auto; flex: none; display: flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 14px 0 11px; border: 0; border-radius: 22px;
+      font: 700 9.5px/1 var(--dk-sans); letter-spacing: .14em; color: var(--dk-teal); cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+      background: radial-gradient(circle at 50% 28%, rgba(98, 240, 220, .17), rgba(98, 240, 220, .03) 70%), rgba(0, 0, 0, .35); box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .45); }
+    #dk-handle button .dk-i { width: 18px; height: 18px; }
+    #dk-handle button:focus-visible { outline: 2px solid var(--dk-amber); outline-offset: 2px; }
+    #dk-pick { position: fixed; left: 0; top: 0; z-index: 4; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .5s, visibility 0s linear .5s; }
+    #dk-pick.on { opacity: 1; visibility: visible; transition: opacity .15s, visibility 0s; }
+    .dk-pr { position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%;
+      box-shadow: 0 0 0 1.5px var(--dk-amber), 0 0 10px rgba(255, 181, 74, .6), inset 0 0 6px rgba(255, 181, 74, .4); }
+    #dk-pick.none .dk-pr { box-shadow: 0 0 0 1.5px rgba(214, 242, 238, .55); }
+    .dk-pb { position: absolute; left: 0; top: 0; box-sizing: border-box; width: max-content; max-width: min(270px, calc(100vw - 20px)); display: grid; gap: 4px;
+      padding: 9px 13px 10px; border-radius: 12px; color: var(--dk-text); font: 12px/1.3 var(--dk-sans); }
+    .dk-pb b { font: 400 16px/1.15 var(--dk-serif); color: #f2fffd; }
+    .dk-pb small { font: italic 11.5px/1.35 var(--dk-serif); color: rgba(214, 242, 238, .85); }
+    .dk-pb .dk-k { color: var(--dk-amber); }
+    .dk-pb i { font: italic 12.5px/1.2 var(--dk-serif); color: var(--dk-tdim); }
     /* --- portrait phones and tablets: compass on its own row --- */
     @media (max-width: 899px) and (orientation: portrait) {
-      #deck { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-        grid-template-areas: "nav nav time" "compass compass compass" "depth . right" "helm helm helm" "menu menu menu"; }
-      .dk-helm, .dk-menu { justify-self: center; }
+      #deck { grid-template-columns: auto minmax(0, 1fr) auto; grid-template-rows: auto auto minmax(0, 1fr) auto;
+        grid-template-areas: "nav nav time" "compass compass compass" "depth . right" "bar bar bar"; }
+      .dk-bottom { flex-wrap: wrap; justify-content: center; }
+      .dk-tools { justify-content: center; }
       .dk-nav { width: auto; justify-self: stretch; }
       .dk-compass { width: auto; justify-self: stretch; }
       .dk-time { width: clamp(124px, 31vw, 290px); }
@@ -408,8 +459,8 @@
       .dk-row b { font-size: 11px; }
       .dk-tk { right: 19px; font-size: 8.5px; }
       /* the sonar stays top right; the environment readouts become a 3 + 2 strip under it, beside the depth gauge */
-      #deck { grid-template-rows: auto auto minmax(0, 1fr) auto auto auto;
-        grid-template-areas: "nav nav time" "compass compass compass" "depth . right" "depth env env" "helm helm helm" "menu menu menu"; }
+      #deck { grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+        grid-template-areas: "nav nav time" "compass compass compass" "depth . right" "depth env env" "bar bar bar"; }
       .dk-depth { grid-area: depth; }
       .dk-right { display: contents; }
       .dk-sonar { grid-area: right; justify-self: end; align-self: start; width: 124px; box-sizing: border-box; padding: 7px 7px 5px; }
@@ -425,13 +476,29 @@
       .dk-cell b { font-size: 12px; }
       .dk-cur { grid-column: span 2; grid-template-columns: auto auto 1fr; }
       .dk-lampbtn b { font-size: 11px; letter-spacing: -.02em; }
-      .dk-helm, .dk-menu { justify-self: stretch; justify-content: space-between; gap: 3px; padding: 5px; }
+      /* three full-width rows: helm, quick settings, menu */
+      .dk-bottom { gap: var(--dk-gap) 0; }
+      .dk-helm, .dk-tools, .dk-quick, .dk-menu { flex: 1 1 100%; }
+      .dk-helm, .dk-quick, .dk-menu { justify-content: space-between; gap: 3px; padding: 5px; }
       .dk-speed { flex: 1; justify-content: center; min-width: 0; padding: 0 2px; }
       .dk-btn { min-width: 44px; height: 46px; }
+      .dk-hb { height: 48px; padding: 2px 2px 0; }
       .dk-mb { width: auto; flex: 1 1 0; max-width: 56px; }
+      .dk-quick .dk-mb { flex: 1 1 auto; max-width: none; padding: 2px 3px 0; }
     }
     @media (max-width: 379px) and (orientation: portrait) {
       .dk-dial { display: none; }   /* dial + readout need ~162 px; the helm leaves ~146 px at 360 px wide */
+      .dk-hb span { letter-spacing: .05em; }
+      .dk-spcol { min-width: 0; }
+      .dk-kn { overflow: hidden; text-overflow: ellipsis; }
+    }
+    /* short phones: the bottom bar's three rows need the room. The trip readouts go first (the log keeps the
+       species count), then the environment strip (its lamp switch is on the quick bar) */
+    @media (max-width: 599px) and (orientation: portrait) and (max-height: 680px) {
+      .dk-trip { display: none; }
+    }
+    @media (max-width: 599px) and (orientation: portrait) and (max-height: 600px) {
+      .dk-env { display: none; }
     }
     @media (max-width: 599px) and (orientation: portrait) and (max-height: 720px) {
       .dk-sonar { width: 112px; }
@@ -443,7 +510,7 @@
     }
     /* --- narrower landscape windows: icon-only menu so the helm and menu share the bottom row --- */
     @media (max-width: 939px) and (orientation: landscape) {
-      .dk-mb { width: 46px; height: 46px; }
+      .dk-mb, .dk-quick .dk-mb { width: 46px; min-width: 46px; height: 46px; padding: 0; }
       .dk-mb span { display: none; }
     }
     /* --- short landscape (phones on their side) --- */
@@ -469,18 +536,20 @@
       .dk-right { width: auto; grid-template-columns: 124px 160px; align-items: start; }
       .dk-sonar { padding: 6px 6px 4px; }
       .dk-legend { display: none; }
-      .dk-sonrow { flex-direction: column; align-items: stretch; gap: 0; }
-      .dk-mini { justify-content: center; }
+      /* range button rides on the scope's corner: the quick settings may take a second bar row here */
+      .dk-sonrow { position: absolute; right: 1px; bottom: 1px; }
+      .dk-ncont, .dk-mini .dk-i { display: none; }
+      .dk-mini { min-width: 44px; padding: 0 6px; border-radius: 22px; font-size: 11px; background: rgba(2, 16, 22, .88); }
       .dk-bl, .dk-tk.minor { display: none; }
-      .dk-ncont { text-align: center; font-size: 10px; }
       /* environment keeps its two columns (current across both): ~130 px tall, so it fits 320 px high screens */
       .dk-cell { min-height: 34px; padding: 4px 8px; }
       .dk-cell b { font-size: 12px; }
       .dk-lampbtn { min-height: 44px; }
       .dk-lampbtn b { font-size: 11px; letter-spacing: -.02em; }
-      .dk-helm, .dk-menu { padding: 4px; gap: 4px; }
+      .dk-helm, .dk-quick, .dk-menu { padding: 4px; gap: 4px; }
       .dk-btn { min-width: 44px; height: 44px; }
-      .dk-mb { width: 46px; height: 46px; }
+      .dk-hb { height: 46px; }
+      .dk-mb, .dk-quick .dk-mb { width: 46px; min-width: 46px; height: 46px; padding: 0; }
       .dk-mb span { display: none; }
       .dk-sheet { max-height: calc(100vh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t));
         max-height: calc(100dvh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t)); }
@@ -491,10 +560,10 @@
     @media (max-height: 519px) and (max-width: 720px) {
       .dk-dial { display: none; }
       .dk-speed { min-width: 0; }
-      .dk-menu { gap: 2px; }
+      .dk-quick, .dk-menu { gap: 2px; }
     }
     @media (prefers-reduced-motion: reduce) {
-      #deck, #deck *, #deck *::before, #deck *::after, #dk-toast, #dk-hint, #dk-hint *, #dk-fade { transition-duration: 0s !important; animation: none !important; }
+      #deck, #deck *, #deck *::before, #deck *::after, #dk-toast, #dk-hint, #dk-hint *, #dk-fade, #dk-fade *, #dk-pick { transition-duration: 0s !important; animation: none !important; }
       body.deck-open #caption, body.deck-open #note { transition: opacity 3s; }
     }
   </style>
