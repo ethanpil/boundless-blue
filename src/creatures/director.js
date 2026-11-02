@@ -303,7 +303,7 @@ export class Director {
       case 'amphora-den': // an octopus peeking out of an amphora
         return !!this.spawnAt('octopus', p, { den: true, restY: p.y, n: 1 });
       case 'wreck': { // a glassfish cloud inside, resident groupers, batfish hanging off the hull
-        this.spawnAt('glassfish', p, { kind: 'shoal', homeY: p.y, n: 120 + Math.floor(r() * 100) });
+        this.spawnAt('glassfish', p, { kind: 'shoal', homeY: p.y, n: this.cloud(120 + Math.floor(r() * 100)) });
         if (r() < 0.7) this.spawnAt(r() < 0.5 ? 'goliath' : 'potatoGrouper', p, { kind: 'hover', homeY: p.y - 1, n: 1 + Math.floor(r() * 2) });
         if (r() < 0.6) this.spawnAt('batfish', p, { route: 'hold', vs: 0 });
         return true;
@@ -319,7 +319,7 @@ export class Director {
       case 'garden-eel-field':
         return !!this.spawnAt(r() < 0.7 ? 'gardenEel' : 'splendidEel', p, { kind: 'colony' });
       case 'cave-opening':
-        return !!this.spawnAt(r() < 0.5 ? 'glassfish' : 'sweeper', p, { kind: 'shoal', homeY: p.y, n: 80 + Math.floor(r() * 120) });
+        return !!this.spawnAt(r() < 0.5 ? 'glassfish' : 'sweeper', p, { kind: 'shoal', homeY: p.y, n: this.cloud(80 + Math.floor(r() * 120)) });
       case 'vent-field':
         this.spawnAt('eelpout', p, { kind: 'hover', n: 4 + Math.floor(r() * 6) });
         this.spawnAt('deepCrab', p, { n: 3 + Math.floor(r() * 5) });
@@ -344,6 +344,10 @@ export class Director {
       default: return false;
     }
   }
+
+  // Size of a set piece's fish cloud (wreck / cave glassfish: 80-220 at full size) for the quality tier: these are
+  // the largest groups in the game and every wreck has one, so low tier keeps them at about a third.
+  cloud(n) { const k = this.sys.tierScale; return Math.max(24, Math.round(n * (k < 0.7 ? 0.35 : k < 1 ? 0.6 : k > 1 ? 1 : 0.85))); }
 
   // Horizontal reach of the obstacles making up a set piece (e.g. an iceberg's underwater bulk) around its POI.
   extentAt(p, maxR = 40) {
@@ -495,7 +499,12 @@ export class Director {
     const p = { type: 'bluehole', x: H.x, y, s: H.s, r: H.R };
     this.spawnAt(r() < 0.8 ? 'reefShark' : 'blacktip', p, { kind: 'pod', route: 'circle', zone: 'mid', n: 2 + Math.floor(r() * 3), spacing: 1.3, interest: 0.85,
       orbit: { x: H.x, s: H.s, y, r: rad, w: rr(0.8, 1.15) / rad * (r() < 0.5 ? -1 : 1), a0: r() * TAU, T: 150 } });
-    const a = r() * TAU, rim = { type: 'bluehole', x: H.x + Math.cos(a) * H.R * 0.85, y: py + rr(-2, 0), s: H.s + Math.sin(a) * H.R * 0.85, r: 6 };
+    // the rim school mills over the open hole, not half inside the wall: its centre steps in from the rim until the
+    // floor a ring radius (~7 m) further out is below the bottom of its column (~8 m under its centre)
+    const a = r() * TAU, ry = py + rr(-2, 0);
+    let d = H.R * 0.85;
+    for (let k = 0; k < 16 && d > H.R * 0.4 && sh.floorAt(H.x + Math.cos(a) * (d + 7), H.s + Math.sin(a) * (d + 7)) > ry - 8; k++) d -= 1.5;
+    const rim = { type: 'bluehole', x: H.x + Math.cos(a) * d, y: ry, s: H.s + Math.sin(a) * d, r: 6 };
     this.spawnAt(r() < 0.55 ? 'jack' : r() < 0.5 ? 'barracuda' : 'fusilier', rim, { kind: r() < 0.6 ? 'mill' : 'school', route: 'hold', vs: 0, zone: 'mid', h0: rim.y - sh.pathY(rim.s) });
     if (r() < 0.7) {
       const b = a + Math.PI * (0.6 + 0.8 * r()), gp = { type: 'bluehole', x: H.x + Math.cos(b) * H.R * 0.8, y: py - rr(1, 4), s: H.s + Math.sin(b) * H.R * 0.8, r: 4 };
@@ -713,7 +722,8 @@ export class Director {
       const n2 = Math.max(1, Math.min(Math.round(plan.n * (0.2 + rng() * 0.6)), sys.maxInstances - sys.instances));
       const tris = sys.cache.map.get(sp2.key)?.tris ?? 1500;
       if (n2 * tris > sys.maxTris - sys.trisTotal) continue;
-      const p2 = { ...plan, n: n2, seed: (rng() * 4294967296) >>> 0, variant: (plan.variant ^ (k + 1) * 2654435761) >>> 0, kind: kind === 'shoal' ? undefined : kind, evade: enc.evade, fadeIn: true };
+      const p2 = { ...plan, n: n2, seed: (rng() * 4294967296) >>> 0, variant: (plan.variant ^ (k + 1) * 2654435761) >>> 0, kind: kind === 'shoal' ? undefined : kind, evade: enc.evade, fadeIn: true,
+        mixOf: enc }; // same formation: the companion's slots keep clear of the primary's (Encounter._init)
       if (kind === 'shoal') { // same patch: the companions' homes start at the primary's (structure-seeking) spot
         const s0 = -(enc.homeZ + enc.anchorZ); p2.s0 = s0; p2.l0 = enc.homeX - sys.shape.pathX(s0); p2.noSeek = true; p2.kind = 'shoal';
       }

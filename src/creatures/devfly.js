@@ -220,9 +220,12 @@ export async function spacingTest(secs = 60) {
   };
   for (let t = 0; t < secs; t += 0.5) {
     o.advance(0.5);
+    // shapes first (a new species' first build awaits a module import, during which other code may advance the
+    // simulation), then every capsule from one consistent snapshot
+    for (let e; (e = c.enc.find((x) => !_shapes.has(x.sp.key))); ) await shapeOf(e.sp);
     const E = c.enc.filter((e) => !e.done && e.kind !== 'attach');
     const C = [];
-    for (const e of E) C.push(caps(e, await shapeOf(e.sp)));
+    for (const e of E) C.push(caps(e, _shapes.get(e.sp.key)));
     samples++;
     for (let a = 0; a < E.length; a++) for (let b = a; b < E.length; b++) {
       const ea = E[a], eb = E[b], A = C[a], B = C[b];
@@ -310,6 +313,31 @@ export async function terrainTest(secs = 60, detail = false) {
   const res = { agentSamples: agents, worstCeiling: +worstC.toFixed(3), worstCeilingKey: worstCKey, ceilOver5cm: overC,
     worstFloorWall: +worstF.toFixed(3), worstFloorKey: worstFKey, floorOver5cm: overF, aboveSurface: surf, byKind, crMs: c.stats.ms.toFixed(2) };
   if (detail) res.log = log.sort((a, b) => Math.max(b.floor, b.ceil) - Math.max(a.floor, a.ceil)).slice(0, 30);
+  return res;
+}
+
+// In-frame penetration: terrainTest / obstacleTest sample the state after every correction, so a body that got deep
+// into rock and was lifted out within the frame (a visible pop) never shows there. This wraps the corrections and
+// reports how far they moved bodies (= how deep they were): _terrainFix (floor, walls, roofs) and _pushOut (rocks).
+export async function fixTest(secs = 60, detail = false) {
+  await new Promise((r) => setTimeout(r, 1500));
+  const o = window.__ocean, c = o.creatures, sh = o.shape, { Encounter } = await import('./encounter.js'), E = Encounter.prototype;
+  const tf = E._terrainFix, po = E._pushOut, st = { tf: { n: 0, over10cm: 0, over50cm: 0, worst: 0, worstKey: '' }, po: { n: 0, over10cm: 0, over50cm: 0, worst: 0, worstKey: '' } }, log = [];
+  const wrap = (f, k) => function (i, ...a) {
+    const P = this.P, i3 = i * 3, x = P[i3], y = P[i3 + 1], z = P[i3 + 2], r = f.call(this, i, ...a);
+    const d = Math.hypot(P[i3] - x, P[i3 + 1] - y, P[i3 + 2] - z), S = st[k];
+    S.n++; if (d > 0.1) S.over10cm++; if (d > 0.5) S.over50cm++;
+    if (d > S.worst) { S.worst = +d.toFixed(3); S.worstKey = `${this.sp.key}/${this.kind}/${this.route}`; }
+    if (detail && d > 0.25 && log.length < 200) {
+      const s = -(z + this.anchorZ), at = new Error().stack.split('\n').slice(2, 4).map((l) => l.trim().replace(/^at /, '').replace(/\s\(.*\//, ' (')).join(' < ');
+      log.push({ k, t: +c.director.clock.toFixed(1), key: `${this.sp.key}/${this.kind}`, route: this.route, i, d: +d.toFixed(2), y: +y.toFixed(2), fl: +sh.floorAt(x, s).toFixed(2), ny: +P[i3 + 1].toFixed(2), sz: +this.SZ[i].toFixed(2), age: +this.age.toFixed(1), at });
+    }
+    return r;
+  };
+  E._terrainFix = wrap(tf, 'tf'); E._pushOut = wrap(po, 'po');
+  try { for (let t = 0; t < secs; t += 0.5) { o.advance(0.5); await yieldUI(); } } finally { E._terrainFix = tf; E._pushOut = po; }
+  const res = { ...st, crMs: c.stats.ms.toFixed(2) };
+  if (detail) res.log = log.sort((a, b) => b.d - a.d).slice(0, 30);
   return res;
 }
 

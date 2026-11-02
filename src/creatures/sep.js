@@ -116,7 +116,7 @@ export class Separation {
       H[i] = h; R[i] = r;
       // inverse-mass style weight: anchored animals never move, resting ones are heavy
       const fl = floorKinds && ON_FLOOR(e, i); FL[i] = fl ? 1 : 0;
-      M[i] = stat ? 0 : s * s * s * (fl ? 6 : 1);
+      M[i] = stat || e.SB[i] ? 0 : s * s * s * (fl ? 6 : 1); // (wedged this frame: holds still, see Encounter._applySep)
       const x = h + r + 0.35 * s; if (x > ext) ext = x;
       if (cx < x0) x0 = cx; if (cx > x1) x1 = cx; if (cy < y0) y0 = cy; if (cy > y1) y1 = cy; if (cz < z0) z0 = cz; if (cz > z1) z1 = cz;
     }
@@ -211,13 +211,17 @@ export class Separation {
     const CA = va.C, CB = vb.C, HA = va.H, RA = va.R, HB = vb.H, RB = vb.R, ZA = va.Z, OA = va.O, OB = vb.O, na = a.n, nb = b.n, extB = vb.ext;
     // only the stretch of x where both boxes overlap matters
     const xl = Math.max(va.x0, vb.x0), xh = Math.min(va.x1, vb.x1);
+    // the sweep's start only moves past b's members that no member of a can reach any more: each agent's own reach
+    // varies with its size, so `x - reach` is not monotonic along a's order (a big adult after a juvenile skipped
+    // the partners the juvenile had left behind, and those cross-group pairs were never tested)
+    const reachA = va.ext + mg + extB;
     let start = 0;
     for (let p = 0; p < na; p++) {
       const i = OA[p], x = CA[i * 3];
       if (x < xl - va.ext) continue;
       if (x > xh + va.ext) break;
       const y = CA[i * 3 + 1], z = CA[i * 3 + 2] - dz, ei = HA[i] + RA[i] + gapK * ZA[i] + mg, reach = ei + extB;
-      while (start < nb && CB[OB[start] * 3] < x - reach) start++;
+      while (start < nb && CB[OB[start] * 3] < x - reachA) start++;
       for (let q = start; q < nb; q++) {
         const j = OB[q], ddx = CB[j * 3] - x;
         if (ddx > reach) break;
@@ -234,6 +238,7 @@ export class Separation {
     this.stats.pairs = 0;
     const act = this._act || (this._act = []);
     act.length = 0;
+    for (const e of list) if (e.nBlk) { e.SB.fill(0); e.nBlk = 0; } // wedge flags last one frame
     for (const e of list) {
       if (e.done || e.kind === 'attach' || !e.SC) continue;
       // capsules only change when the group moved (simulated this frame, or pushed by the last pass)
@@ -264,16 +269,28 @@ export class Separation {
     for (const e of act) if (e.sepDue) e.sepT = e.age;
     let pushes = 0;
     for (const e of act) if (e.SV.hit) pushes += e._applySep(c);
-    // a second relaxation round inside the groups that moved (pushes from several neighbours partly cancel)
+    // a second relaxation round inside the groups that moved (pushes from several neighbours partly cancel), and
+    // between pairs of them: mixed-species companions share one formation, and the hard constraints re-applied after
+    // a push (terrain, rocks, camera) moved members back into the other group's fish with no cross-group re-check
     const again = this._again || (this._again = []);
     again.length = 0;
     for (const e of act) if (e.SV.hit && !STATIC.has(e.kind)) { this._fill(e); e.sepMoved = false; again.push(e); } // pushed by a neighbour group too
-    for (let round = 0; round < 2 && again.length; round++) {
+    // (three rounds: an animal found wedged after one round holds still in the next, see Encounter._applySep)
+    for (let round = 0; round < 3 && again.length; round++) {
       for (const e of again) { this.margin = e.sepMg; this._withinSome(e, e.SMV, e.nMoved); }
+      for (let p = 0; p < again.length; p++) {
+        const a = again[p], va = a.SV;
+        for (let q = p + 1; q < again.length; q++) {
+          const b = again[q], vb = b.SV, dz = b.anchorZ - a.anchorZ;
+          if (va.x0 > vb.x1 || vb.x0 > va.x1 || va.y0 > vb.y1 || vb.y0 > va.y1 || va.z0 > vb.z1 + dz || vb.z0 + dz > va.z1) continue;
+          this.margin = Math.max(a.sepMg, b.sepMg);
+          this._across(a, b);
+        }
+      }
       this.margin = 0;
       let k = 0;
-      for (const e of again) if (e.SV.hit) { pushes += e._applySep(c); if (round === 0) { this._fill(e); e.sepMoved = false; again[k++] = e; } }
-      again.length = round === 0 ? k : 0;
+      for (const e of again) if (e.SV.hit) { pushes += e._applySep(c); if (round < 2) { this._fill(e); e.sepMoved = false; again[k++] = e; } }
+      again.length = round < 2 ? k : 0;
     }
     this.stats.pushes = pushes;
     this.stats.ms = this.stats.ms * 0.95 + (performance.now() - t0) * 0.05;
