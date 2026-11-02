@@ -602,6 +602,34 @@
   <div id="note"></div>
   <div id="caption"></div>
   <div id="stats"></div>
+  <script>
+    // If the app's modules fail to load or link, the title card would sit at 0% forever. The usual cause is a
+    // browser mixing files cached before an update with new ones (GitHub Pages lets each file be cached for
+    // 10 minutes). Then re-fetch every script from the network and reload once; if it still fails, show the error.
+    (function () {
+      var err = '', KEY = 'boundlessBlue.retried';
+      addEventListener('error', function (e) {
+        if (!err) err = e.message || (e.target && e.target.src ? 'could not load ' + e.target.src : 'a script failed');
+      }, true);
+      addEventListener('load', function () {
+        setTimeout(function () {
+          var retried = false;
+          try { retried = sessionStorage.getItem(KEY) === '1'; } catch (e) { /* private mode */ }
+          if (window.__ocean && window.__ocean.ready) { try { sessionStorage.removeItem(KEY); } catch (e) { /* ignore */ } return; }
+          var txt = document.getElementById('ld-txt');
+          if (!retried) {
+            try { sessionStorage.setItem(KEY, '1'); } catch (e) { /* ignore */ }
+            if (txt) txt.textContent = 'fetching the latest version…';
+            var urls = performance.getEntriesByType('resource').map(function (r) { return r.name; })
+              .filter(function (u) { return u.indexOf(location.origin) === 0 && /\.js(\?|$)/.test(u); });
+            urls.push(location.href);
+            Promise.all(urls.map(function (u) { return fetch(u, { cache: 'reload' }).catch(function () {}); }))
+              .then(function () { location.reload(); });
+          } else if (txt) txt.textContent = 'could not start: ' + (err || 'unknown error') + ' — please reload';
+        }, 1500);
+      });
+    })();
+  </script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

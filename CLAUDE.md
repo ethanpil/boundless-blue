@@ -35,6 +35,7 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - Terrain marks opaque prop meshes as casting and receiving shadows. The floor only receives.
   - Shadow depth ignores vertex sway, so swaying plants cast static shadows. This is an accepted trade-off.
 - **Distance softening:** the composite pass mixes in a quarter-res blurred scene by view depth (turbidity).
+- **Load guard** (inline script in index.html): GitHub Pages lets each file be cached for 10 minutes (`max-age=600`), so right after a deploy a browser can link a new module against an old cached one; the import fails and main.js never runs (the title card sat at 0% forever). If `window.__ocean.ready` is missing 1.5 s after `load`, the guard re-fetches every loaded script with `cache: 'reload'` and reloads once (sessionStorage flag), then shows the error on the title card.
 - **Dev server:** `python -m http.server` let the browser serve stale ES modules, so use a server that sends `Cache-Control: no-store`.
 
 - **World workers** (`src/worker/`): 1-3 module workers (`WorkerPool`, hardwareConcurrency - 2) build the chunk heightfields and vertex data, the sky map and the noise texture; the main thread wraps the typed arrays in geometry and runs the populators.
