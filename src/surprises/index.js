@@ -1,7 +1,8 @@
 // Rare surprise encounters: recreational divers who wave at the camera, a research submersible, a
 // tethered ROV at work, an autonomous ocean glider and — very rarely — a leviathan out in the murk.
 //
-// Contract (main.js): new Surprises(world, env); update(dt, time, cam); subjects(out); labels(out).
+// Contract (main.js): new Surprises(world, env); update(dt, time, cam); subjects(out); labels(out); reset() (zone jump);
+// pickRay(ox, oy, oz, dx, dy, dz, maxDist) (tap to identify).
 // Scheduling runs on simulation time and is never reset by zone changes; the remaining time of every
 // timer is also kept in localStorage, so jumping zones (which reloads the page) keeps the rhythm.
 // A due surprise waits for an eligible zone and a safe lane, is built in small steps across frames,
@@ -261,6 +262,47 @@ export class Surprises {
 
   subjects(out) { const a = this.active; if (a && !a.done) a.subjects(out); return out; }
   labels(out) { const a = this.active; if (a && !a.done) a.labels(out); return out; }
+
+  // Zone jump (app.jumpTo): the encounter on screen (or being built / compiled) ends at once, its obstacles are released
+  // and its particles dropped. The schedule keeps running (due times are simulation time): the next check waits a few
+  // seconds, so nothing pops up the moment the new zone appears.
+  reset() {
+    for (const inst of [this.active, this.ready, this._compiling, this.building && this.building.inst]) if (inst) this._end(inst, false);
+    this.active = null; this.ready = null; this._compiling = null; this.building = null;
+    if (this.fx) this.fx.clear();
+    this.checkT = 6; this._lastS = undefined;
+    if (this._forced && this._forced.t < 3) this._forced.t = 3;
+  }
+
+  // Tap to identify: the active encounter's meshes hit by the ray (origin in GLOBAL coordinates, z = -s), else its
+  // subjects' bounding spheres; named after the nearest of its labels. { name, fact, dist } or null.
+  pickRay(ox, oy, oz, dx, dy, dz, maxDist = 120) {
+    const a = this.active, c = this.cam;
+    if (!a || a.done || !a.root || !c) return null;
+    const Oz = c.Oz || 0, rc = this._rc || (this._rc = new THREE.Raycaster());
+    rc.ray.origin.set(ox, oy, oz - Oz); rc.ray.direction.set(dx, dy, dz); rc.far = maxDist;
+    const hits = this._hits || (this._hits = []); hits.length = 0;
+    let dist = 1e9, hx = 0, hy = 0, hz = 0;
+    try { rc.intersectObject(a.root, true, hits); } catch (e) { hits.length = 0; }
+    if (hits.length) { dist = hits[0].distance; hx = ox + dx * dist; hy = oy + dy * dist; hz = oz + dz * dist; }
+    else {
+      const sub = this._subs || (this._subs = []); sub.length = 0;
+      a.subjects(sub);
+      for (const e of sub) {
+        const bx = e.x - ox, by = e.y - oy, bz = e.z - oz, t = bx * dx + by * dy + bz * dz, r = (e.r || 1) * 1.2 + 0.02 * Math.max(t, 0);
+        if (t < 0 || t > Math.min(dist, maxDist)) continue;
+        const qx = bx - dx * t, qy = by - dy * t, qz = bz - dz * t;
+        if (qx * qx + qy * qy + qz * qz > r * r) continue;
+        dist = t; hx = e.x; hy = e.y; hz = e.z;
+      }
+    }
+    if (dist > maxDist) return null;
+    const labs = this._labs || (this._labs = []); labs.length = 0;
+    a.labels(labs);
+    let best = null, bd = 1e18;
+    for (const l of labs) { const d = (l.x - hx) ** 2 + (l.y - hy) ** 2 + (l.z - hz) ** 2; if (d < bd) { bd = d; best = l; } }
+    return best ? { name: best.name, fact: best.fact || '', dist } : null;
+  }
 
   // ---------- debug API ----------
   /**

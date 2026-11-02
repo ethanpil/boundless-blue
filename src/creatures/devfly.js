@@ -266,7 +266,7 @@ export async function spacingTest(secs = 60) {
 // instance matrix, against the rendered floor / ceiling (and the sea surface) every 0.5 s.
 // Every kind is checked against ceilings (cave roofs, ice); animals that sit on or in the floor by design
 // (resting, walking, beds, garden eels, morays in their holes, remoras) are exempt from the floor check.
-const SWIM = new Set(['school', 'bait', 'mill', 'solo', 'pod', 'shoal', 'hover', 'drift']);
+const SWIM = new Set(['school', 'bait', 'mill', 'solo', 'pod', 'shoal', 'hover', 'drift', 'otter']);
 export async function terrainTest(secs = 60, detail = false) {
   await new Promise((r) => setTimeout(r, 1500));
   const o = window.__ocean, c = o.creatures, sh = o.shape;
@@ -381,6 +381,48 @@ export async function presenceTest(secs = 120) {
     emptyFrames: `${((100 * empty) / samples).toFixed(1)}%`, closePassesPerMin: +(close.size / mins).toFixed(1), closeSpecies: closeSp.size,
     closeDist: ds.length ? { min: +ds[0].toFixed(2), median: +ds[Math.floor(ds.length / 2)].toFixed(2) } : null,
     closeBySpecies: closeBySp, minLensToBody: +minSurf.toFixed(2), minKey, crMs: c.stats.ms.toFixed(2), groups: c.enc.length, inst: c.instances };
+}
+
+// Turning: per species of elongated swimmers >= minSize m, the yaw rate (deg/s: max and 95th percentile), yaw
+// acceleration, pitch rate, largest heading change in one frame and sideslip (angle between the horizontal displacement
+// over the frame, as drawn, and the heading while moving > 0.3 m/s), sampled at 30 fps over `secs`. A big animal should
+// turn at a few deg/s, not spin.
+// clearCam > 0: sideslip only counted while the animal is more than clearCam m outside its camera bubble (the bubble
+// shoves bodies that would touch the lens sideways, a hard constraint that turning cannot always avoid in time).
+export async function turnTest(secs = 60, minSize = 0.9, clearCam = 0) {
+  const o = window.__ocean, c = o.creatures, prev = new Map(), stat = {}, step = 1 / 30;
+  for (let k0 = 0, t = 0; t < secs; t += step, k0++) {
+    o.advance(step);
+    for (const e of c.enc) {
+      // (groups beyond 25 m or out of view are simulated at a third of the rate: one step covers several frames)
+      if (e.done || e.baseSize < minSize || !e.elong || e.kind === 'walk' || e.kind === 'attach' || e.kind === 'drift' || e.dist > 24 || !e.visible) continue;
+      for (let i = 0; i < e.n; i++) {
+        const k = e.uid * 1000 + i, F = e.F, V = e.V, i3 = i * 3;
+        const psi = Math.atan2(F[i3], F[i3 + 2]), th = Math.asin(Math.max(-1, Math.min(1, F[i3 + 1]))), p = prev.get(k), sp = Math.hypot(V[i3], V[i3 + 1], V[i3 + 2]);
+        const P = e.P, x = P[i3], z = P[i3 + 2];
+        if (p && p.k === k0 - 1 && Math.hypot(F[i3], F[i3 + 2]) > 0.3) {
+          let d = psi - p.psi; d -= Math.PI * 2 * Math.round(d / (Math.PI * 2));
+          const w = d / step, a = Math.abs(w - p.w) / step, dp = Math.abs(th - p.th) / step;
+          const s = stat[e.sp.key] || (stat[e.sp.key] = { L: +e.baseSize.toFixed(1), maxYawDegS: 0, p95YawDegS: [], maxYawAccDegS2: 0, maxPitchDegS: 0, maxDegPerFrame: 0, slipMaxDeg: 0, slips: [], n: 0 });
+          s.n++; s.maxYawDegS = Math.max(s.maxYawDegS, Math.abs(w) * 57.3); s.maxYawAccDegS2 = Math.max(s.maxYawAccDegS2, a * 57.3); s.maxPitchDegS = Math.max(s.maxPitchDegS, dp * 57.3);
+          s.maxDegPerFrame = Math.max(s.maxDegPerFrame, Math.abs(d) * 57.3);
+          if (s.p95YawDegS.length < 6000) s.p95YawDegS.push(Math.abs(w) * 57.3);
+          const mx = x - p.x, mz = z - p.z, hv = Math.hypot(mx, mz) / step, hf = Math.hypot(F[i3], F[i3 + 2]);
+          const cd = Math.hypot(x - c.ctx.x, P[i3 + 1] - c.ctx.y, e.anchorZ + z - c.ctx.z) - e.hardR - e.SZ[i] * 0.2;
+          if (sp > 0.3 && hv > 0.25 && cd > clearCam) { const sl = Math.acos(Math.max(-1, Math.min(1, (mx * F[i3] + mz * F[i3 + 2]) / (hv * step) / hf))) * 57.3; s.slipMaxDeg = Math.max(s.slipMaxDeg, sl); if (s.slips.length < 6000) s.slips.push(sl); }
+          prev.set(k, { psi, th, k: k0, w, x, z });
+        } else prev.set(k, { psi, th, k: k0, w: 0, x, z });
+      }
+    }
+    if (k0 % 30 === 0) await yieldUI();
+  }
+  for (const k in stat) {
+    const s = stat[k], a = s.p95YawDegS.sort((x, y) => x - y);
+    s.p95YawDegS = +(a[Math.floor(a.length * 0.95)] || 0).toFixed(1);
+    const b = s.slips.sort((x, y) => x - y); delete s.slips; s.p95SlipDeg = +(b[Math.floor(b.length * 0.95)] || 0).toFixed(1);
+    for (const q of ['maxYawDegS', 'maxYawAccDegS2', 'maxPitchDegS', 'maxDegPerFrame', 'slipMaxDeg']) s[q] = +s[q].toFixed(1);
+  }
+  return stat;
 }
 
 // Terrain + spacing audit in one go (stores the result in window.__audit as well).

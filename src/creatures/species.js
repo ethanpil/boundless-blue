@@ -1291,6 +1291,153 @@ S.blueWhale.interest = 1;
 for (const k in SPECIES) { const x = SPECIES[k]; if (x && (x.scars === 0.9 || (x.pat && x.pat[0] === 24) || (x.pat2 && x.pat2[0] === 24) || ['guitarfish', 'harbourSeal', 'seaLion', 'leopardSeal', 'weddellSeal', 'saltwaterCroc', 'hagfish', 'moray', 'spotMoray', 'morayNight', 'gardenEel', 'splendidEel', 'pipefish', 'puffer', 'boxfish', 'sargassumfish', 'eelpout', 'dragonfish', 'blenny', 'needlefish'].includes(k))) x.gill = false; }
 for (const k of ['sargassumfish', 'juvTrigger', 'filefish']) S[k].mat = true; // cling to / shelter under the floating weed
 
+// ---------- five more zones: otter coast, whale shark grounds, bioluminescent bay, ice edge, hadal trench ----------
+// Sea otter: round head, thick furry body, a flattened tail (~1/4 of the length), small forepaws and big webbed hind
+// feet. Floats on its back at the surface (Encounter._otter rolls it belly up) and dives to the rocky bottom to forage.
+const OTTER = fish({
+  det: 2,
+  body: { ...ST([0, 0.02, 0.05, 0.085, 0.12, 0.16, 0.24, 0.34, 0.46, 0.56, 0.63, 0.68, 0.76, 0.86, 0.94, 0.98],
+    [0.01, 0.024, 0.037, 0.046, 0.044, 0.048, 0.062, 0.07, 0.068, 0.058, 0.042, 0.026, 0.019, 0.014, 0.008, 0],
+    [0.008, 0.02, 0.032, 0.042, 0.043, 0.048, 0.065, 0.075, 0.072, 0.058, 0.038, 0.018, 0.013, 0.01, 0.006, 0],
+    [0.014, 0.028, 0.042, 0.052, 0.048, 0.056, 0.08, 0.09, 0.086, 0.07, 0.05, 0.036, 0.036, 0.031, 0.018, 0]), n: 2.1 },
+  fins: {
+    dorsal: null, anal: null, pelv: null, caudal: null,
+    pect: { t: 0.2, span: 0.03, a: -0.9, aSpan: 0, h: 0.065, dip: 1.0, sweep: 0.25, shape: 'paddle', thick: 0.22, inset: 0.9 },
+    flip2: { t: 0.63, span: 0.045, a: -0.45, h: 0.15, dip: 0.45, sweep: 1.8, shape: 'flipper', thick: 0.1, part: 7 },
+  },
+  eye: { t: 0.055, v: 0.42, r: 0.0085, axis: [1, 0.3, 0.6] },
+  // dark brown fur, the head and face grizzled pale (older animals almost white)
+  col: C(0x4e3726, 0x5e4432, 0xd2c2a8, 0x33251a, 0x664c3a, 0x120c08), pat: [22, 0.155, 1.0], pat2: [6, 14, 0.55], cs: [0.1, 0.08],
+  sheen: 0.08, rough: 0.8, iris: 0.15,
+  mot: { mode: 1, amp: 0.05, waves: 0.6, c0: 0.12, beat: 1.1, idle: 0.3 },
+  beh: { kind: 'otter', n: [1, 4], speed: [0.6, 1.0], zone: 'surface', spread: 7, dist: [6, 30] }, size: [1.15, 1.4], interest: 0.95,
+});
+Object.assign(SPECIES, {
+  // ---- otter coast ----
+  seaOtter: OTTER,
+  seaOtterUrchin: merge(OTTER, { extra: { urchin: { t: 0.33, r: 0.034 } }, col: { a: 0x3a1640 }, beh: { n: [1, 1], noDive: true } }),
+  seaOtterMom: merge(OTTER, { beh: { n: [1, 1], noDive: true, pup: true } }),
+  // the pup rides on its mother's chest (kind 'attach', see Encounter._init): paler, fluffier, too buoyant to dive
+  seaOtterPup: merge(OTTER, { det: 1, col: C(0x8a7058, 0xa88a6c, 0xd8c8b0, 0x6a523e, 0x9a7e62, 0x120c08), beh: { kind: 'attach', n: [1, 1], ride: true }, size: [0.5, 0.6] }),
+  kelpRockfish: fish({
+    det: 1,
+    body: { depth: 0.32, width: 0.45, tm: 0.34, nose: 0.7, tail: 1.4, ped: 0.12, snout: 0.1 },
+    fins: { dorsal: [{ t0: 0.24, t1: 0.5, h: 0.12, shape: 'spiny', spikes: 12 }, { t0: 0.52, t1: 0.72, h: 0.09, shape: 'round' }], anal: [{ t0: 0.58, t1: 0.72, h: 0.08 }],
+      pect: { h: 0.16, shape: 'paddle', dip: 0.4 }, caudal: { shape: 'truncate', size: 0.18 } },
+    eye: { r: 0.042 },
+    col: C(0x6a5a3e, 0xd8c8a8, 0x3a2e1e, 0x7a6644, 0xb89a6a, 0x5a4a30), pat: [6, 6, 0.5], pat2: [3, 20, 0.2], cs: [-0.2, 0.15], sheen: 0.15, rough: 0.5,
+    mot: { amp: 0.04, beat: 1.0, idle: 0.5 },
+    // hangs motionless among the kelp stipes, often head-up
+    beh: { ...HOVER, n: [1, 4], zone: 'mid', alt: [1, 5], speed: [0.03, 0.15], spread: 5 }, size: [0.25, 0.4],
+  }),
+  // ---- whale shark grounds ----
+  whaleSharkFeed: merge(S.whaleShark, {
+    extra: { gape: { t: 0.03, w: 0.88, h: 0.75, d: 0.022 } },
+    beh: { kind: 'solo', n: [1, 2], speed: [0.35, 0.7], zone: 'surface', dist: [10, 40], routes: { cross: 2, oncoming: 2, along: 1, overtake: 0 } },
+    size: [7, 11], hl: false, interest: 1, swarm: 2,
+  }),
+  mantaFeed: merge(S.manta, { beh: { n: [1, 3], over: [-5, -2.5] }, hl: false, interest: 0.95, swarm: 2 }),
+  cobia: fish({
+    det: 2,
+    body: { depth: 0.16, width: 0.8, tm: 0.36, nose: 0.7, noseB: 0.6, tail: 1.3, ped: 0.08, tEnd: 0.8, snout: -0.05 },
+    fins: { dorsal: [{ t0: 0.28, t1: 0.42, h: 0.025, shape: 'spiny', spikes: 8 }, { t0: 0.46, t1: 0.7, h: 0.07, shape: 'falcate', sweep: 0.7 }], anal: [{ t0: 0.52, t1: 0.7, h: 0.06, shape: 'falcate' }],
+      pect: { h: 0.14, shape: 'falcate', dip: 0.25, sweep: 1.2 }, caudal: { shape: 'lunate', size: 0.22 } },
+    eye: { r: 0.018 },
+    col: C(0x3a2e24, 0xe8e2d4, 0xd8cdb8, 0x2e241c, 0x15110d), pat: [12, 0.12, 0.06], cs: [-0.15, 0.3], sheen: 0.35,
+    beh: { kind: 'pod', n: [1, 3], speed: [0.5, 1.2], zone: 'mid', dist: [4, 20], routes: { cross: 1, along: 1 } }, size: [1.0, 1.5],
+  }),
+  // young golden trevally ride the bow wave in front of a whale shark's mouth
+  goldenTrevally: merge(S.jack, {
+    col: C(0xe8c030, 0xf6e6a0, 0x1a1408, 0xf0c838, 0, 0x101010), pat: [1, 7, 0.28], sheen: 0.6,
+    beh: { kind: 'school', n: [4, 10], speed: [0.5, 1.0], zone: 'mid', routes: { hold: 1 } }, size: [0.15, 0.28],
+  }),
+  // ---- bioluminescent bay ----
+  mullet: fish({
+    det: 0,
+    body: { depth: 0.22, width: 0.62, tm: 0.33, nose: 0.55, tail: 1.4, ped: 0.11, snout: -0.05, n: 2.3 },
+    fins: { dorsal: [{ t0: 0.36, t1: 0.44, h: 0.07, shape: 'spiny', spikes: 4 }, { t0: 0.58, t1: 0.66, h: 0.06, shape: 'tri' }], anal: [{ t0: 0.58, t1: 0.67, h: 0.05 }], caudal: { shape: 'forked', size: 0.2 } },
+    col: C(0x4a5a64, 0xe6eaec, 0x2e3a42, 0x5a6870), pat: [2, 9, 0.2], sheen: 0.85, eye: { r: 0.04 },
+    beh: { ...SCHOOL, n: [15, 45], speed: [0.4, 0.9], zone: 'mid', routes: { hold: 2, cross: 1, along: 1 } }, size: [0.3, 0.5],
+  }),
+  // ---- ice edge ----
+  narwhalF: merge(S.narwhal, { extra: { bill: null }, size: [3.6, 4.2] }), // most females carry no tusk
+  bowhead: merge(CETACEAN, {
+    // a huge bowed head about a third of the body, the arched mouthline, no dorsal fin, a white chin
+    body: { ...ST([0, 0.02, 0.06, 0.12, 0.2, 0.28, 0.36, 0.46, 0.58, 0.7, 0.8, 0.88, 0.93],
+      [0.02, 0.06, 0.09, 0.105, 0.11, 0.105, 0.11, 0.115, 0.105, 0.08, 0.05, 0.025, 0],
+      [0.02, 0.05, 0.085, 0.11, 0.12, 0.12, 0.115, 0.11, 0.095, 0.07, 0.04, 0.02, 0],
+      [0.02, 0.05, 0.08, 0.1, 0.11, 0.115, 0.12, 0.12, 0.105, 0.075, 0.04, 0.018, 0],
+      [0.02, 0.03, 0.025, 0.015, 0.008, 0.004, 0, 0, 0, 0, 0, 0, 0]), n: 2.2, bumps: [['t', 0.3, 0.04, -0.06]] },
+    fins: { dorsal: null, flip: { t: 0.32, span: 0.04, a: -0.6, h: 0.1, dip: 0.6, sweep: 0.7, shape: 'paddle', thick: 0.1, part: 7 }, caudal: { shape: 'fluke', size: 0.15 } },
+    eye: { t: 0.27, v: -0.35, r: 0.004 },
+    col: C(0x111214, 0x15161a, 0xe8e8e2, 0x111214), pat: [22, 0.1, 2.5], cs: [-0.6, 0.1], sheen: 0.15, rough: 0.35,
+    mot: { amp: 0.04, waves: 0.55, beat: 0.55, idle: 0.08 },
+    beh: { ...GIANT, n: [1, 1], speed: [0.8, 1.4], dist: [25, 60], over: [-14, -7] }, size: [14, 17], hl: true, hemi: 'N', scars: 0.5, interest: 1,
+  }),
+  ringedSeal: merge(S.harbourSeal, {
+    col: C(0x5a5e62, 0xb8bab6, 0xc0c2be, 0x4e5256, 0x2a2c30, 0x101010), pat: [26, 12, 0.42], pat2: [3, 12, 0.2], size: [1.1, 1.5],
+    beh: { n: [1, 2], speed: [0.8, 1.8] }, hemi: 'N',
+  }),
+  harpSeal: merge(S.harbourSeal, {
+    col: C(0xb8bcc0, 0xe6e8e8, 0x1a1c20, 0x9aa0a4, 0x1a1c20, 0x101010), pat: [22, 0.12, 0.5], pat2: [21, 3.5, 0.45], cs: [0.1, 0.3], size: [1.6, 1.9],
+    beh: { n: [1, 3] }, hemi: 'N',
+  }),
+  // polar cod sheltering in the cracks and hollows under the pack ice
+  // (a loose, slow shoal a metre or two under the floes: hugging the ice, a big school ran the exact terrain fix for
+  // every fish every frame, ~10 ms)
+  arcticCodIce: merge(S.arcticCod, { beh: { kind: 'shoal', n: [20, 50], zone: 'ceiling', alt: [1.0, 2.6], spread: 5, speed: [0.1, 0.3], loose: true }, hemi: 'N' }),
+  seaAngel: fish({
+    det: 0, translucent: true,
+    body: { depth: 0.3, width: 0.75, tm: 0.3, nose: 0.5, tail: 1.1, ped: 0.05, tEnd: 0.9, n: 2.0 },
+    fins: { dorsal: null, anal: null, pelv: null, caudal: null, pect: null, flip: { t: 0.18, span: 0.06, a: 0, h: 0.32, dip: 0.0, sweep: 0.15, shape: 'wing', thick: 0.04, part: 7 } },
+    eye: null,
+    // glassy body, the orange-red gut and head showing through; flaps two wing-like lobes (pteropod)
+    col: C(0xd8e4f0, 0xe0eaf4, 0xff6a30, 0xd8e8f4, 0, 0xff6a30), pat: [22, 0.32, 0], cs: [-2, 0], sheen: 0.6, rough: 0.3,
+    mot: { mode: 3, amp: 0.9, waves: 0, c0: 0, beat: 0, idle: 2.2 },
+    beh: { kind: 'drift', n: [12, 30], speed: [0.03, 0.08], zone: 'mid', spread: 12, tilt: 0.6 }, size: [0.03, 0.05], interest: 0.55,
+  }),
+  // ---- hadal trench ----
+  snailfish: fish({
+    det: 1, translucent: true,
+    body: { ...ST([0, 0.03, 0.07, 0.12, 0.18, 0.26, 0.36, 0.48, 0.6, 0.72, 0.84, 0.94, 1.0],
+      [0.03, 0.07, 0.095, 0.11, 0.115, 0.11, 0.095, 0.075, 0.055, 0.038, 0.022, 0.01, 0],
+      [0.03, 0.07, 0.1, 0.115, 0.12, 0.112, 0.095, 0.072, 0.05, 0.034, 0.02, 0.009, 0],
+      [0.04, 0.075, 0.095, 0.105, 0.105, 0.095, 0.08, 0.06, 0.042, 0.028, 0.016, 0.008, 0]), n: 2.0 },
+    fins: { dorsal: [{ t0: 0.3, t1: 0.99, h: 0.06, shape: 'long', sweep: 0.3 }], anal: [{ t0: 0.36, t1: 0.99, h: 0.055, shape: 'long', sweep: 0.3 }],
+      pect: { t: 0.2, span: 0.06, a: -0.3, h: 0.12, dip: 0.6, sweep: 1.0, shape: 'round', thick: 0.02 }, pelv: null, caudal: { shape: 'rounded', size: 0.05 } },
+    eye: { t: 0.08, v: 0.35, r: 0.012 },
+    // gelatinous and pale pink, see-through behind the head (sheen = opacity for translucent bodies)
+    col: C(0xf0c4c0, 0xf6dcd8, 0xd88a84, 0xf2d0cc, 0, 0x202020), pat: [22, 0.3, 0], cs: [-0.3, 0.1], sheen: 1.7, rough: 0.45,
+    mot: { mode: 0, amp: 0.07, waves: 0.9, c0: 0.25, beat: 0.9, idle: 0.35 },
+    beh: { ...HOVER, n: [1, 4], zone: 'floor', alt: [0.15, 1.2], speed: [0.04, 0.15], spread: 5, loose: true }, size: [0.2, 0.3], interest: 0.75,
+  }),
+  amphipod: fish({
+    det: 0,
+    body: { ...ST([0, 0.06, 0.15, 0.3, 0.45, 0.6, 0.75, 0.88, 0.96, 1.0],
+      [0.03, 0.07, 0.1, 0.12, 0.12, 0.11, 0.08, 0.05, 0.03, 0],
+      [0.027, 0.063, 0.09, 0.105, 0.105, 0.095, 0.07, 0.045, 0.027, 0],
+      [0.025, 0.045, 0.055, 0.06, 0.06, 0.055, 0.045, 0.03, 0.02, 0],
+      [-0.05, -0.02, 0.005, 0.025, 0.03, 0.025, 0.005, -0.025, -0.045, -0.06]), n: 2.0, segA: 0.75 },
+    fins: { dorsal: null, anal: null, pect: null, caudal: { shape: 'forked', size: 0.1 }, pelv: { t: 0.18, span: 0.5, a: -1.3, h: 0.09, dip: 1.25, sweep: 0.5, shape: 'spiny', spikes: 9, thick: 0.02 } }, // a fringe of legs
+    extra: { feelers: { len: 0.35 } },
+    eye: { t: 0.06, v: 0.3, r: 0.018 },
+    col: C(0xe8dcd0, 0xf2ebe4, 0xd8a090, 0xe0c8b8, 0, 0x302020), pat: [1, 9, 0.15], cs: [-0.3, 0.1], sheen: 0.35, rough: 0.4,
+    mot: { amp: 0.04, waves: 0.8, c0: 0.2, beat: 2.2, idle: 2 },
+    beh: { ...SHOAL, n: [16, 50], zone: 'floor', alt: [0.05, 0.9], spread: 2.5, speed: [0.15, 0.45], loose: true }, size: [0.06, 0.16], interest: 0.6, // (loose: a swarm at the bottom, never a mid-water school)
+  }),
+  cuskEel: merge(EEL, {
+    det: 1, body: { depth: 0.12, width: 0.65, tm: 0.2, nose: 0.55, tail: 0.9, ped: 0.05, tEnd: 0.98, snout: 0.1 },
+    fins: { dorsal: [{ t0: 0.25, t1: 0.99, h: 0.035, shape: 'long', sweep: 0.2 }], anal: [{ t0: 0.4, t1: 0.99, h: 0.03, shape: 'long', sweep: 0.2 }],
+      pect: { t: 0.16, h: 0.05, shape: 'round' }, caudal: { shape: 'pointed', size: 0.04 } },
+    eye: { t: 0.06, v: 0.4, r: 0.01 },
+    col: C(0x8a7a6e, 0xc0b4a8, 0x5a4a40, 0x9a8a7e), pat: [6, 7, 0.55], cs: [-0.3, 0.12], sheen: 0.3, rough: 0.45,
+    mot: { amp: 0.06, waves: 1.2, c0: 0.25, beat: 1.2, idle: 0.5 },
+    beh: { ...HOVER, n: [1, 2], zone: 'floor', alt: [0.1, 0.8], speed: [0.05, 0.2], spread: 6, loose: true }, size: [0.3, 0.55], interest: 0.6,
+  }),
+});
+S.narwhal.extra.bill.spiral = true;
+for (const k of ['seaOtter', 'seaOtterUrchin', 'seaOtterMom', 'seaOtterPup', 'ringedSeal', 'harpSeal', 'amphipod', 'seaAngel']) S[k].gill = false;
+
 // Day / night activity: diurnal reef fish thin out and shelter near the bottom after dark; nocturnal
 // species only come out at night (see the director's per-biome night lists).
 export const DIEL = {
@@ -1324,7 +1471,7 @@ const PROC_PAT = [0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 8, 12, 15, 21, 22, 23, 26];
 export function proceduralFish(kind, seed) {
   const r = mulberry32(seed * 7919 + 13);
   const deep = r.range(0.2, 0.62);
-  const reef = ['reef', 'softcoral', 'wall', 'seamount', 'champagne', 'anemone', 'bluehole'].includes(kind), temperate = kind === 'kelp' || kind === 'polar' || kind === 'sunkenforest', abyss = kind === 'abyss' || kind === 'vents' || kind === 'deepplain';
+  const reef = ['reef', 'softcoral', 'wall', 'seamount', 'champagne', 'anemone', 'bluehole'].includes(kind), temperate = kind === 'kelp' || kind === 'otterkelp' || kind === 'polar' || kind === 'sunkenforest', abyss = kind === 'abyss' || kind === 'vents' || kind === 'deepplain';
   const hue = r(), sat = reef ? r.range(0.55, 1) : temperate ? r.range(0.12, 0.45) : abyss ? r.range(0.1, 0.4) : r.range(0.3, 0.8);
   const val = abyss ? r.range(0.08, 0.25) : r.range(0.45, 0.95);
   const d = hsv(hue, sat, val * r.range(0.7, 1)), b = hsv(hue + r.range(-0.05, 0.05), sat * 0.6, Math.min(1, val + 0.25));
@@ -1594,6 +1741,34 @@ Object.assign(FACTS, {
   sheepshead: 'Sheepshead have human-like teeth for crushing barnacles and oysters.',
   spadefish: 'Atlantic spadefish gather in large schools around wrecks and old trees.',
 });
+Object.assign(NAMES, {
+  seaOtter: 'Sea otter', seaOtterUrchin: 'Sea otter', seaOtterMom: 'Sea otter', seaOtterPup: 'Sea otter pup', kelpRockfish: 'Kelp rockfish',
+  whaleSharkFeed: 'Whale shark', mantaFeed: 'Reef manta ray', cobia: 'Cobia', goldenTrevally: 'Golden trevally', mullet: 'Striped mullet',
+  narwhalF: 'Narwhal', bowhead: 'Bowhead whale', ringedSeal: 'Ringed seal', harpSeal: 'Harp seal', arcticCodIce: 'Arctic cod',
+  seaAngel: 'Sea angel', snailfish: 'Mariana snailfish', amphipod: 'Supergiant amphipod', cuskEel: 'Cusk-eel',
+});
+Object.assign(FACTS, {
+  seaOtter: 'Sea otters have the densest fur of any animal, up to a million hairs per square inch.',
+  seaOtterUrchin: 'Sea otters eat urchins off their chests; by keeping urchins in check they save kelp forests.',
+  seaOtterMom: 'A sea otter mother floats on her back with her pup on her chest, grooming its fur to keep it buoyant.',
+  seaOtterPup: 'A sea otter pup is so fluffy and buoyant that it cannot dive until its adult fur grows in.',
+  kelpRockfish: 'Kelp rockfish hang motionless among the kelp, often upside down or head-up.',
+  whaleSharkFeed: 'A feeding whale shark filters thousands of cubic metres of water an hour through its gills.',
+  mantaFeed: 'Feeding mantas somersault again and again through the densest patches of plankton.',
+  cobia: 'Cobia shadow big animals like whale sharks and rays, snapping up scraps and stirred-up prey.',
+  goldenTrevally: 'Young golden trevally ride the bow wave in front of whale sharks, safe from predators.',
+  mullet: 'Striped mullet leap clear of the water, often several times in a row.',
+  narwhalF: 'Most female narwhals have no tusk; only about one in seven grows one.',
+  bowhead: 'Bowhead whales can live over 200 years and break sea ice with their huge heads.',
+  ringedSeal: 'Ringed seals keep breathing holes open with their claws and raise pups in snow caves on the ice.',
+  harpSeal: 'Harp seals are born yellowish-white and moult to silver-grey with a dark harp on the back.',
+  arcticCodIce: 'Arctic cod shelter in cracks under the pack ice, safe from seals and seabirds.',
+  seaAngel: 'Sea angels are swimming snails that flap two wing-like lobes; they eat sea butterflies.',
+  snailfish: 'Mariana snailfish live deeper than any other fish seen, below 8,000 m, with soft bones and jelly-like bodies.',
+  amphipod: 'Supergiant amphipods grow to 34 cm, crustaceans many times larger than their shallow-water cousins.',
+  cuskEel: 'A cusk-eel holds the record for the deepest fish ever caught, from 8,370 m in the Puerto Rico Trench.',
+});
+Object.assign(FAMILIES, { otterkelp: ['Rockfish', 'Surfperch', 'Greenling', 'Kelpfish', 'Sculpin'] });
 Object.assign(DIEL, {
   pinkSkunkClown: 'day', tomatoClown: 'day', blackClown: 'day', clarkClown: 'day', dominoDamsel: 'day', humbug: 'day', fusilier: 'day',
   regalAngel: 'day', flameAngel: 'day', clownTrigger: 'day', powderTang: 'day', foxface: 'day', longnoseHawkfish: 'day', sheepshead: 'day',

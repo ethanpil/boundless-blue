@@ -47,8 +47,12 @@ void crDeform(inout vec3 p, inout vec3 n) {
   float A = aMot.y * aAnim.y;
   float K = aMot.z * 6.2831853;
   float c0 = aMot.w;
-  float bend = aAnim.z;
   float tt = clamp(0.5 - p.z, 0.0, 1.4);
+  // turn bend: head (front) and tail (rear) curvature packed by encounter.js (the rear lags, so a turn runs from the
+  // head down the body); the octopus passes its jet factor unpacked
+  float bend = aAnim.z, bendT = aAnim.z;
+  if (mode < 5.5 || mode > 6.5) { float bq = floor(aAnim.z / 1024.0); bend = bq * 0.001 - 0.5; bendT = (aAnim.z - bq * 1024.0) * 0.001 - 0.5; }
+  float bnd = mix(bend, bendT, smoothstep(0.3, 0.95, tt));
   bool isMedian = part > 0.5 && part < 1.5;
   bool isPaired = part > 1.5 && part < 2.5;
   bool isFlipper = part > 6.5 && part < 7.5;
@@ -60,8 +64,8 @@ void crDeform(inout vec3 p, inout vec3 n) {
     float arg = ph - K * tt;
     float s = sin(arg), c = cos(arg);
     float tb = tt - 0.3;
-    p.x += A * env * s + bend * tb * tb;
-    n.z += (A * (denv * s - env * K * c) + 2.0 * bend * tb) * n.x;
+    p.x += A * env * s + bnd * tb * tb;
+    n.z += (A * (denv * s - env * K * c) + 2.0 * bnd * tb) * n.x;
     if (isPaired) p.y += aG.w * 0.035 * sin(ph * 0.7 + 1.3);
     if (isMedian) p.x += aG.w * 0.012 * sin(ph * 1.7 - aG.z * 6.0);
     if (isFlipper) crRotZ(p, n, aG.z, 0.25 * sin(ph * 0.5) * sign(p.x));
@@ -74,8 +78,8 @@ void crDeform(inout vec3 p, inout vec3 n) {
     p.y += A * env * s;
     n.z += A * (denv * s - env * K * c) * n.y;
     float tb = tt - 0.35;
-    p.x += bend * tb * tb;
-    n.z += 2.0 * bend * tb * n.x;
+    p.x += bnd * tb * tb;
+    n.z += 2.0 * bnd * tb * n.x;
     if (isFlipper) crRotZ(p, n, aG.z, (0.12 * sin(ph * 0.5 + 0.7) - 0.05) * sign(p.x));
   } else if (mode < 2.5) {
     // rays: a travelling wave runs front-to-back along each pectoral fin (leading edge leads, trailing
@@ -89,11 +93,11 @@ void crDeform(inout vec3 p, inout vec3 n) {
     n.z -= A * f * c * K * n.y;
     float tail = smoothstep(0.35, 1.0, tt);
     float tb = tt - 0.3;
-    p.x += tail * 0.02 * sin(ph * 0.5 - tt * 6.0) + bend * tb * tb;
+    p.x += tail * 0.02 * sin(ph * 0.5 - tt * 6.0) + bnd * tb * tb;
   } else if (mode < 3.5) {
     // flipper strokes (turtles, penguins, sea lions)
     float tb = tt - 0.4;
-    p.x += bend * tb * tb;
+    p.x += bnd * tb * tb;
     p.y += 0.006 * sin(ph * 2.0 + 1.0);
     if (isFlipper) {
       float sd = sign(p.x);
@@ -133,7 +137,7 @@ void crDeform(inout vec3 p, inout vec3 n) {
       p.y += cos(ph * 0.5 - d * 6.0 + aG.z * 2.1) * d * 0.04;
     }
     float tb = tt - 0.4;
-    p.x += bend * tb * tb;
+    p.x += bnd * tb * tb;
   } else if (mode < 6.5) {
     // octopus (local +y up): curling / crawling arms, breathing mantle; J = jet (arms stream behind)
     float J = clamp(bend, 0.0, 1.0);
@@ -158,7 +162,7 @@ void crDeform(inout vec3 p, inout vec3 n) {
   } else if (mode < 7.5) {
     // mola: stiff body, big sculling dorsal + anal fins
     float tb = tt - 0.4;
-    p.x += 0.012 * sin(ph) * tb + bend * tb * tb;
+    p.x += 0.012 * sin(ph) * tb + bnd * tb * tb;
     if (isMedian) p.x += aG.w * A * sin(ph) * sign(p.y);
     if (isPaired) p.y += aG.w * 0.03 * sin(ph * 2.0);
   } else if (mode < 8.5) {

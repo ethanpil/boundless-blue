@@ -4,7 +4,7 @@
 import * as THREE from 'three';
 import { WATER_PARS } from '../water.js';
 
-const MAX = 1024;
+const MAX = 2048; // (the bioluminescent bay keeps ~1500 sparks alive)
 export const FXK = { GLOW: 0, INK: 1, BUBBLE: 2, RING: 3, GLINT: 4 };
 
 const VS = /* glsl */`
@@ -190,5 +190,7 @@ export class FX {
     this.T.copyWithin(i * 4, j * 4, j * 4 + 4); this.C.copyWithin(i * 4, j * 4, j * 4 + 4); this.D.copyWithin(i * 4, j * 4, j * 4 + 4);
     this.M.copyWithin(i * 2, j * 2, j * 2 + 2);
   }
+  // Drop every particle and emitter (zone jump).
+  clear() { this.n = 0; this.emitters.length = 0; this.geo.instanceCount = 0; this.mesh.visible = false; }
   dispose() { this.world.remove(this.mesh); this.geo.dispose(); this.mat.dispose(); }
 }

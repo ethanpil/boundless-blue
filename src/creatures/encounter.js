@@ -39,6 +39,11 @@ function obsBox(o) {
 
 const TAU = Math.PI * 2, PH_WRAP = 200 * Math.PI;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
+// Maximum path curvature x body length by motion mode (fish / sharks, cetaceans, rays, flipper swimmers, squid, mola):
+// a whale needs over a body length of radius to turn, a turtle or a sea lion much less.
+const KAP = { 0: 1.2, 1: 0.8, 2: 1.2, 3: 1.6, 5: 1.5, 7: 1.0 };
+// Turn bend for the shader: front (head) and rear (tail) bend, each in -0.5..0.5, packed into one float (exact in fp32)
+const packBend = (b, t) => Math.round((clamp(b, -0.5, 0.5) + 0.5) * 1000) * 1024 + Math.round((clamp(t, -0.5, 0.5) + 0.5) * 1000);
 
 // ---------- LRU geometry cache (CPU arrays persist; GPU buffers freed when unused) ----------
 const geoKey = (sp, lod) => (lod ? sp.key + '|' + lod : sp.key);
@@ -137,6 +142,8 @@ export class Encounter {
     this.host = null; this.HI = null; this.LOC = null; this._cx = 0; this._cy = 0; this._cz = 0; this._label = null;
     this.recheck = false; this.recheckT = 0; this.unseen = 0; this.swirling = false; this.lFloor = 0; this.lCeil = 0; this.openWater = false;
     this.dist = 0; this._mUp = false; this._aUp = false; this.obsValid = false; this.orbR = 0;
+    this.FLIP = null; this.FLB = null; // manta somersaults: loop phase, loop frame (see startFlip)
+    this.glowAcc = 0;                  // bioluminescent bay: sparkle emission carried over (Creatures._ambientFx)
     const rng = mulberry32(plan.seed);
     this.rng = rng; this.sys = sys; this.sp = sp; this.plan = plan;
     const beh = sp.beh, n = plan.n;
@@ -216,6 +223,8 @@ export class Encounter {
     this.SL = new Float32Array(n * 4); this.RP = new Float32Array(n * 4);
     this.SZ = new Float32Array(n); this.PH = new Float32Array(n); this.AMP = new Float32Array(n).fill(0.6);
     this.BEND = new Float32Array(n); this.BANK = new Float32Array(n);
+    // smooth turning (big animals, see _orient): rear-body bend (lags the front), yaw / pitch rate, heading angle
+    this.BT = new Float32Array(n); this.YR = new Float32Array(n); this.PR = new Float32Array(n); this.PSI = new Float32Array(n);
     this.FLO = new Float32Array(n).fill(-1e4); this.CEI = new Float32Array(n).fill(1e4);
     this.OTP = new Float32Array(n).fill(-1e4); // soft floor over low rocks / coral heads under the agent (obstacle tops)
     this.EXP = kindNeedsExpose(this.kind) ? new Float32Array(n * 2) : null;
@@ -271,7 +280,7 @@ export class Encounter {
     this.surfY = beh.zone === 'surface' || beh.zone === 'ceiling' ? -0.35 - this.baseSize * 0.1 : -0.8 - this.baseSize * 0.35;
     if (beh.skim) this.surfY = -0.1; // crocodiles cruise with the back just under the surface
     // highest point any part of the body may reach (crocodile backs and porpoising mammals break the surface)
-    this.topCap = beh.skim ? 0.3 : (beh.zone === 'surface' || beh.zone === 'ceiling') && (mot.mode === 1 || mot.mode === 3) ? 0.12 : -0.03;
+    this.topCap = beh.skim ? 0.3 : this.kind === 'otter' ? 0.25 : (beh.zone === 'surface' || beh.zone === 'ceiling') && (mot.mode === 1 || mot.mode === 3) ? 0.12 : -0.03;
     this.mFloor = sp.plan === 'jelly' ? Math.max(1, 0.25 + this.baseSize * 2.5) : 0.25 + this.baseSize * 0.35; // jellies never settle on the sand
     // extra terrain margin: a pulsing bell's rim is only coarsely covered by the support points; a siphonophore's stem
     // undulates by ~mot.amp of its length in the shader
@@ -285,6 +294,17 @@ export class Encounter {
     this.obs = []; this.obsFrame = Math.floor(rng() * 3); // staggered refresh across groups
     this.rbU = this.entry.bodyR || 0.2;
     this.elong = !['jelly', 'octopus', 'seahorse', 'dumbo', 'cassiopea'].includes(sp.plan);
+    // Big swimmers turn like animals, not like rotated objects: the heading follows the wanted direction through a
+    // critically damped spring whose rate is capped by a minimum turning radius (a few body lengths for whales, about
+    // one for sharks and rays, less for turtles and sea lions), the body carries little sideslip, and the bend runs from
+    // head to tail (_orient). Small fish keep the quick direct response.
+    const swimPlan = sp.plan === 'fish' || sp.plan === 'squid';
+    this.smooth = swimPlan && this.elong && this.baseSize >= 0.45 && this.kind !== 'bait' && this.kind !== 'attach' && this.kind !== 'walk';
+    this.kap = mot.mode === 1 && this.baseSize < 4 ? 1.4 : KAP[mot.mode] ?? 1.2; // max curvature x body length (dolphins: agile)
+    this.wn = 1.8;                                     // heading spring natural frequency x sqrt(body length)
+    this.w0 = 0.12;                                    // yaw rate (x sqrt length) available with no way on (fin sculling)
+    this.slip = clamp(2 + this.baseSize * 0.6, 2.5, 5); // sideslip decay rate (1/s): the body leads, the path follows
+    this.kBank = mot.mode === 2 || mot.mode === 3 ? 0.7 : mot.mode === 1 ? 0.45 : 0.35;
     this.SPIN = beh.corkscrew || sp.mot.mode === 2 ? new Float32Array(n) : null; // barrel rolls / corkscrews
     this.worstPen = 0; this.regCount = -1; this.simSkip = 0; this.simAcc = 0;
     this.event = null; this.threats = null; this.nThreat = 0; this.lookCam = 0;
@@ -479,8 +499,9 @@ export class Encounter {
         P[i * 3] = x; P[i * 3 + 1] = y; P[i * 3 + 2] = z;
         if (P[i * 3 + 1] < lo) P[i * 3 + 1] = lo;
         // bells face up; a siphonophore's long axis is its heading, and it trails out nearly level
-        const sip = sp.plan === 'siphon', a = sip ? rng() * TAU : 0;
-        let hx = sip ? Math.cos(a) : (rng() - 0.5) * 0.8, hy = sip ? 0.12 : 1, hz = sip ? Math.sin(a) : (rng() - 0.5) * 0.8; const l = h3(hx, hy, hz);
+        // (swimming drifters, beh.tilt: sea angels flap along head-up at a slant)
+        const sip = sp.plan === 'siphon', tl = beh.tilt, a = sip || tl ? rng() * TAU : 0;
+        let hx = sip ? Math.cos(a) : tl ? Math.cos(a) * 0.8 : (rng() - 0.5) * 0.8, hy = sip ? 0.12 : tl || 1, hz = sip ? Math.sin(a) : tl ? Math.sin(a) * 0.8 : (rng() - 0.5) * 0.8; const l = h3(hx, hy, hz);
         F[i * 3] = hx / l; F[i * 3 + 1] = hy / l; F[i * 3 + 2] = hz / l;
         this.FLO[i] = lo; this.CEI[i] = hi;
       }
@@ -588,18 +609,32 @@ export class Encounter {
         const h = rng() * TAU; F[i * 3] = Math.sin(h); F[i * 3 + 2] = Math.cos(h);
       }
     } else if (kind === 'attach') {
-      // remoras riding under a host (one host animal each): spot on the belly in host body units
-      const host = plan.host; this.host = host;
+      // remoras riding under a host (one host animal each): spot on the belly in host body units; a sea otter pup lies
+      // on its mother's chest (her belly faces the sky while she floats on her back), one pup per mother
+      const host = plan.host, ride = !!beh.ride; this.host = host;
       this.HI = new Uint16Array(n); this.LOC = new Float32Array(n * 4);
       for (let i = 0; i < n; i++) {
-        this.HI[i] = Math.min(host.n - 1, Math.floor(i / 2));
-        const t = 0.22 + rng() * 0.26, b = Math.min(9, Math.floor(t * 10));
-        const hostSz = host.SZ[this.HI[i]] || 1, rh = this.SZ[i] * 0.07 / hostSz;
-        this.LOC[i * 4] = (rng() - 0.5) * 0.05; this.LOC[i * 4 + 1] = (host.entry.belly ? host.entry.belly[b] : -0.08) - rh * 0.8;
-        this.LOC[i * 4 + 2] = 0.5 - t; this.LOC[i * 4 + 3] = (rng() - 0.5) * 0.25;
+        this.HI[i] = Math.min(host.n - 1, ride ? i : Math.floor(i / 2));
+        const t = ride ? 0.36 : 0.22 + rng() * 0.26, b = Math.min(9, Math.floor(t * 10));
+        const hostSz = host.SZ[this.HI[i]] || 1, rh = this.SZ[i] * (ride ? 0.072 : 0.07) / hostSz;
+        this.LOC[i * 4] = ride ? 0 : (rng() - 0.5) * 0.05; this.LOC[i * 4 + 1] = (host.entry.belly ? host.entry.belly[b] : -0.08) - rh * (ride ? 1.05 : 0.8);
+        this.LOC[i * 4 + 2] = 0.5 - t; this.LOC[i * 4 + 3] = ride ? (rng() - 0.5) * 0.3 : (rng() - 0.5) * 0.25;
         this.PH[i] = rng() * TAU;
       }
       this.fade = host.fade;
+    } else if (kind === 'otter') {
+      // sea otters floating on their backs at the surface, a little apart (see _otter)
+      const spread = beh.spread ?? 6;
+      this.HOME = new Float32Array(n * 2); this.maxPitch = 0.92; this.bankBase = 0;
+      for (let i = 0; i < n; i++) {
+        const [x, z] = this._spaced(i, () => [x0 + (rng() - 0.5) * spread, z0 + (rng() - 0.5) * spread * 1.3], this.rbU * this.SZ[i] + 0.1, this.SZ[i] * 1.3, P, 3);
+        P[i * 3] = x; P[i * 3 + 2] = z; P[i * 3 + 1] = this._floatY(i);
+        const h = rng() * TAU, l = Math.hypot(1, 0.12);
+        F[i * 3] = Math.sin(h) / l; F[i * 3 + 1] = 0.12 / l; F[i * 3 + 2] = Math.cos(h) / l; this.PSI[i] = h;
+        this.BANK[i] = Math.PI; this.MODE[i] = 0;
+        this.TMR[i] = beh.noDive ? 1e9 : 6 + rng() * 30;
+      }
+      this.curX = (rng() - 0.5) * 0.1; this.curZ = (rng() - 0.5) * 0.1;
     }
     if (FLOCK_KINDS.has(kind) || kind === 'shoal' || kind === 'hover' || kind === 'drift') this._placeClear();
     if (plan.mixOf) plan.mixOf = null; // only needed to lay out the slots (don't keep a retired primary group alive)
@@ -980,7 +1015,8 @@ export class Encounter {
       x += Math.sign(dx) * Math.min(Math.abs(dx), 0.75);
       fl = sh.floorAt(x, s); ce = Math.min(sh.ceilingAt(x, s), 0);
     }
-    let y = yF !== null ? yF : plan && plan.homeY !== undefined ? plan.homeY + alt * 0.5 : this.zone === 'mid' ? sh.pathY(s) + (plan?.h0 ?? 0) + alt * 0.3 : fl + alt;
+    let y = yF !== null ? yF : plan && plan.homeY !== undefined ? plan.homeY + alt * 0.5 : this.zone === 'mid' ? sh.pathY(s) + (plan?.h0 ?? 0) + alt * 0.3
+      : this.zone === 'ceiling' ? ce - alt - this.baseSize * 0.3 : fl + alt; // (ice dwellers hang just under the floes)
     let lo = fl + this.mFloor * 0.6, hi = Math.min(ce - this.mCeil, this.surfY);
     y = hi > lo ? clamp(y, lo, hi) : (lo + hi) * 0.5;
     // Homes are never inside rocks (moved up / out along the surface normal), nor against a steep face: beside a
@@ -1163,6 +1199,7 @@ export class Encounter {
     else if (k === 'rest') this._rest(dt, c);
     else if (k === 'octo') this._octo(dt, c);
     else if (k === 'walk') this._walk(dt, c);
+    else if (k === 'otter') this._otter(dt, c);
     else this._static(dt, c);
     this.recheck = false;
     this._visibility(c);
@@ -1262,6 +1299,21 @@ export class Encounter {
         this.lh -= 0.7 * dt; this.ll += this.side * 1.2 * dt;
         if (ev.t > 10) { this.event = null; this.route = 'cross'; this.maxPitch = 0.35; this.vl = this.side * 1.2; this.vs = 0.5; }
       }
+    } else if (this.route === 'shadow') {
+      // cobia and young trevally hold station on a big animal (pilot fish in the bow wave in front of a whale shark's
+      // mouth, cobia under its belly): the leader eases toward that spot in the host's frame (same anchor)
+      const h = this.plan.host, S = this.plan.shadow;
+      if (!h || h.done || h.fade < 0.2 || !S) { this.route = 'cross'; this.vl = this.side * this.speed; this.vs = this.speed * 0.4; }
+      else {
+        direct = true;
+        const j3 = Math.min(S.j, h.n - 1) * 3, L = h.SZ[j3 / 3], fx = h.F[j3], fy = h.F[j3 + 1], fz = h.F[j3 + 2], fl = h2(fx, fz) || 1;
+        const tx = h.P[j3] + fx * L * S.ahead + (fz / fl) * L * S.side, ty = h.P[j3 + 1] + fy * L * S.ahead + L * S.below, tz = h.P[j3 + 2] + fz * L * S.ahead - (fx / fl) * L * S.side;
+        const s1 = -(tz + this.anchorZ), k = Math.min(1, dt * 1.2);
+        this.ls += (s1 - this.ls) * k;
+        this.ll += (tx - sh.pathX(this.ls) - this.ll) * k;
+        this.lh += (ty - sh.pathY(this.ls) - this.lh) * k;
+        this.vs = 0; this.vl = 0;
+      }
     } else if (this.route === 'escort') {
       const ds = this.ls - c.s;
       if (this.age < 200 && this.escortT > 0) {
@@ -1293,6 +1345,12 @@ export class Encounter {
     const surge = 1 + 0.12 * Math.sin(this.age * 0.21 + this.wP * 3) * Math.sin(this.age * 0.07 + this.wP);
     if (!direct) { this.ls += this.vs * dt * surge; this.ll += this.vl * dt; }
     if (this.calfT !== undefined && this.calfT < 16) this.calfT += dt; // the calf's loop around its mother
+    if (this.event && this.event.type === 'flip') { // feeding somersaults: the group hangs in place while its members loop
+      const ev = this.event; ev.t += dt;
+      this.vs *= 1 - Math.min(1, dt * 0.8); this.vl *= 1 - Math.min(1, dt * 0.8);
+      let any = false; for (let i = 0; i < this.n; i++) if (this.FLIP[i] > 0 || ev.t < ev.start[i]) { any = true; break; }
+      if (!any || ev.t > 60) { this.event = null; this.vs = this.speed * 0.5; }
+    }
     if (this.event && this.event.type === 'roll') { // manta barrel roll
       const ev = this.event; ev.t += dt;
       const f = smooth(ev.t / ev.dur), a = TAU * f;
@@ -1445,8 +1503,15 @@ export class Encounter {
         if (ex * ex + ey * ey + ez * ez < R2 && pr.nThreatNext < 8) { const k = pr.nThreatNext++ * 3; pr.threatsNext[k] = x; pr.threatsNext[k + 1] = y; pr.threatsNext[k + 2] = z; }
       }
     }
+    const flipEv = ev && ev.type === 'flip' ? ev : null;
     for (let i = 0; i < n; i++) {
       const i3 = i * 3, o = i * 4;
+      if (flipEv) { // feeding somersaults (startFlip): a looping member follows its loop, nothing else
+        const st = flipEv.start;
+        // (from a near-level attitude only, else the loop would snap its pitch: it may wait up to 4 s for one)
+        if (this.FLIP[i] === 0 && st[i] >= 0 && flipEv.t >= st[i] && (Math.abs(F[i3 + 1]) < 0.15 || flipEv.t > st[i] + 4)) { st[i] = -1; this._flipBegin(i, c); }
+        if (this.FLIP[i] > 0) { this._flipStep(i, dt, c); continue; }
+      }
       if (coastOK) {
         const ax = P[i3] - cx, ay = P[i3 + 1] - cy, az2 = P[i3 + 2] - cz, d2 = ax * ax + ay * ay + az2 * az2;
         const k = d2 < nearR2 || this.STL[i] > 0.05 ? 1 : SZ[i] * SZ[i] * 2500 < d2 ? 3 : 2;
@@ -1549,7 +1614,8 @@ export class Encounter {
         }
       }
       if (ed < avR && ed > 1e-4 && i !== this.inspect) {
-        const push = (avR - ed) / avR * (2.5 + spd0 * 2) * (flock ? 1.6 : 2.4) * (1 + STL[i]);
+        // (a big animal mostly turns away: its push only sets the direction it turns to, see the sideslip below)
+        const push = (avR - ed) / avR * (2.5 + spd0 * 2) * (flock ? 1.6 : 2.4) * (1 + STL[i]) * (this.smooth ? 0.4 : 1);
         dvx += ex / ed * push; dvy += ey / ed * push * 0.7; dvz += ez / ed * push;
         if (ed < avR * 0.75 && this.baseSize < 2) STL[i] = 1; // startle: a quick dart away
       }
@@ -1563,6 +1629,23 @@ export class Encounter {
         else if (py > hi) vy -= (py - hi) * 3 * dts + 0.5 * dts;
       } else { // inside a wall: head back toward the path centre
         const s = -(pz + az); vx += (sh.pathX(s) - px) * 0.5 * dts; vy += (sh.pathY(s) - py) * 0.5 * dts;
+      }
+      if (this.smooth) {
+        // A big swimmer is steered like a body, not a point: its heading turns toward the wanted velocity (slot, wander,
+        // camera, rocks) at its own pace, it only drives itself along that heading, and sideways motion (pushes) dies
+        // away. With the wanted direction behind it, it keeps way on and swims round in an arc (pressed by the camera it
+        // may slow almost to a stop and turn on the spot). Dodging a rock or a hunter it may still slip sideways.
+        const free = kind !== 'mill' && OA[i3] === 0 && OA[i3 + 1] === 0 && OA[i3 + 2] === 0 && STL[i] < 0.3 && !(strike && this.MODE[i] === 1);
+        if (free) {
+          const cs = h3(V[i3], V[i3 + 1], V[i3 + 2]), dl2 = h3(dvx, dvy, dvz) || 1, k = cs / dl2; // wanted direction, current speed
+          this._orientFor(i, dts, dvx * k + V[i3] * 0.2, dvy * k + V[i3 + 1] * 0.2, dvz * k + V[i3 + 2] * 0.2, dt, kind);
+          const fh = h2(F[i3], F[i3 + 2]) || 1, ux = F[i3] / fh, uz = F[i3 + 2] / fh;
+          let fw = V[i3] * ux + V[i3 + 2] * uz, lt = V[i3] * uz - V[i3 + 2] * ux;
+          const want = Math.max(dvx * ux + dvz * uz, Math.min(h2(dvx, dvz), this.speed) * 0.45 * (ed < avR ? 0.2 + 0.8 * ed / avR : 1));
+          fw += (want - fw) * ka2;
+          lt *= Math.exp(-this.slip * dts);
+          vx = ux * fw + uz * lt; vz = uz * fw - ux * lt;
+        } else this._orientFor(i, dts, vx, vy, vz, dt, kind);
       }
       let nx = px + vx * dt, ny = py + vy * dt, nz = pz + vz * dt;
       if (hi > lo) { if (ny < lo - 0.4) { ny = lo - 0.4; if (vy < 0) vy = 0; } if (ny > hi + 0.3) { ny = hi + 0.3; if (vy > 0) vy = 0; } }
@@ -1587,10 +1670,7 @@ export class Encounter {
       }
       V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz;
       P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
-      if (kind === 'bait' || kind === 'mill') // a drifting ball: fish face their milling direction, not the drift
-        this._orient(i, dts, vx - this.Cvx * 0.85, vy - this.Cvy * 0.85, vz - this.Cvz * 0.85, dt);
-      else if (i === this.inspect) { const lk = this.lookCam; this.lookCam = 0.85; this._orient(i, dts, vx, vy, vz, dt); this.lookCam = lk; }
-      else this._orient(i, dts, vx, vy, vz, dt);
+      if (!this.smooth) this._orientFor(i, dts, vx, vy, vz, dt, kind);
       if (this.cork) { // sea lions: playful corkscrew rolls
         if (this.SPIN[i] > 0 || (this.speed > 0.5 && this.rng() < dts * 0.06)) {
           this.SPIN[i] += dts * 5.2;
@@ -1630,6 +1710,68 @@ export class Encounter {
     return true;
   }
 
+  // Feeding somersaults (mantas in a plankton patch): every member loops backward over its back 2-4 times in place,
+  // one after the other. Each loop is a vertical circle of radius ~0.55 body lengths in the plane of its heading; the
+  // wings stay level across it. A member only starts with room for the whole loop (_flipBegin).
+  startFlip(rng) {
+    if (this.n > 4 || !this.smooth || this.event) return false;
+    if (!this.FLIP) { this.FLIP = new Float32Array(this.n); this.FLB = new Float32Array(this.n * 10); }
+    const start = new Float32Array(this.n); // (a rare event: allocating here is fine)
+    for (let i = 0; i < this.n; i++) { start[i] = i * (1.2 + rng() * 1.6); this.FLB[i * 10 + 6] = TAU * (2 + Math.floor(rng() * 3)); }
+    this.event = { type: 'flip', t: 0, start };
+    return true;
+  }
+  _flipBegin(i, c) {
+    const F = this.F, P = this.P, i3 = i * 3, L = this.SZ[i], r = 0.55 * L, az = this.anchorZ, fl = h2(F[i3], F[i3 + 2]);
+    if (fl < 0.6 || Math.abs(F[i3 + 1]) > 0.15) return;
+    const hx = F[i3] / fl, hz = F[i3 + 2] / fl, x = P[i3], y = P[i3 + 1], z = P[i3 + 2], cx = x + hx * r, cz = z + hz * r, s = -(cz + az), span = L * 1.2;
+    if (y + 2 * r + L * 0.35 > Math.min(this.sys.shape.ceilingAt(cx, s), 0) - 0.8) return;            // under the surface / ice
+    if (!this._columnClear(cx, s, r + span, y - L * 0.4 - 1.2, y + 2 * r + L * 0.35 + 0.8)) return;   // floor and walls
+    if (this.obs.length) { const reg = this.sys.env.obstacles; reg.query(cx, s, r + span + 2, _q); if (_q.length) return; } // open water only
+    if (h3(cx - c.x, y + r - c.y, cz + az - c.z) < r + L * 0.7 + this.hardR) return;                  // not around the lens
+    // the loop starts at the current pitch (phase = pitch angle) from a base point set back accordingly, and still ends
+    // level at a whole number of turns
+    const B = this.FLB, o = i * 10, p0 = Math.max(1e-4, Math.asin(clamp(F[i3 + 1], 0, 1))), s0 = Math.sin(p0), c0 = 1 - Math.cos(p0);
+    B[o] = x - r * s0 * hx; B[o + 1] = y - r * c0; B[o + 2] = z - r * s0 * hz; B[o + 3] = hx; B[o + 4] = hz; B[o + 5] = r; B[o + 7] = x; B[o + 8] = y; B[o + 9] = z;
+    this.FLIP[i] = p0; this.BANK[i] = 0; this.YR[i] = 0; this.PR[i] = 0;
+  }
+  _flipStep(i, dt, c) {
+    const FL = this.FLIP, B = this.FLB, o = i * 10, i3 = i * 3, P = this.P, V = this.V, F = this.F, az = this.anchorZ;
+    // whatever pushed the body since the last step (separation, the camera bubble, the terrain fix) moves the loop too
+    B[o] += P[i3] - B[o + 7]; B[o + 1] += P[i3 + 1] - B[o + 8]; B[o + 2] += P[i3 + 2] - B[o + 9];
+    const hx = B[o + 3], hz = B[o + 4], r = B[o + 5], tot = B[o + 6], f0x = F[i3], f0y = F[i3 + 1], f0z = F[i3 + 2];
+    let ph = FL[i];
+    const w0 = Math.max(0.5, this.speed) / r, ease = smooth(Math.min(ph, tot - ph) / 2.2), w = w0 + (1.5 - w0) * ease; // eased in and out
+    ph = Math.min(tot, ph + w * dt);
+    const sp = Math.sin(ph), cp = Math.cos(ph), ox = P[i3], oy = P[i3 + 1], oz = P[i3 + 2];
+    P[i3] = B[o] + r * sp * hx; P[i3 + 1] = B[o + 1] + r * (1 - cp); P[i3 + 2] = B[o + 2] + r * sp * hz;
+    const vw = r * w; V[i3] = vw * cp * hx; V[i3 + 1] = vw * sp; V[i3 + 2] = vw * cp * hz;
+    F[i3] = cp * hx; F[i3 + 1] = sp; F[i3 + 2] = cp * hz;
+    this.BANK[i] = 0; this.BEND[i] *= 0.9; this.BT[i] *= 0.9;
+    const m = this.mot, freq = ((m.beat || 0) * vw / this.SZ[i] + (m.idle || 0.5)) * this.FQ[i];
+    let p2 = this.PH[i] + TAU * freq * dt; if (p2 > PH_WRAP) p2 -= PH_WRAP; this.PH[i] = p2; this.BF[i] = freq;
+    this.AMP[i] += (1.1 - this.AMP[i]) * Math.min(1, dt * 2);
+    // the hard constraints still hold: camera bubble, rocks, terrain
+    const cx = c.x, cy = c.y, cz = c.z - az, ex = P[i3] - cx, ey = P[i3 + 1] - cy, ez = P[i3 + 2] - cz, ed = h3(ex, ey, ez), hr = this.hardR + this.SZ[i] * 0.2;
+    if (ed < hr && ed > 1e-4) { P[i3] = cx + ex / ed * hr; P[i3 + 1] = cy + ey / ed * hr; P[i3 + 2] = cz + ez / ed * hr; }
+    if (this.obs.length) this._pushOut(i, P, null);
+    if (this.terrainOn) this._terrainTick(i, h3(P[i3] - ox, P[i3 + 1] - oy, P[i3 + 2] - oz), h3(F[i3] - f0x, F[i3 + 1] - f0y, F[i3 + 2] - f0z));
+    B[o + 7] = P[i3]; B[o + 8] = P[i3 + 1]; B[o + 9] = P[i3 + 2];
+    FL[i] = ph;
+    if (ph >= tot) { // out of the last loop: level, swimming on along the old heading
+      FL[i] = 0; F[i3] = hx; F[i3 + 1] = 0; F[i3 + 2] = hz; this.PSI[i] = Math.atan2(hx, hz); this.YR[i] = 0; this.PR[i] = 0;
+      V[i3] = hx * vw; V[i3 + 1] = 0; V[i3 + 2] = hz * vw;
+    }
+  }
+
+  // _orient for a flock / shoal member: a drifting ball's fish face their milling direction, not the drift; the curious
+  // one of a shoal turns its head to the camera
+  _orientFor(i, dts, vx, vy, vz, dt, kind) {
+    if (kind === 'bait' || kind === 'mill') this._orient(i, dts, vx - this.Cvx * 0.85, vy - this.Cvy * 0.85, vz - this.Cvz * 0.85, dt);
+    else if (i === this.inspect) { const lk = this.lookCam; this.lookCam = 0.85; this._orient(i, dts, vx, vy, vz, dt); this.lookCam = lk; }
+    else this._orient(i, dts, vx, vy, vz, dt);
+  }
+
   // heading, bank, body bend and tail-beat phase from velocity
   _orient(i, dt, vx, vy, vz, dtPh = dt) {
     const F = this.F, i3 = i * 3;
@@ -1639,30 +1781,58 @@ export class Encounter {
       vx = vx * (1 - w) + tx / tl * spd * w; vy = vy * (1 - w) + ty / tl * spd * w; vz = vz * (1 - w) + tz / tl * spd * w;
       spd = h3(vx, vy, vz);
     }
-    const ofx = F[i3], ofz = F[i3 + 2];
-    if (spd > 0.04) {
-      const k = Math.min(1, this.turnRate * dt * clamp(spd / (this.speed + 0.1), 0.3, 1.5));
-      let fx = F[i3] + (vx / spd - F[i3]) * k, fy = F[i3 + 1] + (vy / spd - F[i3 + 1]) * k, fz = F[i3 + 2] + (vz / spd - F[i3 + 2]) * k;
-      const mp = this.maxPitch;
-      let l = h3(fx, fy, fz) || 1; fx /= l; fy /= l; fz /= l;
-      if (fy > mp || fy < -mp) { fy = fy > 0 ? mp : -mp; const h = h2(fx, fz) || 1, sc = Math.sqrt(1 - mp * mp) / h; fx *= sc; fz *= sc; }
-      F[i3] = fx; F[i3 + 1] = fy; F[i3 + 2] = fz;
-    } else if (this.kind !== 'hover' && this.kind !== 'octo') { // level out when idle
-      F[i3 + 1] *= 1 - Math.min(1, dt); const h = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / h; F[i3] *= sc; F[i3 + 2] *= sc;
+    const ofx = F[i3], ofz = F[i3 + 2], sz = this.SZ[i];
+    let yaw;
+    if (this.smooth) {
+      // Heading as yaw / pitch angles driven by critically damped springs (eased start and stop, no overshoot), the
+      // rates capped by a minimum turning radius: wMax = kappa v / L + w0 (a big animal can hardly turn without way on).
+      // Whatever moves the body (separation, rocks, terrain, the camera bubble) changes its velocity, never its heading
+      // directly, so nothing snaps it round.
+      const fx = F[i3], fy = F[i3 + 1], fz = F[i3 + 2], hf = h2(fx, fz), rs = 1 / Math.sqrt(sz);
+      let psi = hf > 0.15 ? Math.atan2(fx, fz) : this.PSI[i], th = Math.asin(clamp(fy, -1, 1));
+      const wn = this.wn * rs, wMax = Math.min(this.turnRate, this.kap * spd / sz + this.w0 * rs), pMax = wMax * 1.2 + 0.05;
+      const mp = Math.min(this.maxPitch, 1);
+      let yr = this.YR[i], pr = this.PR[i], thD = this.kind === 'hover' ? th : 0, dpsi = 0;
+      if (spd > 0.04) {
+        if (h2(vx, vz) > spd * 0.15) { dpsi = Math.atan2(vx, vz) - psi; dpsi -= TAU * Math.round(dpsi / TAU); }
+        thD = Math.asin(clamp(vy / spd, -mp, mp));
+      }
+      const kd = 1 + 2 * wn * dt; // semi-implicit damping: stable for any step
+      yr = clamp((yr + wn * wn * dpsi * dt) / kd, -wMax, wMax);
+      pr = clamp((pr + wn * wn * 1.4 * (thD - th) * dt) / (1 + 2 * wn * 1.18 * dt), -pMax, pMax);
+      if (spd <= 0.04 && this.kind === 'hover') pr *= 1 - Math.min(1, dt * 2);
+      psi += yr * dt; th = clamp(th + pr * dt, -Math.asin(mp), Math.asin(mp));
+      if (psi > Math.PI) psi -= TAU; else if (psi < -Math.PI) psi += TAU;
+      const ct = Math.cos(th);
+      F[i3] = ct * Math.sin(psi); F[i3 + 1] = Math.sin(th); F[i3 + 2] = ct * Math.cos(psi);
+      this.YR[i] = yr; this.PR[i] = pr; this.PSI[i] = psi;
+      yaw = yr;
+    } else {
+      if (spd > 0.04) {
+        const k = Math.min(1, this.turnRate * dt * clamp(spd / (this.speed + 0.1), 0.3, 1.5));
+        let fx = F[i3] + (vx / spd - F[i3]) * k, fy = F[i3 + 1] + (vy / spd - F[i3 + 1]) * k, fz = F[i3 + 2] + (vz / spd - F[i3 + 2]) * k;
+        const mp = this.maxPitch;
+        let l = h3(fx, fy, fz) || 1; fx /= l; fy /= l; fz /= l;
+        if (fy > mp || fy < -mp) { fy = fy > 0 ? mp : -mp; const h = h2(fx, fz) || 1, sc = Math.sqrt(1 - mp * mp) / h; fx *= sc; fz *= sc; }
+        F[i3] = fx; F[i3 + 1] = fy; F[i3 + 2] = fz;
+      } else if (this.kind !== 'hover' && this.kind !== 'octo') { // level out when idle
+        F[i3 + 1] *= 1 - Math.min(1, dt); const h = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / h; F[i3] *= sc; F[i3 + 2] *= sc;
+      }
+      // yaw rate from the change of heading projected on the right vector (Fz, 0, -Fx)
+      const h = h2(F[i3], F[i3 + 2]) || 1;
+      yaw = ((F[i3] - ofx) * (F[i3 + 2] / h) + (F[i3 + 2] - ofz) * (-F[i3] / h)) / Math.max(dt, 1e-3);
     }
-    // yaw rate from the change of heading projected on the right vector (Fz, 0, -Fx)
-    const h = h2(F[i3], F[i3 + 2]) || 1;
-    const yaw = ((F[i3] - ofx) * (F[i3 + 2] / h) + (F[i3 + 2] - ofz) * (-F[i3] / h)) / Math.max(dt, 1e-3);
-    const sz = this.SZ[i];
-    // body curvature follows the path: bend = kappa * L / 2 (unit-length body coordinates)
+    // body curvature follows the path: bend = kappa * L / 2 (unit-length body coordinates). The head takes it up
+    // first and the rear follows about as long as the body takes to swim through the bend (BT, shader: head leads)
     const m = this.mot;
     const bt = clamp((yaw / Math.max(spd, 0.3)) * sz * 0.5, -0.25, 0.25) * (m.mode === 1 ? 0.6 : 1);
     this.BEND[i] += (bt - this.BEND[i]) * Math.min(1, dt * 4);
+    this.BT[i] += (this.BEND[i] - this.BT[i]) * Math.min(1, dt / clamp(0.35 * sz / Math.max(spd, 0.3), 0.12, 2.5));
     if (this.browse && spd < 0.3) { // goatfish & co: nose down, rooting in the sand
       F[i3 + 1] += (-0.5 - F[i3 + 1]) * Math.min(1, dt * 1.5);
       const hh = h2(F[i3], F[i3 + 2]) || 1, sc2 = Math.sqrt(Math.max(0, 1 - F[i3 + 1] * F[i3 + 1])) / hh; F[i3] *= sc2; F[i3 + 2] *= sc2;
     }
-    const bankT = this.bankBase + clamp(yaw * spd * 0.35, -0.6, 0.6) * (this.baseSize > 4 ? 0.5 : 1);
+    const bankT = this.bankBase + clamp(yaw * spd * (this.smooth ? this.kBank : 0.35), -0.6, 0.6) * (this.baseSize > 4 ? 0.5 : 1); // rolled into the turn
     this.BANK[i] += (bankT - this.BANK[i]) * Math.min(1, dt * 2);
     const freq = ((m.beat || 0) * spd / sz + (m.idle || 0.5) * (0.85 + 0.3 * this.RP[i * 4 + 2])) * this.FQ[i];
     let ph = this.PH[i] + TAU * freq * dtPh; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph; this.BF[i] = freq;
@@ -1721,12 +1891,21 @@ export class Encounter {
       if (MODE[i] === 2 && dl < 0.6) { dvx *= dl; dvz *= dl; }
       const ka2 = Math.min(1, dt * 1.6);
       let vx = V[i3] + (dvx - V[i3]) * ka2, vy = V[i3 + 1] + (dvy - V[i3 + 1]) * ka2, vz = V[i3 + 2] + (dvz - V[i3 + 2]) * ka2;
+      if (this.smooth) { // turn first, then glide where the body points (rays and sharks don't slide sideways off the sand)
+        const cs = h3(V[i3], V[i3 + 1], V[i3 + 2]), dl2 = h3(dvx, dvy, dvz) || 1, k = Math.max(cs, 0.05) / dl2;
+        this._orient(i, dt, dvx * k, dvy * k, dvz * k);
+        const fh = h2(F[i3], F[i3 + 2]) || 1, ux = F[i3] / fh, uz = F[i3 + 2] / fh;
+        let fw = V[i3] * ux + V[i3 + 2] * uz, lt = V[i3] * uz - V[i3 + 2] * ux;
+        fw += (Math.max(dvx * ux + dvz * uz, Math.min(h2(dvx, dvz), this.speed) * 0.45) - fw) * ka2;
+        lt *= Math.exp(-this.slip * dt);
+        vx = ux * fw + uz * lt; vz = uz * fw - ux * lt;
+      }
       let nx = px + vx * dt, ny = Math.max(py + vy * dt, fl + this._restLift(i)), nz = pz + vz * dt;
       // never through the camera
       const ex = nx - cx, ey = ny - cy, ez = nz - cz, ed = h3(ex, ey, ez), hr = this.hardR;
       if (ed < hr && ed > 1e-4) { nx = cx + ex / ed * hr; ny = cy + ey / ed * hr; nz = cz + ez / ed * hr; }
       V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz; P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
-      this._orient(i, dt, vx, vy, vz); // heading first: the final correction must see the final pose
+      if (!this.smooth) this._orient(i, dt, vx, vy, vz); // heading first: the final correction must see the final pose
       if (this.obs.length) {
         const dA = this._clear(i, nx + vx, ny + vy, nz + vz);
         if (dA < 0.8) { V[i3] += _hit.nx * (0.8 - dA) * dt * 4; V[i3 + 1] += Math.max(_hit.ny, 0.4) * (0.8 - dA) * dt * 4; V[i3 + 2] += _hit.nz * (0.8 - dA) * dt * 4; }
@@ -1968,7 +2147,7 @@ export class Encounter {
   _drift(dt, c) {
     const { n, P, F, FLO, CEI } = this;
     const sh = this.sys.shape, az = this.anchorZ;
-    const cx = c.x, cy = c.y, cz = c.z - az, lvl = this.sp.plan === 'siphon' ? 0.15 : 1; // siphonophores stay nearly level
+    const cx = c.x, cy = c.y, cz = c.z - az, lvl = this.sp.plan === 'siphon' ? 0.15 : this.sp.beh.tilt ?? 1; // siphonophores stay nearly level
     if (this.IFD) this._recycle(dt, c);
     // occasional limit refresh (big swarms: every member within ~0.5 s)
     for (let j = 0, K = Math.max(2, Math.ceil(n / 30)); j < K; j++) {
@@ -2129,6 +2308,11 @@ export class Encounter {
       return;
     }
     const Zx = F[i3], Zy = F[i3 + 1], Zz = F[i3 + 2];
+    if (this.FLIP !== null && this.FLIP[i] > 0) { // looping: the right vector stays level, the back faces the loop's centre
+      const o = i * 10, Xx = this.FLB[o + 4], Xz = -this.FLB[o + 3];
+      B[0] = Xx; B[1] = 0; B[2] = Xz; B[3] = Zy * Xz; B[4] = Zz * Xx - Zx * Xz; B[5] = -Zy * Xx; B[6] = Zx; B[7] = Zy; B[8] = Zz;
+      return;
+    }
     let rx = Zz, rz = -Zx; const rl = h2(rx, rz) || 1; rx /= rl; rz /= rl;
     const ux = Zy * rz, uy = Zz * rx - Zx * rz, uz = -Zy * rx;
     const b = this.BANK[i] + (this.SPIN ? this.SPIN[i] : 0), cb = Math.cos(b), sb = Math.sin(b);
@@ -2222,7 +2406,8 @@ export class Encounter {
         const s = -(P[i3 + 2] + az), dx = sh.pathX(s) - P[i3], dy = sh.pathY(s) - P[i3 + 1], dl = h2(dx, dy) || 1, st = Math.min(dl, 0.2 + Math.min(worst, 2));
         P[i3] += dx / dl * st; P[i3 + 1] += dy / dl * st; moved += st;
         V[i3] *= 0.5; V[i3 + 1] *= 0.5; V[i3 + 2] *= 0.5;
-        if (this.elong) { F[i3 + 1] *= 0.5; const hh = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / hh; F[i3] *= sc; F[i3 + 2] *= sc; }
+        if (this.smooth) this.PR[i] *= 0.5;
+        if (this.elong) { F[i3 + 1] *= this.smooth ? 0.9 : 0.5; const hh = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / hh; F[i3] *= sc; F[i3 + 2] *= sc; }
         continue;
       }
       const ws = -(wz + az), e = 0.5;
@@ -2234,8 +2419,10 @@ export class Encounter {
       P[i3] += nx * d; P[i3 + 1] += ny * d; P[i3 + 2] += nz * d; moved += d;
       const vn = V[i3] * nx + V[i3 + 1] * ny + V[i3 + 2] * nz;
       if (vn < 0.2) { const k2 = 0.2 - vn; V[i3] += nx * k2; V[i3 + 1] += ny * k2; V[i3 + 2] += nz * k2; } // turn away from the rock
-      if (this.elong && wk !== 2 && wk !== 3 && Math.abs(F[i3 + 1]) > 0.05) { // nose or tail pitched into it: level out
-        F[i3 + 1] *= 0.6; const hh = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / hh; F[i3] *= sc; F[i3 + 2] *= sc;
+      if (this.elong && wk !== 2 && wk !== 3 && Math.abs(F[i3 + 1]) > 0.05 && !(this.smooth && it > 0)) { // nose or tail pitched into it: level out
+        // (a big animal eases out of the pitch, once per fix: its pitch rate stops, the push above does the rest)
+        if (this.smooth) this.PR[i] = 0;
+        F[i3 + 1] *= this.smooth ? 0.9 : 0.6; const hh = h2(F[i3], F[i3 + 2]) || 1, sc = Math.sqrt(1 - F[i3 + 1] * F[i3 + 1]) / hh; F[i3] *= sc; F[i3 + 2] *= sc;
       }
     }
     this.CLR[i] -= moved;
@@ -2487,6 +2674,87 @@ export class Encounter {
     this._writeAll(dt);
   }
 
+  // ---------- sea otters ----------
+  // Float level of otter i: about half the body out of the water, belly to the sky.
+  _floatY(i) { return -0.035 * this.SZ[i]; }
+  // Otters float on their backs at the surface, drifting with the swell, turning slowly and sculling now and then. Every
+  // so often one rolls over, dives steeply to the rocky bottom, forages there for a few seconds (nose down) and swims back
+  // up, rolling onto its back again at the surface. Mothers with a pup and otters eating an urchin stay up (beh.noDive).
+  // MODE: 0 floating, 1 rolling over and diving, 2 foraging, 3 ascending, 4 rolling onto the back.
+  _otter(dt, c) {
+    const { n, P, V, F, MODE, TMR, HOME, RP } = this;
+    const sh = this.sys.shape, az = this.anchorZ, cx = c.x, cy = c.y, cz = c.z - az, rng = this.rng, m = this.mot;
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3, o = i * 4, sz = this.SZ[i], px = P[i3], py = P[i3 + 1], pz = P[i3 + 2], s = -(pz + az);
+      const f0x = F[i3], f0y = F[i3 + 1], f0z = F[i3 + 2], b0 = this.BANK[i];
+      const top = Math.min(sh.ceilingAt(px, s), 0) + this._floatY(i), fl = sh.floorAt(px, s);
+      let bankT = 0;
+      TMR[i] -= dt;
+      if (MODE[i] === 0) {
+        bankT = Math.PI;
+        const w = 0.12 * Math.sin(this.age * 0.09 + RP[o] * 20) + 0.05 * Math.sin(this.age * 0.23 + RP[o + 1] * 9);
+        const scull = 0.04 + 0.22 * Math.max(0, Math.sin(this.age * 0.15 + RP[o + 2] * 7));
+        let psi = this.PSI[i] + w * dt; if (psi > Math.PI) psi -= TAU; else if (psi < -Math.PI) psi += TAU;
+        const fy = 0.12, ch = Math.sqrt(1 - fy * fy);
+        F[i3] = Math.sin(psi) * ch; F[i3 + 1] = fy; F[i3 + 2] = Math.cos(psi) * ch; this.PSI[i] = psi; this.YR[i] = w; this.PR[i] = 0;
+        let vx = F[i3] * scull + this.curX, vz = F[i3 + 2] * scull + this.curZ;
+        if (top - fl < 1.2) { const d = sh.pathX(s) - px; vx += Math.sign(d) * 0.3; } // drifting onto the shore rocks: paddle off
+        const kv = Math.min(1, dt * 0.8);
+        V[i3] += (vx - V[i3]) * kv; V[i3 + 1] = 0; V[i3 + 2] += (vz - V[i3 + 2]) * kv;
+        P[i3] = px + V[i3] * dt; P[i3 + 2] = pz + V[i3 + 2] * dt;
+        P[i3 + 1] += (top + 0.025 * Math.sin(this.age * 1.3 + RP[o + 3] * TAU) - py) * Math.min(1, dt * 3); // riding the swell
+        this.BEND[i] *= 1 - Math.min(1, dt * 2); this.BT[i] *= 1 - Math.min(1, dt * 2);
+        const freq = (m.idle || 0.3) * 1.6 * this.FQ[i];
+        let ph = this.PH[i] + TAU * freq * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph; this.BF[i] = freq;
+        this.AMP[i] += (0.15 + scull * 2 - this.AMP[i]) * Math.min(1, dt);
+        if (TMR[i] < 0) {
+          TMR[i] = 6 + rng() * 12;
+          const a = psi + (rng() - 0.5) * 1.6, d = 3 + rng() * 5, hx = px + Math.sin(a) * d, hz = pz + Math.cos(a) * d, hs = -(hz + az);
+          if (!this.sp.beh.noDive && top - fl > 2.5 && top - sh.floorAt(hx, hs) > 2.5 && Math.abs(hx - sh.pathX(hs)) < this.latMax) {
+            MODE[i] = 1; TMR[i] = 30; HOME[i * 2] = hx; HOME[i * 2 + 1] = hz;
+          }
+        }
+      } else {
+        // diving, foraging, ascending: it swims where it points (the heading turns through _orient's rate limits)
+        let tx, ty, tz, spd;
+        const mode = MODE[i];
+        if (mode === 1) { // roll belly-down, then down to the bottom
+          tx = HOME[i * 2]; tz = HOME[i * 2 + 1]; ty = sh.floorAt(tx, -(tz + az)) + 0.45 + sz * 0.1; spd = this.speed;
+          if (Math.abs(this.BANK[i]) > 0.7) { ty = py; spd = 0.3; } // finish the roll first
+          if (py - fl < 0.9 + sz * 0.15 || h3(tx - px, ty - py, tz - pz) < 0.8 || TMR[i] < 15) { MODE[i] = 2; TMR[i] = 3 + rng() * 5; }
+        } else if (mode === 2) { // foraging over the rocks, nose down
+          const w = this.age * 0.4 + RP[o] * TAU;
+          tx = HOME[i * 2] + Math.sin(w) * 0.8; tz = HOME[i * 2 + 1] + Math.cos(w * 0.8) * 0.8; ty = sh.floorAt(tx, -(tz + az)) + 0.4 + sz * 0.1; spd = 0.3;
+          if (TMR[i] < 0) { MODE[i] = 3; TMR[i] = 25; }
+        } else if (mode === 3) { // back up to the surface
+          tx = px + F[i3] * 3; tz = pz + F[i3 + 2] * 3; ty = top; spd = this.speed;
+          if (py > top - 0.6 || TMR[i] < 0) MODE[i] = 4;
+        } else { // rolling onto its back at the surface
+          tx = px + F[i3]; tz = pz + F[i3 + 2]; ty = top; spd = 0.2; bankT = Math.PI;
+          if (Math.abs(this.BANK[i] - Math.PI) < 0.15) { MODE[i] = 0; TMR[i] = 15 + rng() * 35; this.PSI[i] = Math.atan2(F[i3], F[i3 + 2]); }
+        }
+        const dx = tx - px, dy = ty - py, dz = tz - pz, dl = h3(dx, dy, dz) || 1, k = Math.min(1, dl / 0.6) * spd / dl;
+        const bk = this.BANK[i]; // (the roll is managed below)
+        this._orient(i, dt, dx * k, dy * k, dz * k);
+        this.BANK[i] = bk;
+        const cur = h3(V[i3], V[i3 + 1], V[i3 + 2]), sp = cur + (spd * Math.min(1, dl / 0.6) - cur) * Math.min(1, dt * 1.5);
+        V[i3] = F[i3] * sp; V[i3 + 1] = F[i3 + 1] * sp; V[i3 + 2] = F[i3 + 2] * sp;
+        P[i3] = px + V[i3] * dt; P[i3 + 1] = Math.min(py + V[i3 + 1] * dt, top + 0.05); P[i3 + 2] = pz + V[i3 + 2] * dt;
+      }
+      // roll over (belly down to dive, onto the back at the surface): eased, at most ~2.4 rad/s
+      const db = bankT - this.BANK[i];
+      this.BANK[i] += clamp(db * 2.5, -2.4, 2.4) * dt;
+      // camera bubble, rocks, terrain
+      const ex = P[i3] - cx, ey = P[i3 + 1] - cy, ez = P[i3 + 2] - cz, ed = h3(ex, ey, ez), hr = this.hardR + sz * 0.2;
+      if (ed < hr && ed > 1e-4) { P[i3] = cx + ex / ed * hr; P[i3 + 1] = Math.min(cy + ey / ed * hr, top + 0.05); P[i3 + 2] = cz + ez / ed * hr; }
+      if (this.obs.length) this._pushOut(i, P, V, top + 0.05);
+      // (a floater well clear of the bottom needs no terrain check: its height is set right here)
+      if (this.terrainOn && (MODE[i] !== 0 || top - fl < 1.5 + sz * 0.5)) this._terrainTick(i, h3(P[i3] - px, P[i3 + 1] - py, P[i3 + 2] - pz), h3(F[i3] - f0x, F[i3 + 1] - f0y, F[i3 + 2] - f0z) + Math.abs(this.BANK[i] - b0) * 0.4);
+      else this.TCL[i] = 0; // (stale otherwise: the first check back near the rocks is a full one)
+    }
+    this._writeAll(dt);
+  }
+
   // remoras: a slow tail beat; the pose comes from the host in _writeAll
   _attach(dt) {
     for (let i = 0; i < this.n; i++) {
@@ -2555,6 +2823,10 @@ export class Encounter {
           Yx = 0; Yy = 1; Yz = 0;
           let zx = F[i3], zz = F[i3 + 2]; const l = h2(zx, zz) || 1; Zx = zx / l; Zy = 0; Zz = zz / l;
           Xx = Zz; Xy = 0; Xz = -Zx;
+        } else if (this.FLIP !== null && this.FLIP[i] > 0) { // looping (startFlip): level right vector, Y = Z x X
+          Zx = F[i3]; Zy = F[i3 + 1]; Zz = F[i3 + 2];
+          Xx = this.FLB[i * 10 + 4]; Xy = 0; Xz = -this.FLB[i * 10 + 3];
+          Yx = Zy * Xz; Yy = Zz * Xx - Zx * Xz; Yz = -Zy * Xx;
         } else {
           Zx = F[i3]; Zy = F[i3 + 1]; Zz = F[i3 + 2];
           let rx = Zz, rz = -Zx; const rl = h2(rx, rz) || 1; rx /= rl; rz /= rl;
@@ -2570,7 +2842,7 @@ export class Encounter {
         M[o + 12] = px; M[o + 13] = py; M[o + 14] = pz; M[o + 15] = 1;
       }
       const a = i * 4;
-      A[a] = this.PH[i]; A[a + 1] = this.AMP[i]; A[a + 2] = this.BEND[i]; A[a + 3] = this.IFD ? this.fade * this.IFD[i] : this.fade;
+      A[a] = this.PH[i]; A[a + 1] = this.AMP[i]; A[a + 2] = this.mot.mode === 6 ? this.BEND[i] : packBend(this.BEND[i], this.BT[i]); A[a + 3] = this.IFD ? this.fade * this.IFD[i] : this.fade;
       const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2];
       if (px < mnx) mnx = px; if (px > mxx) mxx = px; if (py < mny) mny = py; if (py > mxy) mxy = py; if (pz < mnz) mnz = pz; if (pz > mxz) mxz = pz;
     }

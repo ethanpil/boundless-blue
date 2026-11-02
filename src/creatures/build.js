@@ -251,7 +251,7 @@ export function sphere(gb, cx, cy, cz, r, nLat, nLon, part, axis, scale = [1, 1,
 }
 
 // Tube along a polyline with parallel-transport frames. gfn(i) -> [part, v, z, w] per ring.
-export function tube(gb, pts, radii, sides, gfn, squash = 1) {
+export function tube(gb, pts, radii, sides, gfn, squash = 1, twist = 0) {
   const n = pts.length, rings = [];
   let Nx = 0, Ny = 0, Nz = 0;
   for (let i = 0; i < n; i++) {
@@ -268,8 +268,8 @@ export function tube(gb, pts, radii, sides, gfn, squash = 1) {
     const g = gfn(i), r = radii[i];
     if (r < 1e-6) { const id = gb.v(p[0], p[1], p[2], g[0], g[1], g[2], g[3]); rings.push({ ids: new Array(sides).fill(id), c: p }); continue; }
     const ids = [];
-    for (let j = 0; j < sides; j++) {
-      const an = (j / sides) * PI * 2, c = Math.cos(an) * r * squash, s = Math.sin(an) * r;
+    for (let j = 0; j < sides; j++) { // (twist: each ring turned a little further, a spiralled prism)
+      const an = (j / sides) * PI * 2 + twist * i, c = Math.cos(an) * r * squash, s = Math.sin(an) * r;
       ids.push(gb.v(p[0] + Nx * c + Bx * s, p[1] + Ny * c + By * s, p[2] + Nz * c + Bz * s, g[0], g[1], g[2], g[3]));
     }
     rings.push({ ids, c: p });
@@ -370,12 +370,12 @@ export function buildFish(sp, lod = 0) {
       let px = ry * dz - rz * dy, py = rz * dx - rx * dz, pz = rx * dy - ry * dx;
       const pl = Math.hypot(px, py, pz) || 1; px /= pl; py /= pl; pz /= pl;
       fin(gb, {
-        nU: Math.max(3, det.fu - 1), nW: det.fw + (f.thick > 0.08 ? 1 : 0), pn: [px, py, pz],
+        nU: f.spikes ? Math.min(f.spikes * 2, 24) : Math.max(3, det.fu - 1), nW: det.fw + (f.thick > 0.08 ? 1 : 0), pn: [px, py, pz],
         part: f.part ?? (kind === 'flip' ? PART.FLIPPER : kind === 'ceph' ? PART.PAIRED : PART.PAIRED),
         vN: f.vN ?? -0.2, thick: f.thick ?? 0.03, cup: f.cup ?? 0,
         root: rootAt,
         dir: () => [dx, dy, dz],
-        H: (u) => f.h * ctrl(shp, u),
+        H: (u) => f.h * ctrl(shp, u) * (f.spikes ? 0.3 + 0.7 * Math.pow(Math.abs(Math.cos(u * f.spikes * PI)), 0.5) : 1), // (spikes: a row of legs)
       });
     }
   }
@@ -423,10 +423,26 @@ function extras(gb, sp, prof, det) {
   const X = sp.extra || {}, o = {};
   const sides = Math.max(4, det.eLon - 2);
   if (X.bill) { // sailfish / marlin / narwhal tusk (single, forward)
-    const L = X.bill.len, r = X.bill.r, pts = [], rad = [];
+    // a narwhal's tusk is a left-handed spiral: a five-sided prism twisted along its length shows the grooves
+    const L = X.bill.len, r = X.bill.r, pts = [], rad = [], sp = X.bill.spiral, nr = sp ? 18 : 6;
     const y0 = X.bill.y ?? 0, x0 = X.bill.x ?? 0;
-    for (let i = 0; i <= 6; i++) { const f = i / 6; pts.push([x0 * (1 - f * 0.3), y0 + (X.bill.rise ?? 0) * f * f, 0.5 - 0.02 + L * f]); rad.push(i === 6 ? 0 : r * (X.bill.blunt ? 1 - 0.45 * f : Math.pow(1 - f, 0.8))); }
-    tube(gb, pts, rad, sides, () => [X.bill.part ?? PART.TOOTH, 0, 0, 0]);
+    for (let i = 0; i <= nr; i++) { const f = i / nr; pts.push([x0 * (1 - f * 0.3), y0 + (X.bill.rise ?? 0) * f * f, 0.5 - 0.02 + L * f]); rad.push(i === nr ? 0 : r * (X.bill.blunt ? 1 - 0.45 * f : sp ? 1 - 0.75 * f : Math.pow(1 - f, 0.8))); }
+    tube(gb, pts, rad, sp ? 5 : sides, () => [X.bill.part ?? PART.TOOTH, 0, 0, 0], 1, sp ? -0.55 : 0);
+  }
+  if (X.gape) { // an open mouth (whale sharks ram-feeding): a dark oval filling the blunt front of the head
+    const G = X.gape; prof(G.t, o);
+    sphere(gb, 0, o.yc - o.bot * 0.12, 0.5 - G.t + G.d * 0.45, 1, Math.max(4, det.eLat), Math.max(8, det.eLon), PART.BEAK, [0, 0, 1], [o.wid * G.w, (o.top + o.bot) * 0.5 * G.h, G.d], 0);
+  }
+  if (X.urchin) { // a purple sea urchin held on the chest (sea otters eat floating on their backs)
+    const Ur = X.urchin; prof(Ur.t, o);
+    const cy = o.yc - o.bot - Ur.r * 0.75, cz = 0.5 - Ur.t, nS = det.nL > 20 ? 46 : 22;
+    sphere(gb, 0, cy, cz, Ur.r, Math.max(4, det.eLat), Math.max(6, det.eLon), PART.BEAK, [0, -1, 0], [1, 0.8, 1], 0);
+    for (let i = 0; i < nS; i++) { // spines radiating from the test (none into the otter's chest)
+      const y = 1 - (2 * (i + 0.5)) / nS, rr = Math.sqrt(1 - y * y), th = i * 2.399963;
+      if (y > 0.35) continue;
+      const dx = rr * Math.cos(th), dz = rr * Math.sin(th), b = [dx * Ur.r * 0.9, cy + y * Ur.r * 0.75, cz + dz * Ur.r * 0.9];
+      tube(gb, [b, [b[0] + dx * Ur.r, b[1] + y * Ur.r, b[2] + dz * Ur.r]], [Ur.r * 0.09, 0], 3, () => [PART.BEAK, 0, 0, 0]);
+    }
   }
   if (X.lure) { // anglerfish illicium + esca
     const Lr = X.lure; prof(Lr.t, o);

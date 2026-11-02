@@ -1,5 +1,6 @@
 // Creatures system: procedural species, instanced encounters, behaviours and the encounter director.
-// Contract: new Creatures(world, env); update(dt, time, cam); labels(out); subjects(out).
+// Contract: new Creatures(world, env); update(dt, time, cam); labels(out); subjects(out); reset() (zone jump);
+// pickRay(ox, oy, oz, dx, dy, dz, maxDist) (tap to identify).
 // Debug URL params: cr=<speciesKey> forces every spawn to that species; crstats=1 logs a summary every 5 s.
 import * as THREE from 'three';
 import { makeMaterials } from './shader.js';
@@ -16,6 +17,7 @@ const qs = typeof location !== 'undefined' ? new URLSearchParams(location.search
 const NIGHT_SPARK = new Set(['reef', 'softcoral', 'wall', 'kelp', 'seagrass', 'sandflat', 'mangrove', 'tidepool', 'wreck', 'ruins', 'pelagic', 'cave']);
 const SHRIMPY = new Set(['reef', 'softcoral', 'wall', 'seagrass', 'sandflat', 'mangrove', 'tidepool', 'wreck', 'ruins', 'kelp']);
 const DEEP = new Set(['deepplain', 'abyss', 'vents']);
+const BAY_RGB = [0.22, 0.78, 1.0]; // dinoflagellate blue-green (~475 nm)
 
 export class Creatures {
   constructor(world, env) {
@@ -41,7 +43,7 @@ export class Creatures {
     this.ctx = { s: 0, x: 0, y: 0, z: 0, vx: 0, vz: 0, speed: 3, Oz: 0, frustum: this.frustum, jumped: false, fx: 0, fz: -1 };
     this.stats = { enc: 0, visible: 0, instances: 0, tris: 0, ms: 0 };
     this._logT = 0; this._sparkAcc = 0; this._wakeAcc = 0; this._eyeAcc = 0;
-    this._idleQueued = false;
+    this._idleQueued = false; this._resetPending = false;
     this._idleCb = (deadline) => {
       this._idleQueued = false;
       let k = 0;
@@ -100,16 +102,63 @@ export class Creatures {
           const x = P[i * 3], y = P[i * 3 + 1], z = az + P[i * 3 + 2];
           const dx = x - cp.x, dy = y - cp.y, dz = z - Oz - cp.z;
           if (dx * dx + dy * dy + dz * dz > 4900) continue;
-          out.push({ id: e.uid * 1000 + i, x, y, z, vx: V[i * 3], vy: V[i * 3 + 1], vz: V[i * 3 + 2], r: e.SZ[i] * 0.5, interest: it });
+          out.push({ id: e.uid * 1000 + i, key: e.sp.key, x, y, z, vx: V[i * 3], vy: V[i * 3 + 1], vz: V[i * 3 + 2], r: e.SZ[i] * 0.5, interest: it });
         }
       } else {
         const b = e.bounds, z = az + b.z, dx = b.x - cp.x, dy = b.y - cp.y, dz = z - Oz - cp.z;
         if (dx * dx + dy * dy + dz * dz > 4900) continue;
         const interest = e.n >= 40 ? Math.max(0.6, it) : Math.max(it, e.n >= 15 ? 0.3 : 0.2);
-        out.push({ id: e.uid * 1000 + 999, x: b.x, y: b.y, z, vx: e.Cvx || 0, vy: e.Cvy || 0, vz: e.Cvz || 0, r: Math.min(b.r * 0.6, 12), interest });
+        out.push({ id: e.uid * 1000 + 999, key: e.sp.key, x: b.x, y: b.y, z, vx: e.Cvx || 0, vy: e.Cvy || 0, vz: e.Cvz || 0, r: Math.min(b.r * 0.6, 12), interest });
       }
     }
     return out;
+  }
+
+  // Zone jump (app.jumpTo): every encounter goes (meshes removed, geometry handed back to the cache, which frees the GPU
+  // buffers of species nobody uses any more), particles and queued work are dropped, and the director starts over: the
+  // next update with time running primes a new cast around the camera's new position.
+  reset() {
+    for (const e of this.enc) e.dispose();
+    this.enc.length = 0; this.instances = 0; this.trisTotal = 0; this.nearActive = 0;
+    this.lodQueue.clear();
+    this.fx.clear();
+    if (this.sep._act) this.sep._act.length = 0;
+    if (this.sep._again) this.sep._again.length = 0;
+    this.director.reset();
+    this.lastS = null; this.camSpeed = 3; this._sparkAcc = 0; this._wakeAcc = 0; this._eyeAcc = 0;
+    this._resetPending = true; // (no priming while the new terrain is still being built: the jump runs the update at dt 0)
+  }
+
+  // Tap to identify: the nearest animal hit by the ray (origin in GLOBAL coordinates, z = -s; d normalised) within
+  // maxDist, as { name, fact, key, dist }, or null. Bodies are capsules along their axis (sep.js shape), widened for
+  // small or distant animals (at least ~1.2 degrees of arc, so a fingertip can hit a 5 cm fish). Called on tap only.
+  pickRay(ox, oy, oz, dx, dy, dz, maxDist = 120) {
+    let best = null, bd = maxDist;
+    for (const e of this.enc) {
+      if (e.done || e.fade < 0.3) continue;
+      const b = e.bounds, bx = b.x - ox, by = b.y - oy, bz = e.anchorZ + b.z - oz, tb = bx * dx + by * dy + bz * dz;
+      const slack = Math.max(0.02 * Math.max(tb, 0), 0.1);
+      if (tb < -b.r - slack || tb - b.r > bd) continue;
+      const qx = bx - dx * tb, qy = by - dy * tb, qz = bz - dz * tb;
+      if (qx * qx + qy * qy + qz * qz > (b.r + slack) * (b.r + slack)) continue;
+      const sh = e.entry.shape, P = e.P, F = e.F, az = e.anchorZ, pl = e.sp.plan, up = e.kind === 'colony' || (sh.ya && (pl === 'seahorse' || pl === 'cassiopea' || pl === 'octopus'));
+      for (let i = 0; i < e.n; i++) {
+        const i3 = i * 3, s = e.SZ[i], ax = up ? 0 : F[i3], ay = up ? 1 : F[i3 + 1], azz = up ? 0 : F[i3 + 2];
+        const cx = P[i3] + ax * sh.c * s - ox, cy = P[i3 + 1] + ay * sh.c * s - oy, cz = az + P[i3 + 2] + azz * sh.c * s - oz, h = sh.h * s;
+        // closest approach of the ray to the body segment (2D minimisation over ray t and segment u in [-h, h])
+        const ad = ax * dx + ay * dy + azz * dz, cd = cx * dx + cy * dy + cz * dz, ca = cx * ax + cy * ay + cz * azz, den = 1 - ad * ad;
+        let u = den > 1e-6 ? (ad * cd - ca) / den : 0; u = u < -h ? -h : u > h ? h : u;
+        const px = cx + ax * u, py = cy + ay * u, pz = cz + azz * u, t = px * dx + py * dy + pz * dz;
+        if (t < 0 || t > bd) continue;
+        const rx = px - dx * t, ry = py - dy * t, rz = pz - dz * t, rad = Math.max(sh.r * s * 1.25, 0.021 * t, 0.06);
+        if (rx * rx + ry * ry + rz * rz > rad * rad) continue;
+        bd = t; best = e;
+      }
+    }
+    if (!best) return null;
+    const host = best.kind === 'attach' ? best.host : null;
+    const name = best._label || (best._label = commonName(best.sp));
+    return { name, fact: FACTS[best.sp.key] || (host ? FACTS[host.sp.key] : '') || '', key: best.sp.key, dist: bd };
   }
 
   spawn(sp, plan) {
@@ -174,8 +223,10 @@ export class Creatures {
     if (dt <= 0) return;
     const U = this.U, fx = this.fx, night = U.uNight.value, key = this.seq.weights(c.s)[0].key;
     const glow = U.uGlow ? U.uGlow.value : 0, lamp = U.uLamp ? U.uLamp.value : 0, tier = this.tierScale;
-    const spark = Math.max(night > 0.35 && NIGHT_SPARK.has(key) ? (night - 0.35) / 0.65 : 0, DEEP.has(key) ? Math.min(1, glow) * 0.6 : 0);
+    const bay = this.seq.weightOf(c.s, 'biobay');
+    const spark = Math.max(night > 0.35 && NIGHT_SPARK.has(key) ? (night - 0.35) / 0.65 : 0, DEEP.has(key) ? Math.min(1, glow) * 0.6 : 0, bay);
     if (spark <= 0.01) return;
+    if (bay > 0.02) this._bayGlow(dt, bay);
     const fxd = c.fx, fzd = c.fz, rx = -fzd, rz = fxd; // forward / right (horizontal)
     this._sparkAcc += dt * spark * tier * (5 + c.speed * 9);
     while (this._sparkAcc >= 1) {
@@ -210,6 +261,35 @@ export class Creatures {
     }
   }
 
+  // Bioluminescent bay: everything that moves stirs the dinoflagellates. Sparks are shed around the body and fins of
+  // swimming animals within ~30 m, mostly toward the tail where the water is churned, and fade over 1-2 s, leaving a
+  // glowing trail along each path. A random member is picked per spark, kept with a chance rising with its speed, so the
+  // cost does not grow with group size; one shared particle buffer (FX), capped per frame.
+  _bayGlow(dt, bay) {
+    const fx = this.fx, cap = Math.max(6, Math.round(18 * this.tierScale));
+    let budget = cap;
+    for (let k = 0; k < this.enc.length && budget > 0; k++) {
+      const e = this.enc[k];
+      if (e.done || e.dist > 30 || e.fade < 0.3 || e.kind === 'colony' || e.kind === 'peek' || e.kind === 'bed' || e.kind === 'attach') continue;
+      e.glowAcc = Math.min(e.glowAcc + dt * bay * 16 * Math.min(e.n, 24) * Math.sqrt(e.baseSize) * (1 - e.dist / 30), 4);
+      const P = e.P, V = e.V, F = e.F, az = e.anchorZ, rb = e.rbU;
+      while (e.glowAcc >= 1 && budget > 0) {
+        e.glowAcc -= 1;
+        const i = Math.floor(fx.rnd() * e.n), i3 = i * 3, sp = Math.hypot(V[i3], V[i3 + 1], V[i3 + 2]);
+        if (fx.rnd() > Math.min(1, sp / 0.7)) continue; // slow movers barely glow
+        budget--;
+        const L = e.SZ[i], t = (0.45 - Math.pow(fx.rnd(), 0.7) * 0.95) * L, a = fx.rnd() * 6.2832, r = rb * L * (0.6 + 0.7 * fx.rnd());
+        // a random direction across the body axis
+        let ux = -F[i3 + 2], uz = F[i3]; const ul = Math.hypot(ux, uz) || 1; ux /= ul; uz /= ul;
+        const ca = Math.cos(a) * r, sa = Math.sin(a) * r;
+        const x = P[i3] + F[i3] * t + ux * ca, y = P[i3 + 1] + F[i3 + 1] * t + sa, z = az + P[i3 + 2] + F[i3 + 2] * t + uz * ca;
+        const w = 0.85 + 0.3 * fx.rnd();
+        fx.glow(x, y, z, 0.012 + 0.02 * fx.rnd() + 0.012 * Math.min(L, 2), 1.0 + fx.rnd() * 0.9, BAY_RGB[0] * w, BAY_RGB[1] * w, BAY_RGB[2], 0.9 * bay,
+          -V[i3] * 0.05, -V[i3 + 1] * 0.05, -V[i3 + 2] * 0.05);
+      }
+    }
+  }
+
   update(dt, time, cam) {
     const t0 = performance.now();
     const c = this.ctx;
@@ -238,7 +318,8 @@ export class Creatures {
     const sMin = Math.max(1e-3, Math.min(sg.x, sg.y, sg.z));
     this.fogD = Math.max(70, Math.min(190, 3.0 / sMin));
 
-    if (dt > 0 || jumped || !this.director.primed) this.director.update(dt, c);
+    if (this._resetPending && dt > 0) this._resetPending = false;
+    if (!this._resetPending && (dt > 0 || jumped || !this.director.primed)) this.director.update(dt, c);
     let vis = 0, visTris = 0;
     for (let i = this.enc.length - 1; i >= 0; i--) {
       const e = this.enc[i];

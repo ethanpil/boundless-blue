@@ -77,6 +77,9 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - `_terrainFix` checks 8 body extremities against the floor, ceiling and surface.
   - Test tools in devfly.js: `spacingTest`, `terrainTest`, `presenceTest`.
   - The blue whale is scheduled by `director.whaleTick`.
+  - **Smooth turning** (swimmers >= 0.45 m): heading and pitch follow critically damped springs with the rate capped by a minimum turning radius per motion mode and body length. Separation, rocks, terrain and the camera bubble change velocity, never heading. Head and tail bends are packed into `aAnim.z` (except the octopus, mode 6), so the head turns first and the tail follows. Before this, big animals turned like rigid objects (dolphins up to 471 deg/s). `devfly.turnTest` measures it.
+  - `reset()` (zone jump) empties both creatures and surprises; `pickRay(o, d, max)` (global origin) serves tap-to-identify; `subjects()` entries carry the species `key`.
+  - Shoals that hug an ice ceiling are expensive: Arctic cod pressed to the floes cost 216 ms per frame; a loose shoal 1-2.6 m below them costs 0.75 ms.
 - **Surprises** (`src/surprises/`):
   - One encounter at a time, on persistent timers stored in localStorage key `boundlessBlue.surprises.v1` (falls back to the old `endlessOcean.surprises.v1`).
   - Builds are stepped and use `compileAsync`. Bodies are registered as moving obstacles (`o.sur = true`).

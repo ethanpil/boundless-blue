@@ -64,7 +64,9 @@ cam.position.set(0, -10, (rows * ch) / (2 * Math.tan(15 * Math.PI / 180)) + 0.5)
 U.uCamPos.value.copy(cam.position);
 function draw(t) {
   U.uTime.value = t;
-  encs.forEach((e, k) => { const A = e.aAnim.array; A[0] = t * 6.0; A[1] = 1 + (bends[k] || 0); A[2] = bends[k] || 0; A[3] = 1; e.aAnim.needsUpdate = true; });
+  // (the turn bend is packed as head / tail pair, see encounter.js packBend; the octopus takes its jet factor as is)
+  const pk = (b) => Math.round((b + 0.5) * 1000) * 1024 + Math.round((b + 0.5) * 1000);
+  encs.forEach((e, k) => { const A = e.aAnim.array, b = bends[k] || 0; A[0] = t * 6.0; A[1] = 1 + b; A[2] = e.sp.mot.mode === 6 ? b : pk(b); A[3] = 1; e.aAnim.needsUpdate = true; });
   renderer.render(scene, cam);
 }
 window.draw = draw;
