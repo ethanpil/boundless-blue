@@ -7,14 +7,13 @@
 // passes; some summits are manta cleaning stations.
 import { Batch, TAU, rotY, rotX, mul3, presence, budgetK, T, Builder, lerp } from './core.js';
 import { MAT } from './materials.js';
-import { hash2i } from '../noise.js';
 import { sv } from '../biomes.js';
 import { NBMAT, pathCache, clearBox, SOLID, SOFT, seat, put, upTo, nrm, mix3, segFor, recipe, lowK, itemSupport, basePts, xf, slice, nbFloor, decalDisc, builderMesh, lab } from './nb_common.js';
 import { encrust, featherStar, blackCoral, elephantEar, sunCorals } from './nb_shapes.js';
 import { seaWhips } from './shapes.js';
 import { giantFan, wireCoral, xmasBlackCoral, polypMat, shelf, softTree } from './nb2_life.js';
 import { Crust, crustPatch, tubeCluster } from './nb2_crust.js';
-import { pick, tintOf, chunkRng, poolOf, hotCells, hotCellsG, facet, hangY, itemSpots, WPick, visW, NB2, planned, decoOn } from './nb2_common.js';
+import { pick, tintOf, chunkRng, poolOf, hotCells, hotCellsG, facet, hangY, itemSpots, WPick, visW, NB2, planned, decoOn, NATC } from './nb2_common.js';
 import { rockJob, drain } from './rock_recipes.js';
 
 const S = {};
@@ -109,18 +108,66 @@ const CRUST_LABEL = [
   ['Coralline algae', 'Coralline algae lay down limestone in their cell walls; their pink crusts cement the rock together.'],
 ];
 
-// ---------------------------------------------------------------- pinnacle summits (same lattice as biomes.peaks)
-function summits(ctx, g, pc, out) {
-  const cell = 70, seed = 172 + ((g ? g.seed : 0) & 15);
-  const px = pc.x(ctx.s0 + 32);
-  for (let cy = Math.floor((ctx.s0 - 40) / cell); cy <= Math.floor((ctx.s1 + 40) / cell); cy++) {
-    for (let cx = Math.floor((px - 90) / cell); cx <= Math.floor((px + 90) / cell); cx++) {
-      if (hash2i(cx, cy, seed + 3) > 0.6) continue;
-      const x = (cx + hash2i(cx, cy, seed)) * cell, s = (cy + hash2i(cx, cy, seed + 1)) * cell;
-      if (s < ctx.s0 || s >= ctx.s1) continue;
-      out.push({ x, s, r: 18 + 16 * hash2i(cx, cy, seed + 2) });
+// ---------------------------------------------------------------- pinnacle summits, found on the live terrain
+// Local maxima of the rendered floor (ctx.floorAt) within 84 m of the path, so every pinnacle gets its
+// POI whatever raised it. (A private copy of the 70 m peak lattice missed the path-side route spires of
+// biomes.js, which never got POIs or summit life.) Coarse 4 m grid on world coordinates, hill-climb to
+// the top, then a pinnacle test: the highest point within 12 m and >= 10 m above its surroundings (fbm
+// bumps on a flank or the rolling base fail it). A summit belongs to the chunk holding its top.
+const SUM_C = 4, SUM_W = 84, SUM_M = 16, SUM_DIR = Array.from({ length: 8 }, (_, k) => [Math.cos(k * TAU / 8), Math.sin(k * TAU / 8)]);
+function climb(ctx, x, s) {
+  let y = ctx.floorAt(x, s);
+  for (const st of [2, 1, 0.5]) {
+    for (let it = 0; it < 8; it++) {
+      let bx = x, bs = s, by = y;
+      for (const [cx, cs] of SUM_DIR) { const v = ctx.floorAt(x + cx * st, s + cs * st); if (v > by + 1e-3) { bx = x + cx * st; bs = s + cs * st; by = v; } }
+      if (bx === x && bs === s) break;
+      x = bx; s = bs; y = by;
     }
   }
+  return { x, s, y };
+}
+function* summits(ctx, pc, out, Y) {
+  const c = SUM_C, j0 = Math.floor((ctx.s0 - SUM_M) / c), j1 = Math.ceil((ctx.s1 + SUM_M) / c);
+  let xa = Infinity, xb = -Infinity;
+  for (let s = ctx.s0 - SUM_M; s <= ctx.s1 + SUM_M; s += 8) { const x = pc.x(s); xa = Math.min(xa, x); xb = Math.max(xb, x); }
+  const i0 = Math.floor((xa - SUM_W) / c), i1 = Math.ceil((xb + SUM_W) / c), W = i1 - i0 + 1, h = new Float32Array(W * (j1 - j0 + 1));
+  for (let j = j0; j <= j1; j++) {
+    if (Y.over()) { yield; Y.reset(); }
+    for (let i = i0; i <= i1; i++) h[(j - j0) * W + i - i0] = ctx.floorAt(i * c, j * c);
+  }
+  const cand = [];
+  for (let j = j0 + 1; j < j1; j++) {
+    const px = pc.x(j * c);
+    for (let i = i0 + 1; i < i1; i++) {
+      if (Math.abs(i * c - px) > SUM_W) continue;
+      const o = (j - j0) * W + i - i0, v = h[o];
+      if (v < h[o - 1] || v < h[o + 1] || v < h[o - W] || v < h[o + W] || v < h[o - W - 1] || v < h[o - W + 1] || v < h[o + W - 1] || v < h[o + W + 1]) continue;
+      cand.push(i * c, j * c);
+    }
+  }
+  const tops = [];
+  for (let k = 0; k < cand.length; k += 2) {
+    if (Y.over()) { yield; Y.reset(); }
+    const p = climb(ctx, cand[k], cand[k + 1]);
+    if (p.s < ctx.s0 || p.s >= ctx.s1) continue;
+    // pinnacle test, and its radius: where the flanks have fallen 80% of the way to the surroundings
+    let base = Infinity, hi = -Infinity;
+    const prof = [];
+    for (const [cx, cs] of SUM_DIR) for (let r = 4; r <= 36; r += 4) {
+      const v = ctx.floorAt(p.x + cx * r, p.s + cs * r);
+      prof.push(v); base = Math.min(base, v);
+      if (r <= 12) hi = Math.max(hi, v);
+    }
+    if (hi > p.y + 0.05 || p.y - base < 10) continue;
+    let rs = 0;
+    for (let d = 0; d < 8; d++) { let rd = 36; for (let q = 0; q < 9; q++) if (p.y - prof[d * 9 + q] >= 0.8 * (p.y - base)) { rd = 4 + q * 4; break; } rs += rd; }
+    p.r = Math.min(40, Math.max(12, rs / 8 / 0.6)); // (a cone falls 80% at 0.6 of its radius)
+    tops.push(p);
+  }
+  // the highest first, so a lower top beside it (a second climb onto the same spire) is the one dropped
+  tops.sort((a, b) => b.y - a.y);
+  for (const p of tops) if (!out.some((q) => Math.hypot(q.x - p.x, q.s - p.s) < 12)) out.push(p);
   return out;
 }
 
@@ -131,8 +178,7 @@ const PL = planned(function* (ctx) {
   const ledges = [], crags = [], peaks = [];
   // steep, visible faces near the camera
   const hot = yield* hotCellsG(ctx, fs, pc, { W: 46, cell: 3, test: (rel, ny) => rel > -30 && rel < 14 && ny < 0.97 }, Y);
-  const g0 = segFor(ctx, ctx.s0 + 32, 'seamount');
-  summits(ctx, g0, pc, peaks);
+  yield* summits(ctx, pc, peaks, Y);
   yield;
   for (const p of peaks) { p.y = fs.at(p.x, p.s); p.rel = p.y - pc.y(p.s); }
   const steepL = hot.filter((c) => c.ny < 0.62 && c.rel > -22 && c.rel < 8), steep = new WPick(steepL, (c) => visW(c, pc));
@@ -205,6 +251,7 @@ export function* layoutSmA(ctx) {
   for (const C of P.crags) { put(ctx, st, C.tpl, C.x, C.y, C.s, C.R, C.sc, C.sy, C.sc, tintOf(rng, [[0.42, 0.4, 0.39], [0.36, 0.35, 0.37], [0.45, 0.4, 0.36]], 0.08), 0.35); C.item = st.last; }
   // summits: POIs (the camera and the schools gather) and a garden of fans on top
   for (const p of P.peaks) {
+    if (Y.over()) { yield; Y.reset(); }
     const g = segFor(ctx, p.s, 'seamount');
     if (!g || ctx.weightOf(p.s, 'seamount') < 0.5) continue;
     const dx = p.x - pc.x(p.s);
@@ -214,6 +261,29 @@ export function* layoutSmA(ctx) {
     labels.push([name, p.x, p.y + 1.5, p.s, 'Over 30,000 seamounts rise more than 1,000 m from the ocean floor; most have never been visited.']);
     if (p.rel < -4 && sv(g, 52 + (Math.floor(p.s) & 7)) < 0.45)
       pois.push({ type: 'cleaning-station', x: p.x, y: p.y + 0.5, s: p.s, r: 6, data: { name: 'Cleaning station', fact: 'Mantas queue over seamount cleaning stations, where wrasse pick off their parasites.' } });
+    // the garden on the cap: giant fans (broadside to the current where it is flat enough, parallel to the
+    // face on the steep spire tips), sponges, black coral (summits beyond the faces the hot cells cover
+    // would otherwise stand bare)
+    const rc = recipeOf(g), rCap = Math.min(7, p.r * 0.3), done = [];
+    for (let q = 0; q < 8 * bk * rc.life; q++) {
+      const a = rng() * TAU, d = 0.8 + Math.sqrt(rng()) * rCap, x = p.x + Math.cos(a) * d, s = p.s + Math.sin(a) * d;
+      const F = facet(fs, x, s), n = F.n, steep = n[1] < 0.75, face = F.hn ? Math.atan2(F.hn[0], F.hn[2]) : rng() * TAU;
+      if (n[1] < 0.12 || done.some((o) => Math.hypot(o[0] - x, o[1] - s) < 1.6)) continue;
+      const u = rng();
+      let tpl, sc, R, b = st, col, fa = 1, solid = true, m = n, embed = 0.04;
+      if (u < 0.55) {
+        tpl = pick(rng, poolOf(g, 'nb2smFan', S.fan)); sc = 1.0 + rng() * 0.8; b = fan; fa = sc; m = null; col = tintOf(rng, rc.fanPal, 0.15);
+        R = steep ? mul3(rotY(face + (rng() - 0.5) * 0.4), rotX(0.12 + rng() * 0.25)) : mul3(rotY(sv(g, 53) * TAU + (rng() - 0.5) * 0.5), rotX((rng() - 0.5) * 0.2));
+      } else if (u < 0.8 && (steep || T.barrel)) {
+        if (steep) { tpl = pick(rng, S.ear); sc = 1.0 + rng() * 0.8; R = mul3(rotY(face + (rng() - 0.5) * 0.6), rotX(0.15 + rng() * 0.3)); col = tintOf(rng, PAL.sponge, 0.15); }
+        else { tpl = pick(rng, T.barrel); sc = 0.9 + rng() * 0.8; R = upTo(mix3(UP, n, 0.35), rng() * TAU); embed = 0.06; col = tintOf(rng, NATC.barrel, 0.12); }
+      } else { tpl = pick(rng, S.black); sc = 1.0 + rng() * 1.0; b = sw; fa = sc * 0.5; solid = false; col = tintOf(rng, PAL.black, 0.12); R = upTo(steep ? nrm([n[0], n[1] + 0.35, n[2]]) : mix3(UP, n, 0.3), rng() * TAU); }
+      const h = (tpl.maxY - tpl.minY) * sc, reach = Math.max(tpl.r * sc, h * 0.45);
+      if (!clearBox(pc, x, s, F.y - reach * 0.5, F.y + h, reach, solid ? SOLID : SOFT, solid ? 0 : 1.4)) continue;
+      const Pp = [x, F.y, s];
+      seat(fs, tpl, R, sc, sc, sc, Pp, m, embed);
+      if (put(ctx, b, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, col, fa)) done.push([x, s]);
+    }
   }
   // big life on the faces
   const vis = new WPick(P.hot.filter((c) => c.rel > -28), (c) => visW(c, pc));

@@ -10,7 +10,7 @@ import { sv } from '../biomes.js';
 import { NBMAT, pathCache, clearBox, SOLID, SOFT, seat, put, upTo, mix3, segFor, recipe, lowK, slice, nbFloor, decalDisc, decalRibbon, builderMesh, lab } from './nb_common.js';
 import { encrust, featherStar } from './nb_shapes.js';
 import { scoria, polypMat } from './nb2_life.js';
-import { NB2, pick, tintOf, chunkRng, poolOf, itemSpots, bubbleMesh, Occ, planned, decoOn } from './nb2_common.js';
+import { NB2, pick, tintOf, chunkRng, poolOf, itemSpots, bubbleMesh, Occ, planned, decoOn, NATC, subPal } from './nb2_common.js';
 import { rockJob, drain } from './rock_recipes.js';
 
 const C = {};
@@ -41,6 +41,8 @@ export const recipeOf = (g) => recipe(g, 'nb2ch', (g) => ({
   drift: (sv(g, 106) - 0.5) * 1.2, // the current leans every stream the same way
   hard: [[1.0, 0.5, 0.18], [0.78, 0.28, 0.85], [0.55, 0.8, 0.22], [1.05, 0.8, 0.22], [1.0, 0.35, 0.5], [0.22, 0.75, 0.68]].filter((_, i) => sv(g, 90 + i) > 0.3),
   fanPal: [[0.72, 0.1, 0.9], [1.0, 0.08, 0.16], [1.1, 0.45, 0.06], [1.05, 0.85, 0.12], [0.95, 0.15, 0.6]].filter((_, i) => sv(g, 100 + i) > 0.35),
+  // the shared reef templates (massive coral heads, barrel sponge, soft coral) keep natural colours
+  massPal: subPal(NATC.massive, (i) => sv(g, 110 + i)), barrelPal: subPal(NATC.barrel, (i) => sv(g, 120 + i)), softPal: subPal(NATC.soft, (i) => sv(g, 130 + i)),
 }));
 
 // ---------------------------------------------------------------- plan: vents and rocks
@@ -120,17 +122,17 @@ export function* layoutChA(ctx) {
     labels.push([cl.line ? 'Bubbling fissure' : 'Champagne vents', cl.x, cl.y + 0.8, cl.s, VENT_FACT]);
   }
   const SPECS = [
-    { t: T.brain, w: 2, sc: [0.6, 1.5], hard: true },
-    { t: T.boulder, w: 1.6, sc: [0.7, 1.6], hard: true },
-    { t: T.coralMound, w: 0.7, sc: [0.6, 1.3], hard: true, mound: true },
-    { t: T.pillar, w: 0.6, sc: [0.7, 1.3], hard: true },
+    { t: T.brain, w: 2, sc: [0.6, 1.5], hard: true, pal: 'massPal' },
+    { t: T.boulder, w: 1.6, sc: [0.7, 1.6], hard: true, pal: 'massPal' },
+    { t: T.coralMound, w: 0.7, sc: [0.6, 1.3], hard: true, mound: true, pal: 'massPal' },
+    { t: T.pillar, w: 0.6, sc: [0.7, 1.3], hard: true, pal: 'massPal' },
     { t: T.finger, w: 0.8, sc: [0.7, 1.4], hard: true },
     { t: T.fan, w: 1.6, sc: [0.9, 1.8], fan: true },
     { t: T.whip, w: 1.4, sc: [0.8, 1.5], sway: true, col: [[0.75, 0.42, 0.85], [1.0, 0.75, 0.3], [0.8, 0.35, 0.2]] },
     { t: T.tubeSp, w: 1.2, sc: [0.8, 1.6], sponge: true },
     { t: T.vase, w: 0.8, sc: [0.8, 1.5], sponge: true },
-    { t: T.barrel, w: 0.5, sc: [0.6, 1.2], sponge: true },
-    { t: T.soft, w: 0.8, sc: [0.8, 1.5], sway: true, col: [[0.72, 0.12, 0.98], [0.98, 0.14, 0.62], [1.1, 0.42, 0.05]] },
+    { t: T.barrel, w: 0.5, sc: [0.6, 1.2], sponge: true, pal: 'barrelPal' },
+    { t: T.soft, w: 0.8, sc: [0.8, 1.5], sway: true, pal: 'softPal' },
     { t: T.leather, w: 0.6, sc: [0.8, 1.5], col: [[0.75, 0.7, 0.45], [0.6, 0.65, 0.4]] },
     { t: T.anem, w: 0.6, sc: [0.8, 1.4], sway: true, col: [[1, 1, 1]] },
   ].filter((e) => e.t && e.t.length);
@@ -153,7 +155,7 @@ export function* layoutChA(ctx) {
     if (!clearBox(pc, x, s, y, y + h, tpl.r * sc, e.sway ? SOFT : SOLID, e.sway ? 1.0 : 0)) continue;
     const Pp = [x, y, s];
     seat(fs, tpl, R, sc, sc, sc, Pp, null, e.mound ? 0.1 : 0.03);
-    const col = e.col ? tintOf(rng, e.col, 0.15) : e.fan ? tintOf(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.6]], 0.15)
+    const col = e.pal ? tintOf(rng, rc[e.pal], 0.12) : e.col ? tintOf(rng, e.col, 0.15) : e.fan ? tintOf(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.6]], 0.15)
       : e.sponge ? tintOf(rng, [[0.72, 0.12, 0.98], [1.1, 0.42, 0.05], [1.1, 0.86, 0.08], [0.85, 0.32, 0.22]], 0.15) : tintOf(rng, rc.hard.length ? rc.hard : [[1, 0.6, 0.3]], 0.18);
     put(ctx, e.fan ? fan : e.sway ? sw : st, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, col, e.sway || e.fan ? sc : 1);
   }

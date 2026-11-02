@@ -9,7 +9,7 @@ import { Batch, TAU, presence, budgetK, CHUNK, T, lerp } from './core.js';
 import { MAT } from './materials.js';
 import { sv } from '../biomes.js';
 import { pathCache, clearBox, SOLID, SOFT, seat, put, upTo, mix3, segFor, recipe, lowK, slice, nbFloor, decalDisc, builderMesh, NBMAT, basePts, rayY } from './nb_common.js';
-import { NB2, poolOf, itemSpots, seatOnItem, planned } from './nb2_common.js';
+import { NB2, poolOf, itemSpots, seatOnItem, planned, NATC, subPal } from './nb2_common.js';
 import { Builder } from './core.js';
 import { NB3, Space, chunkRng, pick, pickW, tint, rr } from './nb3_common.js';
 import { magnificent, bubbleTip, carpet, leathery, tubeAnemone, mushroomPatch, MORPH, ANEM_CLOWNS, drainG } from './nb3_anemones.js';
@@ -53,6 +53,8 @@ export const recipeOf = (g) => recipe(g, 'nb3an', (g) => {
     hard: [[1.0, 0.55, 0.2], [0.75, 0.3, 0.85], [0.55, 0.8, 0.25], [1.05, 0.82, 0.25], [1.0, 0.4, 0.55], [0.3, 0.75, 0.7], [0.9, 0.9, 0.82]].filter((_, i) => u(10 + i) > 0.35),
     fanPal: [[0.72, 0.1, 0.9], [1.0, 0.1, 0.18], [1.1, 0.48, 0.08], [1.05, 0.85, 0.15], [0.95, 0.2, 0.6]].filter((_, i) => u(20 + i) > 0.4),
     spongePal: [[0.72, 0.15, 0.95], [1.1, 0.42, 0.06], [1.1, 0.86, 0.1], [0.85, 0.3, 0.22], [0.3, 0.55, 0.95]].filter((_, i) => u(30 + i) > 0.4),
+    // the shared reef templates (massive coral heads, barrel sponge, soft coral) keep natural colours
+    massPal: subPal(NATC.massive, (i) => u(160 + i)), barrelPal: subPal(NATC.barrel, (i) => u(170 + i)), softPal: subPal(NATC.soft, (i) => u(180 + i)),
     sandK: 0.4 + 0.8 * u(7),                          // pale sand patches between the rocks
     closedK: 0.04 + 0.12 * u(8),                      // share of magnificent anemones balled up
     patchK: 0.8 + 0.5 * u(9),                         // how many dense anemone patches line the route
@@ -333,11 +335,11 @@ export function* layoutAnA(ctx) {
   yield;
   // corals, sponges, fans, soft corals between the anemones
   const SPECS = [
-    { t: T.brain, w: 1.6, sc: [0.5, 1.2] }, { t: T.boulder, w: 1.2, sc: [0.5, 1.2] }, { t: T.finger, w: 0.8, sc: [0.6, 1.2] },
-    { t: T.pillar, w: 0.35, sc: [0.6, 1.0] }, { t: T.plateC, w: 0.5, sc: [0.6, 1.1] }, { t: T.mushroom, w: 0.5, sc: [0.8, 1.3] },
+    { t: T.brain, w: 1.6, sc: [0.5, 1.2], pal: 'massPal' }, { t: T.boulder, w: 1.2, sc: [0.5, 1.2], pal: 'massPal' }, { t: T.finger, w: 0.8, sc: [0.6, 1.2] },
+    { t: T.pillar, w: 0.35, sc: [0.6, 1.0], pal: 'massPal' }, { t: T.plateC, w: 0.5, sc: [0.6, 1.1] }, { t: T.mushroom, w: 0.5, sc: [0.8, 1.3] },
     { t: T.fan, w: 1.0, sc: [0.7, 1.4], fan: true }, { t: T.whip, w: 0.8, sc: [0.7, 1.3], sway: true, col: [[0.75, 0.42, 0.85], [1.0, 0.75, 0.3], [0.85, 0.35, 0.2]] },
-    { t: T.tubeSp, w: 1.0, sc: [0.6, 1.3], sponge: true }, { t: T.vase, w: 0.6, sc: [0.6, 1.2], sponge: true }, { t: T.barrel, w: 0.35, sc: [0.5, 0.9], sponge: true },
-    { t: T.soft, w: 0.9, sc: [0.7, 1.3], sway: true, col: [[0.72, 0.12, 0.98], [0.98, 0.14, 0.62], [1.1, 0.42, 0.05], [1.0, 0.9, 0.85]] },
+    { t: T.tubeSp, w: 1.0, sc: [0.6, 1.3], sponge: true }, { t: T.vase, w: 0.6, sc: [0.6, 1.2], sponge: true }, { t: T.barrel, w: 0.35, sc: [0.5, 0.9], sponge: true, pal: 'barrelPal' },
+    { t: T.soft, w: 0.9, sc: [0.7, 1.3], sway: true, pal: 'softPal' },
     { t: T.leather, w: 0.6, sc: [0.7, 1.3], col: [[0.75, 0.7, 0.45], [0.6, 0.65, 0.4], [0.85, 0.8, 0.7]] },
   ].filter((e) => e.t && e.t.length);
   const nC = Math.round(30 * bk * lk * rc0.coral);
@@ -347,7 +349,7 @@ export function* layoutAnA(ctx) {
     if (!g || rng() > ctx.weightOf(s, KEY)) continue;
     const rc = recipeOf(g), e = pickW(rng, SPECS.map((q) => [q.w, q])), tpl = pick(rng, e.t), sc = lerp(e.sc[0], e.sc[1], rng());
     const x = pc.x(s) + lateral(rng, 1, 28, 1.3);
-    const col = e.col ? tint(rng, e.col, 0.12) : e.fan ? tint(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.6]], 0.12)
+    const col = e.pal ? tint(rng, rc[e.pal], 0.12) : e.col ? tint(rng, e.col, 0.12) : e.fan ? tint(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.6]], 0.12)
       : e.sponge ? tint(rng, rc.spongePal.length ? rc.spongePal : [[1.1, 0.42, 0.06]], 0.12) : tint(rng, rc.hard.length ? rc.hard : [[1, 0.6, 0.3]], 0.15);
     placeOn(ctx, fs, pc, sp, e.fan ? fan : e.sway ? sw : st, tpl, x, s, sc, rng, col, { soft: !!(e.sway || e.fan), follow: 0.4, fa: e.sway || e.fan ? sc : 1, rad: tpl.r * 0.8, pad: 0.05, embed: 0.03 });
   }
@@ -499,8 +501,8 @@ export function* layoutAnC(ctx) {
   const FILL = [
     { t: T.rubble, w: 3.0, sc: [0.7, 1.5], col: [[0.78, 0.74, 0.68], [0.86, 0.8, 0.7], [0.7, 0.66, 0.62]] },
     { t: T.pebbles, w: 1.0, sc: [0.7, 1.3], col: [[0.8, 0.78, 0.72]] },
-    { t: T.brain, w: 0.7, sc: [0.3, 0.6], hard: true }, { t: T.boulder, w: 0.5, sc: [0.3, 0.55], hard: true }, { t: T.finger, w: 0.6, sc: [0.35, 0.7], hard: true },
-    { t: T.tubeSp, w: 0.45, sc: [0.35, 0.7], sponge: true }, { t: T.barrel, w: 0.2, sc: [0.3, 0.5], sponge: true },
+    { t: T.brain, w: 0.7, sc: [0.3, 0.6], hard: true, pal: 'massPal' }, { t: T.boulder, w: 0.5, sc: [0.3, 0.55], hard: true, pal: 'massPal' }, { t: T.finger, w: 0.6, sc: [0.35, 0.7], hard: true },
+    { t: T.tubeSp, w: 0.45, sc: [0.35, 0.7], sponge: true }, { t: T.barrel, w: 0.2, sc: [0.3, 0.5], sponge: true, pal: 'barrelPal' },
   ].filter((e) => e.t && e.t.length);
   for (const Pt of P.patches) {
     const rc = recipeOf(Pt.g), n = Math.round(Pt.r * Pt.r * 2.4 * lk);
@@ -509,7 +511,7 @@ export function* layoutAnC(ctx) {
       inPatch(Pt, rng, q0);
       const k = 1 + 0.35 * rng(), x = Pt.x + (q0.x - Pt.x) * k, s = Pt.s + (q0.s - Pt.s) * k; // some spill past the rim
       const e = pickW(rng, FILL.map((f) => [f.w, f])), tpl = pick(rng, e.t), sc = lerp(e.sc[0], e.sc[1], rng());
-      const col = e.hard ? tint(rng, rc.hard.length ? rc.hard : [[0.9, 0.6, 0.35]], 0.15) : e.sponge ? tint(rng, rc.spongePal.length ? rc.spongePal : [[1.1, 0.42, 0.06]], 0.12) : tint(rng, e.col, 0.08);
+      const col = e.pal ? tint(rng, rc[e.pal], 0.12) : e.hard ? tint(rng, rc.hard.length ? rc.hard : [[0.9, 0.6, 0.35]], 0.15) : e.sponge ? tint(rng, rc.spongePal.length ? rc.spongePal : [[1.1, 0.42, 0.06]], 0.12) : tint(rng, e.col, 0.08);
       if (placeOn(ctx, fs, pc, sp, fill, tpl, x, s, sc, rng, col, { soft: false, follow: 0.8, rad: tpl.r * sc > 0.25 ? tpl.r * 0.75 : tpl.r * 0.6, pad: 0.01, embed: e.hard || e.sponge ? 0.03 : 0.015 })) placed++;
     }
   }

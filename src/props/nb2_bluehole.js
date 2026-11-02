@@ -12,7 +12,7 @@ import { noise1 } from '../noise.js';
 import { pathCache, clearBox, SOLID, SOFT, seat, put, upTo, nrm, mix3, segFor, recipe, lowK, itemSupport, basePts, xf, slice, nbFloor, lab } from './nb_common.js';
 import { encrust, featherStar, blackCoral, elephantEar, shelfPlate, sunCorals } from './nb_shapes.js';
 import { giantFan, xmasBlackCoral, shelf, stalactites, stalagmite, speleoColumn, softTree, caveMouth } from './nb2_life.js';
-import { NB2, pick, tintOf, chunkRng, poolOf, hangY, itemSpots, shaftMesh, Occ, planned, nearSupport, decoOn, embedOn } from './nb2_common.js';
+import { NB2, pick, tintOf, chunkRng, poolOf, hangY, itemSpots, shaftMesh, Occ, planned, nearSupport, decoOn, embedOn, NATC } from './nb2_common.js';
 import { Crust, crustPatch } from './nb2_crust.js';
 import { rockJob, drain } from './rock_recipes.js';
 
@@ -61,6 +61,7 @@ export function initBluehole() {
 // creams of living colonies: a lime or teal table coral two metres across reads as a plastic disc)
 const TABLEC = [[0.6, 0.48, 0.32], [0.52, 0.42, 0.3], [0.66, 0.58, 0.44], [0.48, 0.46, 0.32], [0.58, 0.44, 0.46], [0.46, 0.48, 0.52]];
 const MASSC = [[0.82, 0.64, 0.4], [0.66, 0.5, 0.32], [0.62, 0.62, 0.36], [0.86, 0.78, 0.56], [0.8, 0.62, 0.3], [0.74, 0.54, 0.5], [0.58, 0.5, 0.6], [0.55, 0.62, 0.42]];
+const LIP_K = 0.35; // share of each wall batch the lip (top ~7 m) may take
 const PLATEC = [[0.5, 0.37, 0.23], [0.46, 0.42, 0.28], [0.52, 0.34, 0.4], [0.58, 0.46, 0.3], [0.42, 0.34, 0.26]];
 const recipeOf = (g) => recipe(g, 'nb2bh', (g) => ({
   coral: 0.7 + sv(g, 110) * 0.6, fans: 0.5 + sv(g, 111), sponges: 0.5 + sv(g, 112), black: 0.3 + sv(g, 113) * 0.9, plates: 0.4 + sv(g, 114),
@@ -280,8 +281,8 @@ export function* layoutBhA(ctx) {
     { t: T.table, w: 1.6, sc: [0.8, 1.6], hard: true, pal: TABLEC }, { t: T.stag, w: 2.0, sc: [0.8, 1.7], hard: true }, { t: T.brain, w: 1.6, sc: [0.6, 1.4], hard: true, pal: MASSC },
     { t: T.boulder, w: 1.2, sc: [0.7, 1.5], hard: true, pal: MASSC }, { t: T.coralMound, w: 0.8, sc: [0.6, 1.3], hard: true, mound: true, pal: MASSC }, { t: T.elkhorn, w: 0.8, sc: [0.8, 1.4], hard: true },
     { t: T.plateC, w: 0.8, sc: [0.9, 1.7], hard: true, pal: TABLEC }, { t: T.pillar, w: 0.4, sc: [0.7, 1.2], hard: true, pal: MASSC },
-    { t: T.fan, w: 1.4, sc: [0.9, 1.8], fan: true }, { t: T.whip, w: 1.0, sc: [0.8, 1.4], sway: true }, { t: T.soft, w: 0.8, sc: [0.8, 1.5], sway: true },
-    { t: T.tubeSp, w: 1.0, sc: [0.8, 1.5], sponge: true }, { t: T.vase, w: 0.7, sc: [0.8, 1.4], sponge: true }, { t: T.barrel, w: 0.5, sc: [0.6, 1.2], sponge: true },
+    { t: T.fan, w: 1.4, sc: [0.9, 1.8], fan: true }, { t: T.whip, w: 1.0, sc: [0.8, 1.4], sway: true }, { t: T.soft, w: 0.8, sc: [0.8, 1.5], sway: true, pal: NATC.soft },
+    { t: T.tubeSp, w: 1.0, sc: [0.8, 1.5], sponge: true }, { t: T.vase, w: 0.7, sc: [0.8, 1.4], sponge: true }, { t: T.barrel, w: 0.5, sc: [0.6, 1.2], sponge: true, pal: NATC.barrel },
   ].filter((e) => e.t && e.t.length);
   let tot = 0; for (const e of SPECS) tot += e.w;
   // plateau reef between sand channels
@@ -314,6 +315,8 @@ export function* layoutBhA(ctx) {
     }
     // just below the lip: sea fans and sponges facing the blue, plate corals in shelves
     // (sampled along the chunk's arcs: drawn uniformly in s, the far wall straight ahead got almost none)
+    // (the lip takes at most LIP_K of each wall batch: running first, it used to fill them, leaving the
+    // wall 10-40 m down, the face the camera looks at across the hole, a dozen items per 10 m band)
     const rim = fs.at(H.x + H.R + 4, H.s), A = P.A;
     for (let k = 0; A && k < A.len * 1.3 * lk; k++) {
       if (Y.over()) { yield; Y.reset(); }
@@ -328,6 +331,7 @@ export function* layoutBhA(ctx) {
       else if (u < 0.5) { tpl = pick(rng, poolOf(hf.g, 'nb2bhFan', B.fan)); sc = 0.9 + rng() * 0.8; b = wfan; fa = sc; m = null; R = mul3(rotY(face + (rng() - 0.5) * 0.4), rotX(0.2 + rng() * 0.25)); col = tintOf(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.1]], 0.15); }
       else if (u < 0.78) { tpl = pick(rng, B.ear); sc = 1.0 + rng() * 0.8; R = mul3(rotY(face + (rng() - 0.5) * 0.6), rotX(0.2 + rng() * 0.3)); col = tintOf(rng, rc.sponge, 0.15); embed = 0.05; }
       else { tpl = pick(rng, T.tubeSp || B.ear); sc = 0.9 + rng() * 0.7; R = upTo(mix3(sp.n, UP, 0.4), rng() * TAU); m = sp.n; col = tintOf(rng, rc.sponge, 0.15); embed = 0.05; }
+      if (b.tris + tpl.idx.length / 3 > b.max * LIP_K) continue;
       const h = (tpl.maxY - tpl.minY) * sc, reach = Math.max(tpl.r * sc, h * 0.5);
       if (!clearBox(pc, sp.x, sp.s, sp.y - reach, sp.y + h, reach)) continue;
       const Pp = [sp.x, sp.y, sp.s];
@@ -335,8 +339,9 @@ export function* layoutBhA(ctx) {
       put(ctx, b, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, col, fa);
     }
   }
-  // The wall down to ~38 m below the rim (the camera looks ~30 m down across the hole): sponges, black
-  // coral, fans, encrusting colour and a few plates, densest on the far wall that faces the camera.
+  // The upper 40 m of the wall (the camera looks ~30 m down across the hole): sponges, black coral, fans,
+  // encrusting colour and a few plates, densest on the far wall that faces the camera, depths drawn evenly
+  // (biased to the top, the 10-40 m face got a fraction of the lip's density).
   // (Fans, black coral and tube or barrel sponges give the face a silhouette; plates read as flat discs.)
   if (hf && P.A) {
     const H = hf.H, rim = fs.at(H.x + H.R + 4, H.s), g = hf.g, rc = recipeOf(g), A = P.A;
@@ -344,7 +349,7 @@ export function* layoutBhA(ctx) {
       if (Y.over()) { yield; Y.reset(); }
       const th = arcTh(rng, A, 0.3);
       if (th === null) continue;
-      const depth = 1 + Math.pow(rng(), 1.4) * 37, sp = wallSpot(fs, H, th, rim - depth);
+      const depth = 1 + rng() * 39, sp = wallSpot(fs, H, th, rim - depth);
       if (!sp || sp.s < ctx.s0 || sp.s >= ctx.s1 || sp.n[1] > 0.75 || covered(P, sp.x, sp.y, sp.s)) continue;
       const wS = rc.sponges * 1.6, wB = rc.black * (0.5 + Math.min(1, depth / 18)), wF = rc.fans * 1.3, wP = rc.plates * (depth < 14 ? 0.12 : 0), wE = 1.2;
       const u = rng() * (wS + wB + wF + wP + wE), face = Math.atan2(sp.hn[0], sp.hn[2]);
@@ -397,9 +402,8 @@ function placeReef(ctx, rng, fs, pc, x, s, rc, rimK, hf, SPECS, tot, st, sw, fan
   if (!clearBox(pc, x, s, y, y + h, tpl.r * sc, e.sway ? SOFT : SOLID, e.sway ? 1.0 : 0)) return;
   const Pp = [x, y, s];
   seat(fs, tpl, R, sc, sc, sc, Pp, null, e.mound ? 0.1 : 0.04);
-  const col = e.fan ? tintOf(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.6]], 0.15) : e.sponge ? tintOf(rng, rc.sponge, 0.15)
-    : e.sway ? tintOf(rng, [[0.72, 0.12, 0.98], [0.98, 0.14, 0.62], [1.1, 0.42, 0.05], [1.0, 0.75, 0.3]], 0.15)
-      : e.pal ? tintOf(rng, e.pal, 0.12) : tintOf(rng, rc.hard.length ? rc.hard : [[1, 0.6, 0.3]], 0.18);
+  const col = e.pal ? tintOf(rng, e.pal, 0.12) : e.fan ? tintOf(rng, rc.fanPal.length ? rc.fanPal : [[1, 0.3, 0.6]], 0.15) : e.sponge ? tintOf(rng, rc.sponge, 0.15)
+    : e.sway ? tintOf(rng, [[0.72, 0.12, 0.98], [0.98, 0.14, 0.62], [1.1, 0.42, 0.05], [1.0, 0.75, 0.3]], 0.15) : tintOf(rng, rc.hard.length ? rc.hard : [[1, 0.6, 0.3]], 0.18);
   put(ctx, e.fan ? fan : e.sway ? sw : st, tpl, Pp[0], Pp[1], Pp[2], R, sc, sc, sc, col, e.sway || e.fan ? sc : 1);
 }
 

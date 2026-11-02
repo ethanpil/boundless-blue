@@ -25,6 +25,17 @@ export function tintOf(rng, list, amt = 0.15) {
   const c = list[(rng() * list.length) | 0], k = 1 + (rng() * 2 - 1) * amt;
   return [c[0] * k * (1 + (rng() - 0.5) * amt), c[1] * k * (1 + (rng() - 0.5) * amt), c[2] * k * (1 + (rng() - 0.5) * amt)];
 }
+// Natural colours (linear) for the reef's shared grey templates: massive heads (T.brain, T.boulder,
+// T.coralMound, T.pillar), T.barrel and T.soft. The per-instance tint is their whole colour, so living tans,
+// browns, olives, creams and dusky pinks, with some colour but never neon. (Teal and violet zone palettes
+// on them read as glowing cyan-blue under the blue-green water.) The templates themselves are never modified.
+export const NATC = {
+  massive: [[0.84, 0.62, 0.38], [0.66, 0.48, 0.3], [0.6, 0.62, 0.34], [0.9, 0.8, 0.54], [0.86, 0.66, 0.3], [0.8, 0.54, 0.48], [0.5, 0.6, 0.36], [0.62, 0.5, 0.58]],
+  barrel: [[0.6, 0.27, 0.21], [0.52, 0.31, 0.23], [0.68, 0.4, 0.35], [0.62, 0.44, 0.34], [0.74, 0.37, 0.26], [0.56, 0.36, 0.34]],
+  soft: [[0.9, 0.52, 0.6], [0.92, 0.82, 0.64], [0.64, 0.66, 0.42], [0.95, 0.6, 0.36], [0.74, 0.52, 0.64], [0.9, 0.44, 0.42], [0.8, 0.74, 0.52]],
+};
+// a segment's share of a palette (u(i): its random in 0..1 for entry i), never empty
+export const subPal = (list, u, keep = 0.35) => { const l = list.filter((_, i) => u(i) > keep); return l.length ? l : list; };
 export const chunkRng = (ctx, salt) => mulberry32(((Math.floor(ctx.s0) * 2654435761) ^ salt) >>> 0);
 // per-segment template pool from the rock_gen palette (fresh shapes for every segment) or a fallback
 export function poolOf(g, name, fallback, min = 3) {
