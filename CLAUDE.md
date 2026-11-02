@@ -96,6 +96,9 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - Decorations on rock must sit flush on the rock surface (`grips` / `pressOn` in nb4), or they hang in crevices.
   - Instanced meshes need their own copy of shared shape data: a shared buffer is freed when one chunk unloads, which crashed WebGL.
 - **nb4 zones** (`nb4_*.js`): otterkelp, whaleshark, biobay, iceedge and hadal. Their gaps are audited by `tools/audit/run.mjs`, not by `window.__propsAudit`.
+  - `nb4_common.js` merges each batch straight into the buffers of one mesh per <= 40k vertices, in 4k-vertex parts, with registration (obstacles, labels) as its own stage. Its `fillItems()` mirrors `Batch.build` in core.js: change them together. Whole-batch merges of ~11k vertices cost 6-12 ms per step before this.
+  - Ice edge: the ice underside thins out through the surface on a gentle slope instead of a step, because a step on the 1.5 m grid renders floe outlines as stairs.
+- **Line endings:** most source files are CRLF. `sed -i` in Git Bash silently rewrites them as LF (a whole-file diff), so edit with tools that keep them.
 - **New-zone props:**
   - `nb2_*.js` covers seamount, bluehole, sunkenforest and champagne. Its encrusting skin is `nb2_crust.js`.
   - `nb3_*.js` covers sargassum, jellylake and anemone.

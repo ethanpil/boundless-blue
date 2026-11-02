@@ -174,8 +174,8 @@ export const TABLES = {
     ['arcticCod', 0.8, 120], ['seaAngel', 3, 45], ['lionsMane', 1.2, 140], ['combJelly', 1.5, 90], ['moonJelly', 1, 120], ['greenlandShark', 0.35, 420],
   ] },
   // ~8000 m down, lamp-lit and sparse: Mariana snailfish, supergiant amphipods near the floor, cusk-eels
-  hadal: { cover: 1.6, target: 5, lat: 16, list: [
-    ['snailfish', 4, 30], ['amphipod', 3, 35], ['cuskEel', 2.5, 45],
+  hadal: { cover: 1.6, target: 7, lat: 16, list: [
+    ['snailfish', 5, 20], ['amphipod', 3, 35], ['cuskEel', 2.5, 45],
   ] },
 };
 
@@ -849,8 +849,8 @@ export class Director {
       plan.l0 = latLim(side * rr([0, kind === 'rest' && sz > 1.5 ? 5 : 3.5]));
       plan.h0 = eye();
       plan.alt = altUp();
-    } else if (kind === 'otter') { // a raft at the surface, anywhere across the kelp
-      plan.l0 = latLim(side * rr([1, 22])); plan.h0 = 0;
+    } else if (kind === 'otter') { // a raft at the surface near the route (beyond ~10 m it is lost in the mirror of the surface)
+      plan.l0 = latLim(side * rr([1, 9])); plan.h0 = 0;
     } else if (kind === 'drift') {
       plan.l0 = latLim(side * rr([0, 6]));
       plan.h0 = rr([-2, 2]);

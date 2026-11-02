@@ -424,7 +424,8 @@ Object.assign(BIOMES, {
     canopy(x, s, ad) { return Math.min(1, 0.55 + smoothstep(16, 6, ad) * 0.45); }, // mangrove-fringed lagoon
   },
   iceedge: {
-    label: 'Ice Edge', camY: -8, clearance: 30, len: [550, 850], weight: 0.75,
+    // (the route runs ~4 m under the floes, close enough to see the algae, icicles and platelets hanging there)
+    label: 'Ice Edge', camY: -5, clearance: 30, len: [550, 850], weight: 0.75,
     sigma: [0.13, 0.05, 0.045], lightSigma: [0.06, 0.022, 0.02],
     deep: C(0x0a3846), up: C(0x4f9fb0), sun: 0.85, caustic: 0.4, shafts: 1.2, ambient: 0.9, glow: 0, snow: 1.2,
     sand: [0.42, 0.42, 0.42], rock: [0.3, 0.3, 0.31],
@@ -433,20 +434,24 @@ Object.assign(BIOMES, {
     // pack ice on one side of the path with a sheer edge; scattered floes over the open water
     ceil(x, s, ad, g, dx) {
       const side = sv(g, 1) < 0.5 ? -1 : 1, t = dx * side;
-      let ice = 7.2 + 0.6 * fbm2(x / 7, s / 7, 3, 272);
+      const surf = 5 - 0.6875 * noise1(s / 70, 7); // the surface over pathY (camY -5, see WorldShape.pathY)
+      let ice = surf - 0.8 + 0.6 * fbm2(x / 7, s / 7, 3, 272);                 // the underside ~0.8 m down
       const rn = noise2(x / 30, s / 30, 273);
       ice -= Math.exp(-((rn / 0.22) ** 2)) * 6 * smoothstep(8, 20, t);          // rounded keels under the pack
-      const floe = smoothstep(0.5, 0.62, noise2(x / 14, s / 14, 274)) * smoothstep(6, 12, ad);
+      const floe = smoothstep(0.48, 0.64, noise2(x / 14, s / 14, 274)) * smoothstep(6, 12, ad);
       const pack = smoothstep(5, 10, t);
       const k = Math.max(pack, floe);
-      return 80 + (ice - 80) * k;
+      // across the edge band the underside thins out through the surface on a slope the 1.5 m grid can follow, and
+      // only above the water leaves for "no ice" (a jump straight to it drew every floe outline in grid stairs)
+      return k > 0.02 ? ice + (surf + 1.5 - ice) * (1 - k) : 60;
     },
   },
   hadal: {
     label: 'Hadal Trench', camY: -70, clearance: 5, len: [500, 800], weight: 0.6,
     sigma: [0.09, 0.04, 0.032], lightSigma: [0.05, 0.02, 0.015],
     deep: C(0x000306), up: C(0x010a12), sun: 0.0, caustic: 0, shafts: 0, ambient: 0.2, glow: 0.8, snow: 2.0,
-    sand: [0.5, 0.48, 0.46], rock: [0.3, 0.29, 0.29],
+    // (a paler ooze blew out to white in the lamp pool, and the pale snailfish and amphipods vanished against it)
+    sand: [0.38, 0.36, 0.34], rock: [0.26, 0.25, 0.25],
     // a V-shaped trench: sediment floor, steep walls rising on both sides
     floor(x, s, ad, g) {
       return fbm2(x / 10, s / 10, 3, 281) * 1.2 + smoothstep(6, 30, ad) * (36 + 10 * fbm2(x / 25, s / 25, 2, 282)) * (0.8 + 0.4 * sv(g, 1));

@@ -1,11 +1,11 @@
 // Shared infrastructure for the 2026-11 zones (otter coast, whale-shark grounds, bioluminescent bay, ice edge,
 // hadal trench): drifting sunlit plankton particles, twinkling dinoflagellate sediment, an instanced batch the
-// gap audit and the label / obstacle registration understand, ceiling sampling, hanging and ceiling decals.
+// gap audit and the label / obstacle registration understand, ceiling sampling and hanging, staged merging.
 import * as THREE from 'three';
 import { applyWater } from '../water.js';
-import { Batch, Inst, TAU, CHUNK, ceilSampler, releaseAfterUpload } from './core.js';
-import { NBDBG, statWrap, basePts, surfGrid } from './nb_common.js';
-import { stagedNB2, hangY, itemSpots } from './nb2_common.js';
+import { Batch, Inst, CHUNK, ceilSampler, releaseAfterUpload } from './core.js';
+import { NBDBG, statWrap, basePts, surfGrid, registerNB, finishNB } from './nb_common.js';
+import { hangY, itemSpots } from './nb2_common.js';
 import { mulberry32 } from '../noise.js';
 
 export const NB4 = { mat: {} };
@@ -126,8 +126,10 @@ export function pressOn(it, s0, tpl, R, sc, P, n, embed = 0.02) {
   return false;
 }
 // a template job whose result also gets its lookup structures (coarse contact grid, top-surface ray grid, base
-// points), each in a step of its own, so the first layout that seats something on it pays nothing
-export function* gridded(it) {
+// points, obstacle capsules), each in a step of its own, so the first layout that seats something on it pays nothing.
+// qy: the capsule fits registerNB will ask for (Template.capsules keys: round(2 log2(sy / sx)), sx = sz here);
+// a new segment's first chunk spent ~7 ms fitting 24 of them in one registration.
+export function* gridded(it, qy = [-1, 0, 1]) {
   const t = yield* it;
   if (!t) return t;
   yield;
@@ -136,14 +138,159 @@ export function* gridded(it) {
   surfGrid(t); basePts(t);
   yield;
   itemSpots({ tpl: t, R: I3, sx: 1, sy: 1, sz: 1, x: 0, y: 0, z: 0 }, { s0: 0 }, 1, 2); // caches the template's surface spots
+  for (const q of qy) { yield; t.capsules(2 ** (q / 2), 1, 6); }
   return t;
 }
 const I3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
-export const warmTpl = (t) => { coarseGrid(t); surfGrid(t); basePts(t); itemSpots({ tpl: t, R: I3, sx: 1, sy: 1, sz: 1, x: 0, y: 0, z: 0 }, { s0: 0 }, 1, 2); return t; };
-// Register a staged layout (stagedNB2: layout stage, then merge stages) under `name`.
-export function addStaged(terrain, name, layout, nBuild = 20, verts = 14000) {
+export const warmTpl = (t, qy = [-1, 0, 1]) => { coarseGrid(t); surfGrid(t); basePts(t); itemSpots({ tpl: t, R: I3, sx: 1, sy: 1, sz: 1, x: 0, y: 0, z: 0 }, { s0: 0 }, 1, 2); for (const q of qy) t.capsules(2 ** (q / 2), 1, 6); return t; };
+// Register a staged layout under `name`: the layout stage(s), then registration, then merges (stagedNB4).
+export function addStaged(terrain, name, layout, nBuild = 20, part = 4000) {
   NBDBG.layouts[name] = layout;
-  stagedNB2(layout, nBuild, verts).forEach((p, i) => terrain.populators.push(statWrap(name + i, p)));
+  stagedNB4(layout, nBuild, part).forEach((p, i) => terrain.populators.push(statWrap(name + i, p)));
+}
+
+// ---------------------------------------------------------------- staged merging that never blocks
+// Like nb2_common.stagedNB2 (the layout generator resumes in its slices; the last slot drains whatever is left), but
+// labels / obstacles / POIs are registered in a stage of their own, and each batch is merged straight into the buffers
+// of one mesh per <= 40k vertices, in parts of <= `part` vertices (as many parts per stage as start within ~1.5 ms).
+// stagedNB2 made one mesh (one draw call) per 11k-vertex slice and merged a whole slice in one stage (6-12 ms);
+// building parts and joining them afterwards cost another 3-13 ms per join (allocation and copy).
+const JOIN = 40000, STAGE_MS = 1.5;
+// Items [i0, i1) of batch b into the mesh buffers A at vertex offset vo / index offset io. The per-vertex transform is
+// core.js Batch.build's (keep the two in step): rotation and scale, renormalised normals for non-uniform scales,
+// draped patches following the floor, tint, aFx.x multiplier and the per-instance texture-key shift.
+function fillItems(b, i0, i1, A, vo, io) {
+  const { pos, nor, col, fx, idx } = A;
+  for (let q = i0; q < i1; q++) {
+    const it = b.items[q];
+    const t = it.tpl, R = it.R, sx = it.sx, sy = it.sy, sz = it.sz;
+    const r0 = R[0], r1 = R[1], r2 = R[2], r3 = R[3], r4 = R[4], r5 = R[5], r6 = R[6], r7 = R[7], r8 = R[8];
+    const P = t.pos, N = t.nor, C = t.col, F = t.fx, tx = it.x, ty = it.y, tz = it.z;
+    const cr = it.cr, cg = it.cg, cb = it.cb, fa = it.fa, ko = it.ko;
+    const uni = sx === sy && sy === sz;
+    const isx = 1 / sx, isy = 1 / sy, isz = 1 / sz;
+    const nv = t.vc, ob = vo * 3, dr = it.drape, minY = t.minY, ds0 = it.s0, dl = t.dLift - 0.012;
+    for (let k3 = 0, e = nv * 3; k3 < e; k3 += 3) {
+      const o = ob + k3;
+      const px = P[k3] * sx, py = P[k3 + 1] * sy, pz = P[k3 + 2] * sz;
+      pos[o] = r0 * px + r1 * py + r2 * pz + tx;
+      pos[o + 1] = r3 * px + r4 * py + r5 * pz + ty;
+      pos[o + 2] = r6 * px + r7 * py + r8 * pz + tz;
+      if (dr) pos[o + 1] = dr.at(pos[o], ds0 - pos[o + 2]) + (P[k3 + 1] - minY) * sy + dl;
+      let nx = N[k3], ny = N[k3 + 1], nz = N[k3 + 2];
+      if (uni) {
+        nor[o] = r0 * nx + r1 * ny + r2 * nz; nor[o + 1] = r3 * nx + r4 * ny + r5 * nz; nor[o + 2] = r6 * nx + r7 * ny + r8 * nz;
+      } else {
+        nx *= isx; ny *= isy; nz *= isz;
+        const ax = r0 * nx + r1 * ny + r2 * nz, ay = r3 * nx + r4 * ny + r5 * nz, az = r6 * nx + r7 * ny + r8 * nz;
+        const l = 1 / (Math.sqrt(ax * ax + ay * ay + az * az) || 1);
+        nor[o] = ax * l; nor[o + 1] = ay * l; nor[o + 2] = az * l;
+      }
+      col[o] = C[k3] * cr; col[o + 1] = C[k3 + 1] * cg; col[o + 2] = C[k3 + 2] * cb;
+    }
+    const fo = vo * 2;
+    for (let i = 0, e = nv * 2; i < e; i += 2) {
+      fx[fo + i] = F[i] * fa;
+      const m = F[i + 1];
+      fx[fo + i + 1] = ko && m > 5.5 && m < 6.99 ? 6.05 + ((m - 6.05 + ko) % 0.9) : ko && m > 0.55 && m < 1.45 ? 0.6 + ((m - 0.6 + ko * 0.8) % 0.8) : m;
+    }
+    const I = t.idx;
+    for (let i = 0; i < I.length; i++) idx[io + i] = I[i] + vo;
+    vo += nv; io += I.length;
+  }
+}
+function meshOf(grp) {
+  const { b, A } = grp, P = A.pos, g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.BufferAttribute(P, 3));
+  g.setAttribute('normal', new THREE.BufferAttribute(A.nor, 3));
+  g.setAttribute('color', new THREE.BufferAttribute(A.col, 3));
+  g.setAttribute('aFx', new THREE.BufferAttribute(A.fx, 2));
+  g.setIndex(new THREE.BufferAttribute(A.idx, 1));
+  // bounding sphere about the box centre, as computeBoundingSphere does (its per-vertex Vector3 reads took 1.5-3 ms)
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
+  for (let i = 0; i < P.length; i += 3) { const x = P[i], y = P[i + 1], z = P[i + 2]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (z < z0) z0 = z; if (z > z1) z1 = z; }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, cz = (z0 + z1) / 2;
+  let r2 = 0;
+  for (let i = 0; i < P.length; i += 3) { const dx = P[i] - cx, dy = P[i + 1] - cy, dz = P[i + 2] - cz, d = dx * dx + dy * dy + dz * dz; if (d > r2) r2 = d; }
+  g.boundingSphere = new THREE.Sphere(new THREE.Vector3(cx, cy, cz), Math.sqrt(r2) + (b.pad ?? 1));
+  releaseAfterUpload(g);
+  const m = new THREE.Mesh(g, b.mat);
+  m.matrixAutoUpdate = false;
+  if (b.lod) m.userData.lod = b.lod;
+  if (b.order) m.renderOrder = b.order;
+  grp.A = null;
+  return m;
+}
+function stagedNB4(layout, nBuild, part) {
+  const cache = new WeakMap();
+  const plan = (L) => { // jobs: a part of a mesh, a finished mesh, an instanced batch, a ready mesh
+    const jobs = [];
+    for (const b of L.batches) {
+      if (!b || !b.items.length) continue;
+      if (b instanceof IBatch) { jobs.push({ ib: b }); continue; }
+      const its = b.items;
+      for (let i = 0; i < its.length;) {
+        let j = i, vc = 0, ic = 0;
+        while (j < its.length && (j === i || vc + its[j].tpl.vc <= JOIN)) { vc += its[j].tpl.vc; ic += its[j].tpl.idx.length; j++; }
+        const grp = { b, vc, ic, A: null };
+        for (let k = i, vo = 0, io = 0; k < j;) {
+          let k1 = k, pv = 0;
+          while (k1 < j && (k1 === k || pv + its[k1].tpl.vc <= part)) pv += its[k1++].tpl.vc;
+          jobs.push({ grp, i0: k, i1: k1, vo, io });
+          for (; k < k1; k++) { vo += its[k].tpl.vc; io += its[k].tpl.idx.length; }
+        }
+        jobs.push({ done: grp });
+        i = j;
+      }
+    }
+    if (L.extra) for (const m of L.extra) if (m) jobs.push({ mesh: m });
+    L.jobs = jobs; L.j = 0;
+  };
+  const run = (job) => {
+    if (job.mesh) return job.mesh;
+    if (job.ib) return job.ib.build();
+    if (job.done) return meshOf(job.done);
+    const G = job.grp;
+    if (!G.A) G.A = { pos: new Float32Array(G.vc * 3), nor: new Float32Array(G.vc * 3), col: new Float32Array(G.vc * 3), fx: new Float32Array(G.vc * 2), idx: G.vc > 65535 ? new Uint32Array(G.ic) : new Uint16Array(G.ic) };
+    fillItems(G.b, job.i0, job.i1, G.A, job.vo, job.io);
+    return null;
+  };
+  const step = (ctx, last) => {
+    const st = cache.get(ctx.group);
+    if (!st) return null;
+    if (st.gen) {
+      let v = st.gen.next();
+      if (last) while (!v.done) v = st.gen.next();
+      if (!v.done) return null;
+      st.gen = null;
+      if (!v.value) { cache.delete(ctx.group); return null; }
+      st.L = v.value;
+      if (!last) return null;
+    }
+    const L = st.L;
+    if (!L.jobs) {
+      plan(L);
+      registerNB(ctx, L.batches, L.labels);
+      if (L.pois && ctx.addPOI) for (const p of L.pois) ctx.addPOI(p.type, p.x, p.y, p.s, p.r, p.data);
+      if (!last) return null;
+    }
+    const out = [], t0 = performance.now();
+    while (L.j < L.jobs.length) {
+      const m = run(L.jobs[L.j++]);
+      if (m) out.push(m);
+      if (!last && performance.now() - t0 > STAGE_MS) break;
+    }
+    if (L.j >= L.jobs.length) cache.delete(ctx.group);
+    return finishNB(out);
+  };
+  const pops = [(ctx) => {
+    const r = layout(ctx);
+    if (!r) return null;
+    cache.set(ctx.group, typeof r.next === 'function' ? { gen: r } : { gen: null, L: r });
+    return step(ctx, false);
+  }];
+  for (let k = 0; k < nBuild; k++) pops.push((ctx) => step(ctx, k === nBuild - 1));
+  return pops;
 }
 
 // ---------------------------------------------------------------- instanced batch
@@ -193,26 +340,6 @@ export function hangR(yaw) {
   // rotX(pi) * rotY(yaw): local up turns down, local x / z keep their yaw
   return [c, 0, s, 0, -1, 0, s, 0, -c];
 }
-// Conforming decal on the ceiling underside (normals down), polar disc like nb_common.decalDisc. Skips the
-// whole disc if any point is under open water.
-export function ceilDecal(b, cs, ctx, x, s, rx, rz, yaw, col, mode, alpha = 1, rings = 5, segs = 18) {
-  const c = Math.cos(yaw), sn = Math.sin(yaw), P = [];
-  for (let j = 0; j <= rings; j++) for (let i = 0; i < (j ? segs : 1); i++) {
-    const t = j / rings, a = (i / segs) * TAU, lx = Math.cos(a) * rx * t, lz = Math.sin(a) * rz * t;
-    const gx = x + c * lx - sn * lz, gs = s + sn * lx + c * lz, y = cs.at(gx, gs);
-    if (y > ctx.surfaceY - 0.15) return false;
-    P.push(gx, y - 0.004, gs, -cs.nx, -cs.ny, -cs.nz, t);
-  }
-  const v0 = b.vc;
-  for (let k = 0; k < P.length; k += 7) b.v(P[k], P[k + 1], -(P[k + 2] - ctx.s0), P[k + 3], P[k + 4], P[k + 5], col[0], col[1], col[2], alpha * (1 - P[k + 6] ** 3), mode);
-  for (let i = 0; i < segs; i++) b.t(v0, v0 + 1 + ((i + 1) % segs), v0 + 1 + i);
-  for (let j = 1; j < rings; j++) {
-    const r0 = v0 + 1 + (j - 1) * segs, r1 = r0 + segs;
-    for (let i = 0; i < segs; i++) { const i1 = (i + 1) % segs; b.t(r0 + i, r1 + i1, r1 + i); b.t(r0 + i, r0 + i1, r1 + i1); }
-  }
-  return true;
-}
-
 // ---------------------------------------------------------------- plankton clouds
 // Copepods, larvae and fish eggs: tiny specks drifting and twitching in the sunlit water. Additive billboards
 // (never smaller than ~1.3 px), bright when lit from behind (forward scatter toward the sun), dimmer with depth.
@@ -329,7 +456,10 @@ function sparkleMaterial() {
           float tw = pow(max(0.0, sin(uTime * (0.9 + 2.2 * h2.g) + h.x * 61.0)), 8.0 - 5.0 * near);
           float dotS = (1.0 - smoothstep(0.03, 0.16, length(f))) * on * tw;
           float k = 1.0 - smoothstep(0.35, 0.9, fw);
-          float glow = mix(0.06 + 0.1 * near, dotS * (3.0 + 4.0 * near) + 0.03, k);
+          // the far field: a faint glow in drifts (2 m value noise, period 512 m), not an even sheet. An even mean
+          // glow of 0.06-0.16 drew each patch as a smooth teal oval, like a spotlight on the mud.
+          float drift = smoothstep(0.35, 0.85, texture2D(uNoiseTex, vWPos.xz / 512.0).g);
+          float glow = mix((0.012 + 0.05 * near) * (0.25 + 0.75 * drift), dotS * (3.0 + 4.0 * near) + 0.01, k);
           vec3 c = mix(vec3(0.15, 0.55, 1.0), vec3(0.3, 1.0, 0.75), h2.b);
           diffuseColor.rgb = c * glow * vFx.x * (0.35 + 0.65 * max(uGlow, uNight));
         }`);

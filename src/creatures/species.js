@@ -1409,7 +1409,9 @@ Object.assign(SPECIES, {
     // gelatinous and pale pink, see-through behind the head (sheen = opacity for translucent bodies)
     col: C(0xf0c4c0, 0xf6dcd8, 0xd88a84, 0xf2d0cc, 0, 0x202020), pat: [22, 0.3, 0], cs: [-0.3, 0.1], sheen: 1.7, rough: 0.45,
     mot: { mode: 0, amp: 0.07, waves: 0.9, c0: 0.25, beat: 0.9, idle: 0.35 },
-    beh: { ...HOVER, n: [1, 4], zone: 'floor', alt: [0.15, 1.2], speed: [0.04, 0.15], spread: 5, loose: true }, size: [0.2, 0.3], interest: 0.75,
+    // small groups drifting up into the lamp light (at bait landers they gather by the dozen); single fish 3-4 m below
+    // the camera read as specks
+    beh: { ...HOVER, n: [2, 6], zone: 'floor', alt: [0.3, 2.6], speed: [0.04, 0.15], spread: 4, loose: true }, size: [0.22, 0.32], interest: 0.8,
   }),
   amphipod: fish({
     det: 0,
@@ -1423,7 +1425,7 @@ Object.assign(SPECIES, {
     eye: { t: 0.06, v: 0.3, r: 0.018 },
     col: C(0xe8dcd0, 0xf2ebe4, 0xd8a090, 0xe0c8b8, 0, 0x302020), pat: [1, 9, 0.15], cs: [-0.3, 0.1], sheen: 0.35, rough: 0.4,
     mot: { amp: 0.04, waves: 0.8, c0: 0.2, beat: 2.2, idle: 2 },
-    beh: { ...SHOAL, n: [16, 50], zone: 'floor', alt: [0.05, 0.9], spread: 2.5, speed: [0.15, 0.45], loose: true }, size: [0.06, 0.16], interest: 0.6, // (loose: a swarm at the bottom, never a mid-water school)
+    beh: { ...SHOAL, n: [16, 50], zone: 'floor', alt: [0.05, 0.9], spread: 2.5, speed: [0.15, 0.45], loose: true }, size: [0.08, 0.22], interest: 0.6, // (loose: a swarm at the bottom, never a mid-water school; supergiants reach 0.3 m)
   }),
   cuskEel: merge(EEL, {
     det: 1, body: { depth: 0.12, width: 0.65, tm: 0.2, nose: 0.55, tail: 0.9, ped: 0.05, tEnd: 0.98, snout: 0.1 },

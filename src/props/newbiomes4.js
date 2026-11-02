@@ -3,7 +3,7 @@
 // sea pens, brinicles, icicle fringes, algae curtains, xenophyophores, holothurians and glass sponges through the
 // rock_gen providers (<= 2 ms slices ahead of the camera), so nothing repeats from one visit to the next.
 // Each zone registers staged populators: an optional plan stage, then layout chains (generators yielding at
-// ~3 ms slices) and their merge stages (<= 12-14k vertices each).
+// ~3 ms slices), a registration stage and merge stages (nb4_common.addStaged: 4k-vertex parts joined per batch).
 import { ENV } from './core.js';
 import { initMaterials } from './materials.js';
 import { initNBMaterials, NBSTATS } from './nb_common.js';
@@ -38,14 +38,14 @@ export function registerNewBiomeProps4(terrain, env) {
   plan('bbP', layoutBbP);
   // (generous slot counts: the layout generators use several slots before their merges start, and an idle slot
   // costs about a microsecond, while too few slots flush the remaining merges into the last one)
-  addStaged(terrain, 'okA', layoutOkA, 56, 11000);
-  addStaged(terrain, 'okB', layoutOkB, 56, 11000);
-  addStaged(terrain, 'wsA', layoutWsA, 24, 11000);
-  addStaged(terrain, 'wsB', layoutWsB, 28, 11000);
-  addStaged(terrain, 'bbA', layoutBbA, 40, 11000);
-  addStaged(terrain, 'bbB', layoutBbB, 48, 11000);
-  addStaged(terrain, 'ieA', layoutIeA, 40, 11000);
-  addStaged(terrain, 'ieB', layoutIeB, 32, 11000);
-  addStaged(terrain, 'hdA', layoutHdA, 36, 11000);
-  addStaged(terrain, 'hdB', layoutHdB, 32, 11000);
+  addStaged(terrain, 'okA', layoutOkA, 56);
+  addStaged(terrain, 'okB', layoutOkB, 56);
+  addStaged(terrain, 'wsA', layoutWsA, 24);
+  addStaged(terrain, 'wsB', layoutWsB, 28);
+  addStaged(terrain, 'bbA', layoutBbA, 40);
+  addStaged(terrain, 'bbB', layoutBbB, 48);
+  addStaged(terrain, 'ieA', layoutIeA, 40);
+  addStaged(terrain, 'ieB', layoutIeB, 32);
+  addStaged(terrain, 'hdA', layoutHdA, 36);
+  addStaged(terrain, 'hdB', layoutHdB, 32);
 }

@@ -107,7 +107,7 @@ export function* giantKelp(seed, H, { tier = 'high', far = false, cur = 0 } = {}
       while (acc <= 0) {
         if (++nbl % 14 === 0) yield;
         const canopy = i >= nTop;
-        acc += (lo ? 0.75 : canopy ? 0.16 : 0.26) + Math.pow(rng(), 2) * (lo ? 1.0 : 0.35);
+        acc += (far ? 0.75 : lo ? 0.45 : canopy ? 0.16 : 0.26) + Math.pow(rng(), 2) * (far ? 1.0 : lo ? 0.55 : 0.35);
         az += Math.PI + (rng() - 0.5) * 1.2;
         if (rng() < 0.05 + 0.2 * age) continue; // a lost blade
         const t = rng(), q = [lerp(pts[i - 1][0], pts[i][0], t), lerp(pts[i - 1][1], pts[i][1], t), lerp(pts[i - 1][2], pts[i][2], t)];
@@ -240,6 +240,7 @@ const OK_ROCKS = [{ r: 'boulder', litho: 'granite', growth: 1 }, { r: 'boulder',
   { r: 'conglomerate', growth: 1 }, { r: 'boulder', litho: 'basalt', kind: 'block', growth: 1 }, { r: 'boulder', litho: 'granite', kind: 'tafoni', growth: 1 }, { r: 'boulder', litho: 'sandstone', growth: 1 }];
 const OK_COBBLE = [{ r: 'boulder', litho: 'granite', detail: 2, growth: 1 }, { r: 'boulder', litho: 'diorite', kind: 'angular', detail: 2, growth: 1 }, { r: 'boulder', litho: 'basalt', kind: 'block', detail: 2, growth: 1 }, { r: 'boulder', litho: 'sandstone', detail: 2, growth: 1 }, { r: 'boulder', litho: 'greenstone', kind: 'angular', detail: 2, growth: 1 }];
 const OK_SLAB = [{ r: 'cracked', litho: 'slate', growth: 0.25 }, { r: 'cracked', litho: 'sandstone', growth: 0.25 }, { r: 'boulder', litho: 'granite', kind: 'block', growth: 0.25 }]; // big and flat: little growth (CLAUDE.md)
+const SLAB_QY = [-3, -2, -1]; // slabs are squashed (sy 0.3-0.6 of sc): their obstacle capsule fits
 const OK_BIG = [{ r: 'pile', lithos: ['granite', 'diorite', 'basalt'], big: true, growth: 1 }, { r: 'columnar', big: true, growth: 1 }, { r: 'pile', lithos: ['sandstone', 'slate'], big: true, growth: 1 }, { r: 'conglomerate', detail: 4, big: true, growth: 1 }];
 export const recipeOf = (g) => recipe(g, 'nb4ok', (g) => {
   const u = (k) => sv(g, 400 + k);
@@ -272,7 +273,7 @@ export function initOtter(tier) {
   O.turf = [0, 1, 2, 3].map((i) => { const t = tuft(4470 + i, { h: 0.06 + i * 0.02, depth: 3 }); t.solid = false; return lab(t, 'Coralline turf', 'Jointed coralline algae: stony segments linked by flexible hinges, so they bend in the surge.'); });
   O.slab = [drain(rockJob(tiered(OK_SLAB[0], tier), 4360))];
   O.field = [0, 1, 2].map((i) => drain(rockJob(OK_COBBLE[i], 4365 + i)));
-  for (const t of O.slab) warmTpl(t);
+  for (const t of O.slab) warmTpl(t, SLAB_QY);
   O.palm = [0, 1, 2].map((i) => lab(seaPalm(4490 + i), 'Stalked kelp (Pterygophora)', 'This understory kelp stands on a woody stalk and can live for more than 20 years, growing a ring a year like a tree.'));
   O.cobble = [0, 1, 2].map((i) => { const t = pebblePatch(4495 + i, { n: 9 + i * 4, r: 0.55 + i * 0.15, size: 0.11 + i * 0.03, flat: 0.55, col: [0.5, 0.48, 0.45], growth: 0.8, mode: 6.3 + i * 0.2 }); t.solid = false; return lab(t, 'Cobbles', 'Storm waves roll cobbles smooth; on a rocky reef every stone carries its own crust of life.'); });
   O.hash = [0, 1].map((i) => { const t = pebblePatch(4480 + i, { n: 20, r: 0.45, size: 0.035, flat: 0.25, col: [0.9, 0.86, 0.8], growth: 0, mode: 2 }); t.solid = false; return lab(t, 'Shell hash', 'Broken shells of mussels, snails and urchins, sorted by the surge into pale drifts.'); });
@@ -287,7 +288,7 @@ export function otterProviders(provide) {
   provide(KEY, 'nb4okBig', 3, (seg, k, tier) => gridded(rockJob(tiered(OK_BIG[(k + (seg.seed >>> 7)) % OK_BIG.length], tier), segSeed(seg, k, 0x165667b1))), 2);
   // low-poly boulders (~80 triangles) for the boulder field between the big rocks
   provide(KEY, 'nb4okCobble', 6, (seg, k) => rockJob(OK_COBBLE[(k + (seg.seed >>> 11)) % OK_COBBLE.length], segSeed(seg, k, 0x5bd1e995)), 2);
-  provide(KEY, 'nb4okSlab', 3, (seg, k, tier) => gridded(rockJob(tiered(OK_SLAB[(k + (seg.seed >>> 9)) % OK_SLAB.length], tier), segSeed(seg, k, 0x61c88647))), 2);
+  provide(KEY, 'nb4okSlab', 3, (seg, k, tier) => gridded(rockJob(tiered(OK_SLAB[(k + (seg.seed >>> 9)) % OK_SLAB.length], tier), segSeed(seg, k, 0x61c88647)), SLAB_QY), 2);
   provide(KEY, 'nb4okPalm', 4, (seg, k) => once(() => lab(seaPalm(segSeed(seg, k, 0x9e3779b1) % 100000), 'Stalked kelp (Pterygophora)', 'This understory kelp stands on a woody stalk and can live for more than 20 years, growing a ring a year like a tree.'))(), 3);
   provide(KEY, 'nb4okStraw', 3, (seg, k, tier) => once(() => corynactis(segSeed(seg, k, 0x27d4eb2f), { n: tier === 'low' ? 16 : 22 + k * 9, R: 0.15 + k * 0.07 }))(), 3);
 }
@@ -370,7 +371,7 @@ export function* layoutOkA(ctx) {
   const P = plan(ctx), bk = budgetK(ctx, KEY), lk = lowK(ctx), pc = pathCache(ctx), fs = nbFloor(ctx), surf = ctx.surfaceY;
   const rng = chunkRng(ctx, 0x07e2), g0 = segFor(ctx, ctx.s0 + 32, KEY), rc0 = recipeOf(g0);
   const st = new Batch(MAT.static, 60000 * bk);
-  const kb = new Batch(MAT.sway, (ctx.tier === 'low' ? 48000 : 84000) * bk); kb.soft = true; kb.lod = 'mid'; kb.jobVerts = 8000; // (non-uniform scales: normals renormalised)
+  const kb = new Batch(MAT.sway, (ctx.tier === 'low' ? 56000 : 110000) * bk); kb.soft = true; kb.lod = 'mid';
   const labels = [], pois = [];
   for (const R0 of P.rocks) {
     if (Y.over()) { yield; Y.reset(); }
@@ -389,14 +390,15 @@ export function* layoutOkA(ctx) {
     if (!isBull) canopy.push([x, s, 2.5 + rng() * 2]);
     return true;
   };
-  const nK = Math.round(78 * rc0.giant * bk * lk), nB = Math.round(26 * rc0.bull * bk * lk);
+  const nK = Math.round(105 * rc0.giant * bk * lk), nB = Math.round(40 * rc0.bull * bk * lk);
   for (const isBull of [false, true]) {
     const want = isBull ? nB : nK;
     for (let k = 0, n = 0; k < want * 4 && n < want; k++) {
       if (Y.over()) { yield; Y.reset(); }
       const s = ctx.s0 + rng() * CHUNK, g = segFor(ctx, s, KEY);
       if (!g) continue;
-      const rc = recipeOf(g), x = pc.x(s) + (rng() < 0.5 ? -1 : 1) * Math.pow(rng(), 1.15) * 44;
+      // densest along the route, so the camera flies through the forest (uniform out to 44 m read as a sparse field)
+      const rc = recipeOf(g), x = pc.x(s) + (rng() < 0.5 ? -1 : 1) * Math.pow(rng(), 1.6) * 44;
       const grove = 0.45 + 0.55 * sstep(-0.3, 0.4, vn3(x / 22, 0.5, s / 22, 77)), t = shoreT(ctx, pc, rc, x, s);
       if (rng() > ctx.weightOf(s, KEY) * grove * shoreK(t) * (isBull ? 0.5 + 0.5 * sstep(0, 30, t) : 1)) continue;
       if (!sp.free(x, s, isBull ? 0.2 : 0.35)) continue;
@@ -416,6 +418,7 @@ export function* layoutOkA(ctx) {
     if (Y.over()) { yield; Y.reset(); }
     const spots = itemSpots(R0.item, ctx, 16, 0.88); // flat tops only: a holdfast spreads over the rock
     for (let q = 0, n = 0; q < spots.length && n < (R0.big ? 3 : 1); q++) {
+      if (Y.over()) { yield; Y.reset(); }
       const p = spots[(q * 7 + 3) % spots.length], g = segFor(ctx, p.s, KEY) || g0, D = surf - p.y;
       if (D < 2.2) continue;
       const tpl = byDepth(rng, poolOf(g, 'nb4okKelp', O.kelp, 3), D - 0.08);

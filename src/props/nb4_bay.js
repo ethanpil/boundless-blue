@@ -212,7 +212,7 @@ export function* layoutBbB(ctx) {
   const P = plan(ctx), bk = budgetK(ctx, KEY), lk = lowK(ctx), pc = pathCache(ctx), fs = nbFloor(ctx), surf = ctx.surfaceY;
   const rng = chunkRng(ctx, 0xb1a3), g0 = segFor(ctx, ctx.s0 + 32, KEY), rc0 = recipeOf(g0);
   const st = new Batch(MAT.static, 24000 * bk * lk); st.lod = 'near';
-  const gr = new Batch(MAT.sway, 30000 * bk * lk); gr.lod = 'mid'; gr.soft = true; gr.jobVerts = 12000;
+  const gr = new Batch(MAT.sway, 30000 * bk * lk); gr.lod = 'mid'; gr.soft = true;
   const gl = new Batch(NBMAT.glow, 22000 * bk * lk); gl.lod = 'mid'; gl.soft = true;
   const sp = P.sp, labels = [], pois = [];
   const floorPut = (b, tpl, x, s, sc, col, follow, embed, fa, kind) => {

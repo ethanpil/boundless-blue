@@ -1,7 +1,6 @@
 // Ice Edge: the underside of the pack ice and the floes beyond it, with the open sea 30-40 m deep below.
 // Under the ice (only where there is ice overhead: the ceiling mesh below the surface) hang brinicles, fringes of
-// icicles along the floe edges, curtains of brown ice-algae strands (Melosira), clusters of platelet ice, and a
-// brown film of ice algae stains the underside. Far below, dropstones carry soft corals (sea strawberries),
+// icicles along the floe edges, curtains of golden-brown ice-algae strands (Melosira) and clusters of platelet ice. Far below, dropstones carry soft corals (sea strawberries),
 // sponges and sea stars; brittle stars and sea spiders roam the mud. Every hanging thing is seated in the ice.
 import { Builder, Batch, TAU, presence, budgetK, CHUNK, vn3, sat, sstep, lerp, rotY, rotX, rotZ, mul3 } from './core.js';
 import { MAT } from './materials.js';
@@ -9,11 +8,11 @@ import { sv } from '../biomes.js';
 import { seastar } from './shapes.js';
 import { encrust, ground } from './nb_shapes.js';
 import { softTree } from './nb2_life.js';
-import { pathCache, clearBox, SOLID, SOFT, seat, put, upTo, mix3, nrm, segFor, recipe, lowK, slice, nbFloor, builderMesh, NBMAT, lab, setBase } from './nb_common.js';
+import { pathCache, clearBox, SOLID, SOFT, seat, put, upTo, mix3, nrm, segFor, recipe, lowK, slice, nbFloor, NBMAT, lab, setBase } from './nb_common.js';
 import { poolOf, itemSpots, seatOnItem } from './nb2_common.js';
 import { Space } from './nb3_common.js';
 import { rockJob, drain, tiered } from './rock_recipes.js';
-import { ceilOf, iced, hangOn, hangR, ceilDecal, rr, pick, chunkRng, L, once, segSeed, q01, grips, gridded, warmTpl } from './nb4_common.js';
+import { ceilOf, iced, hangOn, hangR, rr, pick, chunkRng, L, once, segSeed, q01, grips, gridded, warmTpl } from './nb4_common.js';
 import { mulberry32 } from '../noise.js';
 
 const KEY = 'iceedge';
@@ -56,20 +55,22 @@ function icicleFringe(seed, len) {
 }
 // Melosira arctica: chains of diatoms hanging from the ice in brown curtains and strands, swaying (MAT.sway)
 function algaeStrands(seed, { n = 14, R = 0.3, Lmax = 1.8 } = {}) {
-  const b = new Builder(), rng = mulberry32(seed * 457 + 11), hue = [0.6 + rng() * 0.12, 0.45 + rng() * 0.1, 0.16 + rng() * 0.06];
+  // golden brown, as the diatom chains glow in the light through the floe (darker browns read as black under the ice)
+  const b = new Builder(), rng = mulberry32(seed * 457 + 11), hue = [0.8 + rng() * 0.12, 0.6 + rng() * 0.1, 0.24 + rng() * 0.06];
   const lean = rng() * TAU, lx = Math.cos(lean), lz = Math.sin(lean), lk = 0.15 + rng() * 0.3; // the current drags the strands one way
   b.blob(1, (x, y, z, o) => { o[0] = x * R; o[1] = Math.max(0, y) * 0.04; o[2] = z * R; o[3] = hue[0] * 0.7; o[4] = hue[1] * 0.7; o[5] = hue[2] * 0.7; o[6] = 0; o[7] = 0; });
   for (let k = 0; k < n; k++) {
     // wispy: lengths spread wide, widths from a thread to a ribbon, each strand its own curl and drift
     const a = rng() * TAU, d = R * 0.85 * Math.sqrt(rng()), cx = Math.cos(a) * d, cz = Math.sin(a) * d, Ls = Lmax * (0.12 + 0.88 * Math.pow(rng(), 1.4));
     const w = rng() < 0.6 ? 0.004 + rng() * 0.006 : 0.01 + rng() * 0.016, face = rng() * TAU, segs = 8, v0 = b.vc, dr = lk * (0.6 + 0.8 * rng());
-    const fx = Math.cos(face), fz = Math.sin(face), ph = rng() * 10, c = 0.7 + rng() * 0.5;
+    const fx = Math.cos(face), fz = Math.sin(face), ph = rng() * 10, c = 0.85 + rng() * 0.45;
     for (let i = 0; i <= segs; i++) {
       const t = i / segs, y = 0.01 + t * Ls * (1 - 0.15 * dr * t), wv = 0.12 * Ls * Math.sin(t * 4 + ph) * t + 0.05 * Ls * Math.sin(t * 11 + ph * 2) * t;
       const ww = w * (i === segs ? 0.3 : 1 - 0.4 * t), sw = 0.4 * Ls * Math.pow(t, 1.4) / Lmax, drift = dr * Ls * t * t;
       const x0 = cx + wv * fz + lx * drift, z0 = cz - wv * fx + lz * drift;
-      b.v(x0 - fx * ww, y, z0 - fz * ww, fz, 0, -fx, hue[0] * c, hue[1] * c, hue[2] * c, sw, 0);
-      b.v(x0 + fx * ww, y, z0 + fz * ww, fz, 0, -fx, hue[0] * c * 1.1, hue[1] * c * 1.1, hue[2] * c, sw, 0);
+      // (sway style 1, as kelp blades: lit from both faces and glowing with the light that passes through them)
+      b.v(x0 - fx * ww, y, z0 - fz * ww, fz, 0, -fx, hue[0] * c, hue[1] * c, hue[2] * c, sw, 1);
+      b.v(x0 + fx * ww, y, z0 + fz * ww, fz, 0, -fx, hue[0] * c * 1.1, hue[1] * c * 1.1, hue[2] * c, sw, 1);
     }
     for (let i = 0; i < segs; i++) { const q = v0 + i * 2; b.t(q, q + 1, q + 2); b.t(q + 1, q + 3, q + 2); }
   }
@@ -196,7 +197,7 @@ export function* layoutIeA(ctx) {
   let anyIce = false;
   for (let k = 0; k < 40 && !anyIce; k++) { const s = ctx.s0 + rng() * CHUNK; anyIce = iced(cs, ctx, pc.x(s) + (rng() - 0.5) * 80, s); }
   if (!anyIce) return null;
-  const ice = new Batch(MAT.static, 30000 * bk), sw = new Batch(MAT.sway, 30000 * bk * lk); sw.soft = true; sw.lod = 'mid'; sw.jobVerts = 12000;
+  const ice = new Batch(MAT.static, 30000 * bk), sw = new Batch(MAT.sway, 30000 * bk * lk); sw.soft = true; sw.lod = 'mid';
   const pl = new Batch(MAT.static, 16000 * bk * lk); pl.lod = 'mid';
   const labels = [], pois = [], sp = new Space();
   const lateral = (a, b, k = 1.2) => (rng() < 0.5 ? -1 : 1) * (a + Math.pow(rng(), k) * (b - a));
@@ -222,14 +223,13 @@ export function* layoutIeA(ctx) {
     if (hang(ice, tpl, ix, is, yaw, 1, 0.8 + rng() * 0.6, [1, 1, 1], 1, SOLID, tpl.nbLen * 0.5) !== null) { sp.add(ix, is, tpl.nbLen * 0.4); n++; }
   }
   yield;
-  // brown ice-algae film on the underside, with strands of Melosira hanging from it and platelet clusters
-  const film = new Builder(), patches = [];
+  // ice-algae patches on the underside, where most strands of Melosira hang; platelet clusters (no film decal there:
+  // the floor-decal material lit a downward-facing film like shaded mud, dark grey smudges, and on keels it drew shards)
+  const patches = [];
   for (let k = 0; k < 18 * rc0.film * bk; k++) {
     if (Y.over()) { yield; Y.reset(); }
     const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + lateral(0, 34, 1), r = 1.2 + rng() * 3;
-    if (!iced(cs, ctx, x, s, 0.4)) continue;
-    const col = [0.62 * rc0.algaeHue[0], 0.5 * rc0.algaeHue[1], 0.24 * rc0.algaeHue[2]]; // dirty golden-brown ice, lit through the floe
-    if (ceilDecal(film, cs, ctx, x, s, r, r * (0.5 + rng() * 0.5), rng() * TAU, col, 0, 0.3 + rng() * 0.3)) patches.push([x, s, r]);
+    if (iced(cs, ctx, x, s, 0.4)) patches.push([x, s, r]);
   }
   const nS = Math.round(30 * rc0.algae * bk * lk);
   for (let k = 0, n = 0; k < nS * 4 && n < nS; k++) {
@@ -268,10 +268,7 @@ export function* layoutIeA(ctx) {
     sp.add(x, s, 0.5); n++;
     if (pois.length < 2 && Math.abs(x - pc.x(s)) < 14) pois.push({ type: 'brinicle', x, y: y - tpl.nbLen * sy * 0.6, s, r: 2, data: { name: 'Brinicle' } });
   }
-  const extra = [];
-  const fm = film.vc ? builderMesh(film, NBMAT.decal, null, 'mid') : null;
-  if (fm) { fm.renderOrder = 1; extra.push(fm); }
-  return { batches: [ice, sw, pl], extra, labels, pois };
+  return { batches: [ice, sw, pl], labels, pois };
 }
 
 // ---------------------------------------------------------------- chain B: the seabed far below
@@ -308,6 +305,7 @@ export function* layoutIeB(ctx) {
     const spots = itemSpots(it, ctx, 24, 0.5);
     for (let i = spots.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0, t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
     for (let q = 0, n = 0; q < spots.length && n < Math.round((1 + rng() * 4) * rc0.life * lk); q++) {
+      if (Y.over()) { yield; Y.reset(); } // (24 seat + grip tests on one stone took ~30 ms on a cold first chunk)
       const p = spots[q], u = rng(), R = upTo(mix3([0, 1, 0], p.n, 0.7), rng() * TAU), Pp = [p.x, p.y, p.s];
       const e = u < 0.45 ? { t: I.soft, b: soft, sc: [0.7, 1.3], col: PINK } : u < 0.8 ? { t: I.sponge, b: sm, sc: [0.7, 1.4], col: SPONGE } : { t: I.star, b: sm, sc: [0.1, 0.16], col: STAR };
       const tpl = pick(rng, e.t), sc = rr(rng, e.sc[0], e.sc[1]);

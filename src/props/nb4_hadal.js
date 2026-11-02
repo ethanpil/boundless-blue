@@ -291,6 +291,7 @@ export function* layoutHdB(ctx) {
     const spots = itemSpots(it, ctx, 20, 0.55);
     for (let i = spots.length - 1; i > 0; i--) { const j = (rng() * (i + 1)) | 0, t = spots[i]; spots[i] = spots[j]; spots[j] = t; }
     for (let q = 0, n = 0; q < spots.length && n < 1 + rng() * 3; q++) {
+      if (Y.over()) { yield; Y.reset(); }
       const p = spots[q], glass = rng() < rc0.glass / (rc0.glass + rc0.lily), tpl = pick(rng, glass ? poolOf(g, 'nb4hdGlass', H.glass, 2) : poolOf(g, 'nb4hdLily', H.lily, 2));
       if (rng() > (glass ? rc0.glass : rc0.lily) * lk) continue;
       const sc = 0.8 + rng() * 0.5, R = upTo(mix3([0, 1, 0], p.n, 0.25), rng() * TAU), Pp = [p.x, p.y, p.s];
