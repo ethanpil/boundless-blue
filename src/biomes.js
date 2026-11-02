@@ -199,7 +199,10 @@ export const BIOMES = {
     floor(x, s) { return fbm2(x / 30, s / 30, 4, 111) * 8; },
     ceil(x, s, ad, g) {
       let c = 7.6 + 0.6 * fbm2(x / 7, s / 7, 3, 112);
-      c -= ridge2(x / 24, s / 24, 3, 113) ** 3 * 9 * (0.5 + sv(g, 1)) * smoothstep(5, 16, ad); // pressure-ridge keels
+      // pressure-ridge keels: long, rounded rubble ridges (a Gaussian across the ridge line, no sharp saw-tooth crests)
+      const rn = noise2(x / 38 + 0.35 * fbm2(x / 70, s / 70, 2, 116), s / 38, 113);
+      const keel = Math.exp(-((rn / 0.2) ** 2)) * (0.65 + 0.35 * fbm2(x / 9, s / 9, 2, 115));
+      c -= keel * 8 * (0.5 + sv(g, 1)) * smoothstep(5, 16, ad);
       const lead = noise2(x / 45, s / 45, 114), th = 0.3 + 0.16 * sv(g, 2);
       if (lead > th) c += (lead - th) * 120; // open leads between floes
       return c;

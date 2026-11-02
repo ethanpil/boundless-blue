@@ -1,4 +1,6 @@
-# Endless Ocean — notes for developers and LLMs
+# Boundless Blue — notes for developers and LLMs
+
+(Renamed from "Endless Ocean" on 2026-11-01 to avoid clashing with an existing game series; repo `ethanpil/boundless-blue`.)
 
 Static site, no build step. The three.js version is pinned in the `index.html` import map (0.186.1). Deployed with GitHub Pages from `main` (root).
 
@@ -71,7 +73,7 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - Test tools in devfly.js: `spacingTest`, `terrainTest`, `presenceTest`.
   - The blue whale is scheduled by `director.whaleTick`.
 - **Surprises** (`src/surprises/`):
-  - One encounter at a time, on persistent timers stored in localStorage key `endlessOcean.surprises.v1`.
+  - One encounter at a time, on persistent timers stored in localStorage key `boundlessBlue.surprises.v1` (falls back to the old `endlessOcean.surprises.v1`).
   - Builds are stepped and use `compileAsync`. Bodies are registered as moving obstacles (`o.sur = true`).
   - Debug: `__ocean.surprises.trigger(kind)`, `list()`.
 - **Wrecks and ruins** are generated per segment:

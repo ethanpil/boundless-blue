@@ -1,8 +1,8 @@
-// Endless Ocean — entry point: renderer, floating origin, biome blending, conditions, frame loop,
+// Boundless Blue — entry point: renderer, floating origin, biome blending, conditions, frame loop,
 // and the `app` control API shared by the keyboard and the touch/mouse control deck (hud.js).
 import * as THREE from 'three';
 import { U, Caustics, makeNoiseTexture } from './water.js';
-import { BIOMES, BIOME_KEYS, BiomeSequence, WorldShape, sv } from './biomes.js';
+import { BIOMES, BIOME_KEYS, BiomeSequence, WorldShape, sv, blueHoleOf } from './biomes.js';
 import { Terrain } from './terrain.js';
 import { Background, Surface, MarineSnow } from './env.js';
 import { Post } from './post.js';
@@ -141,8 +141,22 @@ const subjectsFn = (out) => {
   if (surprises.subjects) surprises.subjects(out);
 };
 const poisFn = (s0, s1, out) => terrain.queryPOIs(s0, s1, out);
+// Per-zone framing: look toward the wall face, down into the blue hole, up at sargassum rafts.
+function framingBias() {
+  let by = 0, bp = 0;
+  for (const e of seq.weights(s)) {
+    if (e.key === 'wall') by -= (sv(e.g, 1) < 0.5 ? -1 : 1) * 0.3 * e.w;
+    else if (e.key === 'sargassum') bp += 0.12 * e.w;
+    else if (e.key === 'bluehole') {
+      const H = blueHoleOf(e.g);
+      if (H) bp -= 0.28 * e.w * smoothstep(H.R + 20, H.R * 0.4, Math.hypot(shape.pathX(s) - H.x, s - H.s));
+    }
+  }
+  director.biasYaw = by; director.biasPitch = bp;
+}
 function placeCamera(dt, time, C) {
   rebase(-s);
+  framingBias();
   const r = director.update(dt, time, s, Oz, Math.max(0.005, U.uSigma.value.y), C.surge, subjectsFn, poisFn);
   camState.s = s; camState.x = r.x; camState.y = r.y; camState.z = r.gz; camState.Oz = Oz;
   camera.getWorldDirection(camState.forward);

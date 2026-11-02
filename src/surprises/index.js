@@ -36,7 +36,8 @@ const KINDS = {
   divers: { cls: Divers, every: [15 * MIN, 25 * MIN], first: [3 * MIN, 9 * MIN], zones: DIVER_ZONES },
 };
 const ORDER = ['kaiju', 'sub', 'rov', 'glider', 'divers']; // rarest first when several are due
-const STORE = 'endlessOcean.surprises.v1';
+const STORE = 'boundlessBlue.surprises.v1';
+const OLD_STORE = 'endlessOcean.surprises.v1'; // before the rename to Boundless Blue
 const qs = typeof location !== 'undefined' ? new URLSearchParams(location.search) : new URLSearchParams();
 
 const _n = { x: 0, y: 0, s: 0 };
@@ -71,7 +72,7 @@ export class Surprises {
   // ---------- persistence (remaining time per kind; sim time, so time away does not count) ----------
   _restore() {
     try {
-      const raw = localStorage.getItem(STORE);
+      const raw = localStorage.getItem(STORE) || localStorage.getItem(OLD_STORE);
       if (!raw) return;
       const o = JSON.parse(raw);
       if (!o || !o.due) return;

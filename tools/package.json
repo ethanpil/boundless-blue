@@ -1,8 +1,8 @@
 {
-  "name": "marine-scene-tools",
+  "name": "boundless-blue-tools",
   "private": true,
   "type": "module",
-  "description": "Node-side audit harnesses for Endless Ocean (not shipped)",
+  "description": "Node-side audit harnesses for Boundless Blue (not shipped)",
   "scripts": { "audit": "node --import ./audit/register.mjs audit/run.mjs" },
   "devDependencies": { "three": "0.186.1" }
 }

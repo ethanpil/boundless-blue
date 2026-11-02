@@ -39,6 +39,7 @@ export class CameraDirector {
     this.focusPos = new THREE.Vector3();
     this.hasSubject = false;
     this.curiosity = 1;           // 0 = steady forward view, 1 = documentary camera that watches things
+    this.biasYaw = 0; this.biasPitch = 0; // per-zone framing preference (set by main.js: wall face, blue-hole drop)
     this._f = new THREE.Vector3(); this._d = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
     this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
@@ -128,8 +129,8 @@ export class CameraDirector {
     }
 
     // ---- gaze: blend the path heading with the subject direction ----
-    let yawT = 0.2 * noise1(time / 23, 901) + 0.07 * noise1(time / 7.3, 902);
-    let pitchT = 0.07 * noise1(time / 17, 903) - 0.03;
+    let yawT = 0.2 * noise1(time / 23, 901) + 0.07 * noise1(time / 7.3, 902) + this.biasYaw;
+    let pitchT = 0.07 * noise1(time / 17, 903) - 0.03 + this.biasPitch;
     let focusT = this._autoFocus(px, py + this.alt.x, s, F);
     let speedT = 1;
     this.hasSubject = !!this.subject;

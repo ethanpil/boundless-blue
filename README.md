@@ -1,4 +1,6 @@
-# Endless Ocean
+# Boundless Blue
+
+Live: https://ethanpil.github.io/boundless-blue/
 
 An endless, procedurally generated underwater journey that runs in the browser. The camera keeps gliding forward through a world that never repeats, past coral reefs, kelp forests, cenote caves, shipwrecks, sunken cities, hydrothermal vents, polar ice and more. Sea life comes and goes along the way. It's meant to be left running for hours.
 

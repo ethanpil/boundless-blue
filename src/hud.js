@@ -547,7 +547,8 @@ export class Hud {
         }
         const supported = 'wakeLock' in navigator;
         txt(R.tg_wake, !supported ? 'not supported by this browser' : !a.wakeLock ? 'off: the screen may dim'
-          : a.wakeLockActive ? 'active: the screen stays on' : 'waiting: tap the view to activate');
+          : a.wakeLockActive ? 'active: the screen stays on'
+          : a.wakeLockError ? 'refused by the browser (low battery or settings); retrying on tap' : 'waiting: tap the view to activate');
         flag(R.tg_wake, 'ok', supported && a.wakeLock && a.wakeLockActive);
         for (const b of this.lampBtns) pressed(b, b.dataset.lamp === a.lampMode);
         for (const b of this.camBtns) pressed(b, (b.dataset.cam === '1') === (a.curiosity >= 0.5));
