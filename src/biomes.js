@@ -576,7 +576,12 @@ export class BiomeSequence {
     // forget far-behind segments (keep a few for lookups)
     while (this.segs.length > 12 && this.segs[1].end < s - 2000) this.segs.shift();
   }
+  // A lookup far ahead of the live range (a stale object after a zone jump) must not grow or prune the
+  // sequence: one once rebuilt it 640 km ahead of the camera, which then sat in a pruned-away zone.
+  // Such lookups read the last segment instead.
+  _far(s) { return s > this.segs[this.segs.length - 1].end + 20000; }
   segAt(s) {
+    if (this._far(s)) return this.segs.length - 1;
     this._extend(s);
     const a = this.segs;
     for (let i = a.length - 1; i >= 0; i--) if (s >= a[i].start) return i;
@@ -584,6 +589,7 @@ export class BiomeSequence {
   }
   // Returns [{key, w, g}] (1-2 entries) summing to 1; g is the segment record.
   weights(s) {
+    if (this._far(s)) { const g = this.segs[this.segs.length - 1]; return [{ key: g.key, w: 1, g }]; }
     const i = this.segAt(s), a = this.segs, g = a[i];
     if (i > 0 && s < g.start + TH) {
       const t = smoothstep(-TH, TH, s - g.start);
@@ -600,7 +606,7 @@ export class BiomeSequence {
   weightOf(s, key) { let w = 0; for (const e of this.weights(s)) if (e.key === key) w += e.w; return w; }
   // Segments overlapping [s0, s1)
   segmentsBetween(s0, s1) {
-    this._extend(s1);
+    if (!this._far(s1)) this._extend(s1);
     return this.segs.filter((g) => g.end > s0 && g.start < s1);
   }
 }

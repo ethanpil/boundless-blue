@@ -49,6 +49,10 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
 - **Blue hole camera:** a `bluehole` POI counts as near as its rim when the director picks subjects. While it is watched, the gaze moves to a point ~30 m below the rim (pitch about -25° to -35° across the rim), then eases back to level toward the middle.
 - **Share link** (`app.shareUrl`): origin + path with only `seed`, `biome` (and `start`). Quality, wake, fps and the time/weather locks are the viewer's own settings.
 - **Wake lock:** a `NotAllowedError` on a request made from a user gesture is stored (`app.wakeLockError`) and requests stop until the option is toggled; a refusal on load is retried on the next tap or key. `app.wakeLock` is the *effective* setting (`wanted && !error`), so a blocked lock shows as off in the deck instead of "waiting" forever, and the toggle's tap clears the error and retries.
+- **Staged boot:** `boot()` in main.js registers props, creates creatures/surprises/ambience and primes terrain with `await paint()` yields, so the title card's progress bar moves. `window.__ocean.ready` is that promise. `creatures`, `surprises` and `ambience` are `null` until it resolves, so anything that touches them must null-check.
+- **Zone jump in place** (`app.jumpTo`): `terrain.reset()`, `creatures.reset()`, `surprises.reset()`, `director.reset()`, then `seq.restart(key, s)` and `terrain.primeAsync`. Segment ids come from `seq.nextId` and are never reused: ids used to be `segs.length`, so after pruning a new segment could inherit a dead one's id and its per-segment caches.
+- **Lamp cap:** a biome's `lampMax` (blended into `P.lampMax`) caps the *auto* lamps. The bioluminescent bay uses 0.08 because lamps drown the glow. The viewer's 'on' setting overrides the cap.
+- **Audio** (`src/audio/`): procedural WebAudio only (no files). It reads `creatures.enc` internals (`sp.key`, `dist`, `bounds`, `anchorZ`, `fade`, `done`) and `surprises.active.divers`; renaming those silences the calls without throwing.
 
 ## Agent-built subsystems (conventions to keep)
 - **Props** (`src/props/`):
