@@ -22,7 +22,8 @@ const LIFE = {
   sandflat: [0.2, 0.1], pelagic: [0, 0], cave: [0.15, 0.4], wreck: [0.55, 0.35], ruins: [0.6, 0.2], vents: [0.75, 1],
   deepplain: [0.12, 0.85], tidepool: [1, 0.15], abyss: [0, 0], polar: [0.3, 0.6], seamount: [0.85, 0.1],
   sargassum: [0, 0], champagne: [0.65, 0.05], jellylake: [0.4, 0.4], sunkenforest: [0.45, 0.5], anemone: [0.8, 0],
-  bluehole: [0.7, 0.05],
+  bluehole: [0.7, 0.05], otterkelp: [0.85, 0.5], whaleshark: [0.15, 0.1], biobay: [0.3, 0.45], iceedge: [0.25, 0.6],
+  hadal: [0.08, 0.9],
 };
 // Colour grade per zone: [saturation, contrast, white balance vs. the water cast, vibrance,
 // shadow lift r g b (display-linear, added), highlight gain r g b]. Read by the post composite through U.
@@ -50,6 +51,11 @@ const GRADE = {
   sunkenforest: [1.05, 1.14, 0.25, 0.18, 0, 0.005, 0.004, 1.04, 1.02, 0.95],
   anemone:      [1.22, 1.1, 0.22, 0.3, 0, 0.004, 0.008, 1.04, 1.01, 0.97],
   bluehole:     [1.18, 1.15, 0.15, 0.22, 0, 0.002, 0.012, 1.02, 1.0, 0.99],
+  otterkelp:    [1.1, 1.12, 0.26, 0.2, 0, 0.006, 0.004, 1.05, 1.02, 0.94],
+  whaleshark:   [1.12, 1.08, 0.22, 0.2, 0, 0.004, 0.006, 1.04, 1.02, 0.96],
+  biobay:       [1.2, 1.18, 0, 0.35, 0, 0.001, 0.004, 1.0, 1.0, 1.0],
+  iceedge:      [0.96, 1.1, 0.15, 0.1, 0, 0.004, 0.01, 0.98, 1.0, 1.03],
+  hadal:        [1.1, 1.2, 0, 0.25, 0, 0.001, 0.003, 1.0, 1.0, 1.0],
 };
 const GRADE_DEFAULT = [1.12, 1.1, 0.2, 0.2, 0, 0.003, 0.006, 1.02, 1.0, 0.98];
 const _G = new Float32Array(11);
@@ -434,7 +440,7 @@ export class Terrain {
         for (const e of r.ws) {
           const b = BIOMES[e.key];
           if (isCeil) {
-            if (e.key === 'polar') { cr += 0.72 * e.w; cg += 0.86 * e.w; cb += 0.95 * e.w; ice += e.w; }
+            if (b.iceCeiling) { cr += 0.72 * e.w; cg += 0.86 * e.w; cb += 0.95 * e.w; ice += e.w; }
             else { cr += b.rock[0] * 0.8 * e.w; cg += b.rock[1] * 0.8 * e.w; cb += b.rock[2] * 0.8 * e.w; }
             continue;
           }
@@ -500,9 +506,28 @@ export class Terrain {
   // Label provider for the "i" overlay.
   labels(out) { for (const c of this.chunks.values()) for (const l of c.labels) out.push(l); }
 
-  // Build everything needed immediately (startup).
+  // Build everything needed immediately (synchronous; prefer primeAsync, which lets the page paint).
   prime(camS) {
     this.update(camS, Infinity);
+  }
+  // Build what the camera needs at camS in time slices, yielding between them; onProgress(0..1).
+  async primeAsync(camS, onProgress, yieldFn) {
+    this.update(camS, 0);
+    const total = Math.max(1, this.queue.length);
+    while (this.queue.length) {
+      this.update(camS, 24);
+      if (onProgress) onProgress(1 - this.queue.length / total);
+      await yieldFn();
+    }
+    while (this.sky.job) { this.sky.update(camS, 24); await yieldFn(); }
+    if (onProgress) onProgress(1);
+  }
+  // Drop the whole world (zone jump without a page reload); the caller then primes the new start.
+  reset() {
+    for (const c of this.chunks.values()) this._disposeChunk(c);
+    this.chunks.clear();
+    this.queue.length = 0;
+    this.sky.job = null; this.sky.origin = null;
   }
 
   // Colour grade of the zone around the camera, blended across cross-fades (read by the post composite),
@@ -571,12 +596,12 @@ class SkyMap {
       const ws = this.seq.weights(s);
       const hasCeil = ws.some((e) => BIOMES[e.key].ceil);
       const hasCanopy = ws.some((e) => BIOMES[e.key].canopy);
-      const polar = ws.reduce((a, e) => a + (e.key === 'polar' ? e.w : 0), 0);
+      const iceT = ws.reduce((a, e) => a + (BIOMES[e.key].iceLight || 0) * e.w, 0); // light through sea ice
       for (let i = 0; i < N; i++) {
         let v = 1;
         if (hasCeil) {
           const c = this.shape.ceilingExact(ox + i * cell, s);
-          v = Math.max(smoothstep(-1.2, 0.6, c - surf), 0.38 * polar + 0.03);
+          v = Math.max(smoothstep(-1.2, 0.6, c - surf), iceT + 0.03);
         }
         if (hasCanopy) v *= this.shape.canopyAt(ox + i * cell, s);
         buf[j * N + i] = v;

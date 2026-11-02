@@ -393,6 +393,78 @@ const META = {
   bluehole: { subtitle: 'a sinkhole falling into deep blue', tempC: 26 },
 };
 for (const [k, v] of Object.entries(META)) Object.assign(BIOMES[k], v);
+// ---------- Five more oceanscapes (added 2026-11-02) ----------
+Object.assign(BIOMES, {
+  otterkelp: {
+    label: 'Otter Coast', camY: -5, clearance: 3.5, len: [500, 800], weight: 0.85,
+    sigma: [0.15, 0.055, 0.065], lightSigma: [0.065, 0.025, 0.032],
+    deep: C(0x0f4a46), up: C(0x6cb8a6), sun: 1.1, caustic: 1.0, shafts: 1.3, ambient: 1.0, glow: 0, snow: 1.0,
+    sand: [0.55, 0.5, 0.4], rock: [0.33, 0.31, 0.28],
+    // shallow rocky reef under a kelp canopy; the shore rises toward the surface on one side
+    floor(x, s, ad, g, dx) {
+      const side = sv(g, 1) < 0.5 ? -1 : 1, t = dx * side;
+      return fbm2(x / 12, s / 12, 4, 241) * 1.8 + ridge2(x / 25, s / 25, 3, 242) * 2.5
+        + smoothstep(18, 70, t) * (7 + 3 * fbm2(x / 20, s / 20, 2, 243)) + smoothstep(30, 80, -t) * 4;
+    },
+  },
+  whaleshark: {
+    label: 'Whale Shark Grounds', camY: -6, clearance: 34, len: [550, 850], weight: 0.8,
+    sigma: [0.13, 0.06, 0.07], lightSigma: [0.06, 0.026, 0.032],
+    deep: C(0x0d4f5c), up: C(0x58b8b5), sun: 1.1, caustic: 0.9, shafts: 1.6, ambient: 1.05, glow: 0, snow: 2.4,
+    sand: [0.6, 0.57, 0.5], rock: [0.4, 0.38, 0.35],
+    floor(x, s) { return fbm2(x / 40, s / 40, 3, 251) * 6; },
+  },
+  biobay: {
+    label: 'Bioluminescent Bay', camY: -3, clearance: 2.4, len: [450, 700], weight: 0.75,
+    sigma: [0.18, 0.08, 0.09], lightSigma: [0.07, 0.03, 0.04],
+    deep: C(0x020c16), up: C(0x0a2238), sun: 0.12, caustic: 0.2, shafts: 0.2, ambient: 0.35, glow: 1.0, snow: 1.6,
+    sand: [0.42, 0.38, 0.3], rock: [0.3, 0.27, 0.23],
+    lampMax: 0.08, // lamps would drown out the glow
+    floor(x, s, ad) { return fbm2(x / 16, s / 16, 3, 261) * 0.6 + smoothstep(14, 40, ad) * 3; },
+    canopy(x, s, ad) { return Math.min(1, 0.55 + smoothstep(16, 6, ad) * 0.45); }, // mangrove-fringed lagoon
+  },
+  iceedge: {
+    label: 'Ice Edge', camY: -8, clearance: 30, len: [550, 850], weight: 0.75,
+    sigma: [0.13, 0.05, 0.045], lightSigma: [0.06, 0.022, 0.02],
+    deep: C(0x0a3846), up: C(0x4f9fb0), sun: 0.85, caustic: 0.4, shafts: 1.2, ambient: 0.9, glow: 0, snow: 1.2,
+    sand: [0.42, 0.42, 0.42], rock: [0.3, 0.3, 0.31],
+    iceCeiling: true, iceLight: 0.38,
+    floor(x, s) { return fbm2(x / 30, s / 30, 4, 271) * 8; },
+    // pack ice on one side of the path with a sheer edge; scattered floes over the open water
+    ceil(x, s, ad, g, dx) {
+      const side = sv(g, 1) < 0.5 ? -1 : 1, t = dx * side;
+      let ice = 7.2 + 0.6 * fbm2(x / 7, s / 7, 3, 272);
+      const rn = noise2(x / 30, s / 30, 273);
+      ice -= Math.exp(-((rn / 0.22) ** 2)) * 6 * smoothstep(8, 20, t);          // rounded keels under the pack
+      const floe = smoothstep(0.5, 0.62, noise2(x / 14, s / 14, 274)) * smoothstep(6, 12, ad);
+      const pack = smoothstep(5, 10, t);
+      const k = Math.max(pack, floe);
+      return 80 + (ice - 80) * k;
+    },
+  },
+  hadal: {
+    label: 'Hadal Trench', camY: -70, clearance: 5, len: [500, 800], weight: 0.6,
+    sigma: [0.09, 0.04, 0.032], lightSigma: [0.05, 0.02, 0.015],
+    deep: C(0x000306), up: C(0x010a12), sun: 0.0, caustic: 0, shafts: 0, ambient: 0.2, glow: 0.8, snow: 2.0,
+    sand: [0.5, 0.48, 0.46], rock: [0.3, 0.29, 0.29],
+    // a V-shaped trench: sediment floor, steep walls rising on both sides
+    floor(x, s, ad, g) {
+      return fbm2(x / 10, s / 10, 3, 281) * 1.2 + smoothstep(6, 30, ad) * (36 + 10 * fbm2(x / 25, s / 25, 2, 282)) * (0.8 + 0.4 * sv(g, 1));
+    },
+  },
+});
+Object.assign(META, {
+  otterkelp: { subtitle: 'sea otters in the kelp canopy', tempC: 13 },
+  whaleshark: { subtitle: 'gentle giants feeding on plankton', tempC: 27, ripple: 0.4 },
+  biobay: { subtitle: 'every movement glows', tempC: 28, ripple: 0.25 },
+  iceedge: { subtitle: 'where the pack ice meets the open sea', tempC: -1.5, ripple: 0.3 },
+  hadal: { subtitle: 'the deepest sea, eight thousand metres down', tempC: 1.5, ripple: 0.15 },
+});
+for (const k of ['otterkelp', 'whaleshark', 'biobay', 'iceedge', 'hadal']) Object.assign(BIOMES[k], META[k]);
+BIOMES.polar.iceCeiling = true; BIOMES.polar.iceLight = 0.38;
+BIOMES.otterkelp.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.6, nn); T[3] += 0.12 * p; T[4] += 0.02 * p; T[5] += 0.06 * p; }; // coralline crusts
+BIOMES.hadal.floorTint = (x, s, nn, T) => { const p = smoothstep(0.3, 0.7, fbm2(x / 9, s / 9, 2, 47)); T[0] -= 0.08 * p; T[1] -= 0.08 * p; T[2] -= 0.06 * p; };
+
 // Seabed tints (applied after the sRGB->linear conversion of sand/rock; values are linear offsets).
 BIOMES.tidepool.floorTint = (x, s, nn, T) => { const p = smoothstep(0.1, 0.5, nn); T[3] += 0.25 * p; T[4] += 0.05 * p; T[5] += 0.12 * p; };
 BIOMES.vents.floorTint = (x, s, nn, T) => {
@@ -472,14 +544,24 @@ export class BiomeSequence {
     this.seed = seed;
     this.segs = [];
     this.recent = [];
+    this.nextId = 0; // segment ids are never reused (pruning old segments must not recycle ids)
     this._push(BIOMES[startKey] ? startKey : 'reef');
     this.segs[0].camStart = startS; // where the camera starts (set pieces can be placed in view of it)
+  }
+  // Start again in place (zone jump without a page reload): a new sequence from startKey at startS.
+  restart(startKey, startS) {
+    this.startS = startS;
+    this.rng = mulberry32((this.seed ^ 0x9e3779b9 ^ Math.imul(this.nextId + 1, 0x85ebca6b)) >>> 0);
+    this.segs = [];
+    this.recent = [];
+    this._push(BIOMES[startKey] ? startKey : 'reef');
+    this.segs[0].camStart = startS;
   }
   _push(key) {
     const start = this.segs.length ? this.segs[this.segs.length - 1].end : this.startS - 200;
     const b = BIOMES[key];
     const len = this.rng.range(b.len[0], b.len[1]);
-    this.segs.push({ key, start, end: start + len, id: this.segs.length, seed: (this.rng() * 1e9) | 0 });
+    this.segs.push({ key, start, end: start + len, id: this.nextId++, seed: (this.rng() * 1e9) | 0 });
     this.recent.push(key);
     if (this.recent.length > 5) this.recent.shift();
   }

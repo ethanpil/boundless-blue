@@ -44,6 +44,14 @@ export class CameraDirector {
     this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
 
+  // Forget the current subject and settle the springs (zone jump in place).
+  reset() {
+    this.subject = null; this.hasSubject = false; this.watchTime = 0; this.evalTimer = 0;
+    this.cooldown.clear(); this.seen.clear();
+    for (const k of ['alt', 'yaw', 'pitch']) { this[k].x = 0; this[k].v = 0; }
+    this.focus.x = 12; this.focus.v = 0; this.speedMul.x = 1; this.speedMul.v = 0;
+  }
+
   // Pick the most interesting visible thing ahead. Returns null when nothing beats the wander.
   _choose(cam, sigmaG, subjectsFn, poisFn, s, Oz) {
     const c = this.cands; c.length = 0;

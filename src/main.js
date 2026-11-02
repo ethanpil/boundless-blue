@@ -10,6 +10,8 @@ import { registerProps } from './props/index.js';
 import { registerNewBiomeProps } from './props/newbiomes.js';
 import { registerNewBiomeProps2 } from './props/newbiomes2.js';
 import { registerNewBiomeProps3 } from './props/newbiomes3.js';
+import { registerNewBiomeProps4 } from './props/newbiomes4.js';
+import { Ambience } from './audio/index.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
 import { noise1, mulberry32, smoothstep, clamp } from './noise.js';
@@ -79,16 +81,12 @@ const env = {
   // post a short narrative note at the bottom of the screen (e.g. a surprise encounter)
   note: (text) => note(text),
 };
-registerProps(terrain, env);
-registerNewBiomeProps(terrain, env);
-registerNewBiomeProps2(terrain, env);
-registerNewBiomeProps3(terrain, env);
-const creatures = new Creatures(world, env);
-const surprises = new Surprises(world, env);
+// Props, creatures and surprises are created during the staged boot below (so the title card shows progress).
+let creatures = null, surprises = null, ambience = null;
 const labels = new Labels();
 labels.add((out) => terrain.labels(out));
-labels.add((out) => { if (creatures.labels) creatures.labels(out); });
-labels.add((out) => { if (surprises.labels) surprises.labels(out); });
+labels.add((out) => { if (creatures && creatures.labels) creatures.labels(out); });
+labels.add((out) => { if (surprises && surprises.labels) surprises.labels(out); });
 
 const conditions = new Conditions(SEED, { time: qs.get('time'), weather: qs.get('weather'), dayMinutes: parseFloat(qs.get('day')) || 60 });
 const director = new CameraDirector(camera, shape);
@@ -103,7 +101,7 @@ window.__ocean = { scene, camera, terrain, shape, seq, creatures, surprises, pos
 const P = { sigma: [0, 0, 0], lightSigma: [0, 0, 0], deep: [0, 0, 0], up: [0, 0, 0], sun: 0, caustic: 0, shafts: 0, ambient: 0, glow: 0, snow: 0, cave: 0, tempC: 0 };
 function blendParams(s) {
   for (const k of ['sigma', 'lightSigma', 'deep', 'up']) P[k].fill(0);
-  P.sun = P.caustic = P.shafts = P.ambient = P.glow = P.snow = P.cave = P.tempC = 0;
+  P.sun = P.caustic = P.shafts = P.ambient = P.glow = P.snow = P.cave = P.tempC = P.lampMax = 0;
   for (const e of seq.weights(s)) {
     const b = BIOMES[e.key];
     // every segment has its own water: clarity and a slight green/blue shift
@@ -118,6 +116,7 @@ function blendParams(s) {
     for (const k of ['sun', 'caustic', 'shafts', 'ambient', 'glow', 'snow']) P[k] += b[k] * e.w;
     P.tempC += (b.tempC ?? 20) * e.w;
     if (e.key === 'cave') P.cave += e.w;
+    P.lampMax += (b.lampMax ?? 1) * e.w;
   }
   // drifting turbidity: patches of clearer and murkier water as we travel
   const turb = 1 + 0.16 * noise1(s / 240, 31);
@@ -137,8 +136,8 @@ let s = START_S + (qs.has('start') ? parseFloat(qs.get('start')) : 0);
 let lastV = 0; // actual travel speed (m/s) this frame
 const camState = { s: 0, x: 0, y: 0, z: 0, forward: new THREE.Vector3(), camera, Oz: 0 };
 const subjectsFn = (out) => {
-  if (creatures.subjects) creatures.subjects(out);
-  if (surprises.subjects) surprises.subjects(out);
+  if (creatures && creatures.subjects) creatures.subjects(out);
+  if (surprises && surprises.subjects) surprises.subjects(out);
 };
 const poisFn = (s0, s1, out) => terrain.queryPOIs(s0, s1, out);
 // Per-zone framing: look toward the wall face, down into the blue hole, up at sargassum rafts.
@@ -264,7 +263,7 @@ const app = {
   weathers: WEATHER_KEYS, times: TIME_KEYS,
   // Instrument depth: the deep zones are rendered ~40-55 m down but depict the deep sea, so the deck's
   // depth gauge adds a nominal offset (blended across zone cross-fades) to read like the real thing.
-  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950 },
+  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930 },
   _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
@@ -282,7 +281,17 @@ const app = {
   faster() { speed = Math.min(40, speed * 1.4); }, slower() { speed = Math.max(0.5, speed / 1.4); },
   setSpeed(v) { speed = Math.min(40, Math.max(0.5, v)); },
   nextZone() { const g = seq.segs[seq.segAt(s)]; s = g.end - 60; terrain.prime(s); },
-  jumpTo(key) { reloadWith({ biome: key, seed: (Math.random() * 1e9) | 0, start: null }); },
+  // Jump to a zone in place (no page reload). Returns a promise; onProgress(0..1) reports the rebuild.
+  jumpTo(key, onProgress) { return jumpInPlace(key, onProgress); },
+  get jumping() { return jumping; },
+  // ambient sound (see src/audio): starts on the first tap/key press (browsers block autoplay)
+  get soundOn() { return soundOn; }, get soundVolume() { return soundVol; },
+  get soundActive() { return !!(ambience && ambience.active); },
+  setSound(v) { soundOn = !!v; savePref('sound', soundOn ? 'on' : 'off'); if (ambience) { ambience.setEnabled(soundOn); if (soundOn) ambience.unlock(); } },
+  setSoundVolume(v) { soundVol = Math.max(0, Math.min(1, v)); savePref('volume', String(soundVol)); if (ambience) ambience.setVolume(soundVol); },
+  // What is under a screen point (CSS px)? Precise per-animal ray picks first, then the nearest named
+  // object or set piece on screen. Returns { name, fact, dist } or null.
+  pick(clientX, clientY) { return pickAt(clientX, clientY); },
   skipTime(f = 1 / 8) { conditions.skipTime(f); }, setTime(name) { conditions.setPhase(name); },
   nextWeather() { conditions.nextWeather(); }, setWeather(k) { conditions.setWeather(k); },
   toggleLabels() { labels.toggle(); }, setLabels(v) { if (labels.on !== !!v) labels.toggle(); },
@@ -433,7 +442,8 @@ function updateEnvironment(C) {
   const murk = clamp((U.uSigma.value.y - 0.035) / 0.05, 0, 1), dimAt = 0.26 + 0.24 * murk;
   const dimLamp = smoothstep(dimAt, dimAt - 0.2, sceneLight);
   const autoLamp = Math.max(deepDark, p.cave * 0.55, C.lampAdd, dimLamp);
-  U.uLamp.value = lampMode === 'on' ? Math.max(0.85, autoLamp) : lampMode === 'off' ? 0 : autoLamp;
+  // auto lamps respect a zone's cap (the bioluminescent bay needs the dark); 'on' is the viewer's override
+  U.uLamp.value = lampMode === 'on' ? Math.max(0.85, autoLamp) : lampMode === 'off' ? 0 : Math.min(P.lampMax, autoLamp);
   sun.color.setRGB(C.sunColor[0], C.sunColor[1], C.sunColor[2]);
   sun.intensity = 3.0 * p.sun * C.sunMul;
   placeSun();
@@ -481,16 +491,105 @@ function placeSun() {
   sun.target.updateMatrixWorld();
 }
 
-// ---------- boot ----------
-let C = conditions.update(0);
-blendParams(s);
-placeCamera(0, 0, C);
-terrain.prime(s);
-const hud = new Hud(app);
+// ---------- preferences ----------
+function loadPref(k, d) { try { const v = localStorage.getItem('boundlessBlue.' + k); return v === null ? d : v; } catch (e) { return d; } }
+function savePref(k, v) { try { localStorage.setItem('boundlessBlue.' + k, v); } catch (e) { /* private mode */ } }
+let soundOn = loadPref('sound', 'on') !== 'off', soundVol = parseFloat(loadPref('volume', '0.6')) || 0.6;
+addEventListener('pointerdown', () => { if (ambience && soundOn) ambience.unlock(); }, { passive: true });
+addEventListener('keydown', () => { if (ambience && soundOn) ambience.unlock(); });
+
+// Yield so the page can paint (rAF), with a timer fallback for hidden/throttled tabs.
+const paint = () => new Promise((r) => {
+  let done = false; const f = () => { if (!done) { done = true; r(); } };
+  requestAnimationFrame(() => setTimeout(f, 0)); setTimeout(f, 80);
+});
+
+// ---------- picking (tap to identify) ----------
+const _ray = new THREE.Raycaster(), _ndc = new THREE.Vector2(), _pv = new THREE.Vector3(), _pickNames = [];
+function pickAt(cx, cy) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  _ndc.set(((cx - rect.left) / rect.width) * 2 - 1, -((cy - rect.top) / rect.height) * 2 + 1);
+  _ray.setFromCamera(_ndc, camera);
+  const o = _ray.ray.origin, d = _ray.ray.direction;
+  let best = null;
+  for (const m of [creatures, surprises]) {
+    if (!m || !m.pickRay) continue;
+    const r = m.pickRay(o.x, o.y, o.z + Oz, d.x, d.y, d.z, 120); // origin in GLOBAL coordinates
+    if (r && (!best || r.dist < best.dist)) best = r;
+  }
+  if (best) return best;
+  // fall back to the nearest named thing whose anchor projects near the tap (props, set pieces, groups)
+  _pickNames.length = 0;
+  for (const p of labels.providers) { try { p(_pickNames); } catch (e) { /* ignore */ } }
+  let bestPx = 70, bestE = null;
+  for (const e of _pickNames) {
+    const dist = Math.hypot(e.x - camera.position.x, e.y - camera.position.y, e.z - Oz - camera.position.z);
+    if (dist > 90) continue;
+    _pv.set(e.x, e.y, e.z - Oz).project(camera);
+    if (_pv.z > 1) continue;
+    const sx = (_pv.x * 0.5 + 0.5) * rect.width + rect.left, sy = (-_pv.y * 0.5 + 0.5) * rect.height + rect.top;
+    const px = Math.hypot(sx - cx, sy - cy) + dist * 0.15; // prefer nearer things when close on screen
+    if (px < bestPx) { bestPx = px; bestE = e; }
+  }
+  return bestE ? { name: bestE.name, fact: bestE.fact || '', dist: Math.hypot(bestE.x - camera.position.x, bestE.y - camera.position.y, bestE.z - Oz - camera.position.z) } : null;
+}
+
+// ---------- zone jump without reloading ----------
+let jumping = false;
+async function jumpInPlace(key, onProgress) {
+  if (jumping || !BIOMES[key]) return;
+  jumping = true;
+  try {
+    const newS = Math.floor(Math.random() * 1e6);
+    terrain.reset();
+    if (creatures && creatures.reset) creatures.reset();
+    if (surprises && surprises.reset) surprises.reset();
+    director.reset();
+    seq.restart(key, newS);
+    s = newS; lastSegId = -1; captionTimer = 0;
+    placeCamera(0, simTime, C);
+    await terrain.primeAsync(s, onProgress, paint);
+  } finally { jumping = false; }
+}
+
+// ---------- boot (staged so the title card shows real progress) ----------
+const ldBar = document.getElementById('ld-bar'), ldTxt = document.getElementById('ld-txt'), ldPct = document.getElementById('ld-pct');
+function bootProgress(f, label) {
+  if (ldBar) ldBar.style.transform = `scaleX(${Math.max(0, Math.min(1, f)).toFixed(3)})`;
+  if (ldPct) ldPct.textContent = Math.round(f * 100) + '%';
+  if (label && ldTxt) ldTxt.textContent = label;
+}
+let C = conditions.update(0), hud = null;
 const timer = new THREE.Timer();
 let time = 0, simTime = 0, lastFrame = 0, causticFrame = 0;
-setTimeout(() => { const l = document.getElementById('loader'); if (l) l.style.opacity = 0; }, 900);
-setTimeout(() => { const l = document.getElementById('loader'); if (l) l.remove(); }, 3600);
+async function boot() {
+  bootProgress(0.04, 'filling the ocean'); await paint();
+  registerProps(terrain, env);
+  bootProgress(0.36, 'raising wrecks and sunken cities'); await paint();
+  registerNewBiomeProps(terrain, env); bootProgress(0.42); await paint();
+  registerNewBiomeProps2(terrain, env); bootProgress(0.47); await paint();
+  registerNewBiomeProps3(terrain, env); bootProgress(0.51); await paint();
+  registerNewBiomeProps4(terrain, env);
+  bootProgress(0.55, 'waking the sea life'); await paint();
+  creatures = new Creatures(world, env);
+  surprises = new Surprises(world, env);
+  window.__ocean.creatures = creatures; window.__ocean.surprises = surprises;
+  ambience = new Ambience(env, app);
+  ambience.setVolume(soundVol); ambience.setEnabled(soundOn);
+  window.__ocean.ambience = ambience;
+  blendParams(s);
+  placeCamera(0, 0, C);
+  bootProgress(0.6, 'descending'); await paint();
+  await terrain.primeAsync(s, (f) => bootProgress(0.6 + 0.3 * f), paint);
+  bootProgress(0.92, 'warming up the lights'); await paint();
+  updateEnvironment(C);
+  try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compiles on first frame */ }
+  bootProgress(1, 'diving in');
+  hud = new Hud(app);
+  const l = document.getElementById('loader');
+  if (l) { l.style.opacity = 0; setTimeout(() => l.remove(), 2600); }
+  requestAnimationFrame(frame);
+}
 
 function frame(now) {
   requestAnimationFrame(frame);
@@ -535,8 +634,9 @@ function tick(dt, draw) {
   background.update(camera);
   surface.update(camera, paused ? 0 : dt, camera.position.y > -16 && !shape.hasCeiling(s + 30) && C.night < 0.6, Oz);
   snow.update(camera, dt, renderer);
-  creatures.update(paused ? 0 : dt, time, camState);
-  surprises.update(paused ? 0 : dt, time, camState);
+  creatures.update(paused || jumping ? 0 : dt, time, camState);
+  surprises.update(paused || jumping ? 0 : dt, time, camState);
+  if (ambience) ambience.update(dt);
   updateCaption(dt, C);
   updateNotes(dt, C, envSpawn);
   updateSightings(dt);
@@ -552,7 +652,7 @@ function tick(dt, draw) {
   }
   labels.focus = director.hasSubject ? director.focusPos : null;
   labels.update(dt, camera, Oz);
-  hud.update(dt);
+  if (hud) hud.update(dt);
   helpTimer -= dt;
   if (helpEl) helpEl.style.opacity = helpTimer > 0 ? '0.7' : '0';
   if (helpTimer < 0) document.body.style.cursor = 'none';
@@ -568,4 +668,4 @@ function tick(dt, draw) {
       `\ngeo ${i.memory.geometries} tex ${i.memory.textures}  seed ${SEED}  ${tier}`;
   }
 }
-requestAnimationFrame(frame);
+window.__ocean.ready = boot();

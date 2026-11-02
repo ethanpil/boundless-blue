@@ -14,6 +14,9 @@
     #loader h1 { margin: 0; font: 200 clamp(28px, 5vw, 64px)/1 Georgia, 'Times New Roman', serif; letter-spacing: .42em;
       text-transform: uppercase; padding-left: .42em; text-shadow: 0 4px 30px rgba(0, 30, 60, .7); }
     #loader p { margin: 1.4em 0 0; font: 300 13px/1.6 system-ui, sans-serif; letter-spacing: .32em; text-transform: uppercase; opacity: .7; }
+    #ld-track { width: min(320px, 60vw); height: 2px; margin: 1.6em auto 0; background: rgba(207,238,248,.16); border-radius: 2px; overflow: hidden; }
+    #ld-bar { height: 100%; background: linear-gradient(90deg, #6fd3ee, #cfeef8); transform: scaleX(0); transform-origin: left; transition: transform .35s ease-out; box-shadow: 0 0 8px #6fd3ee; }
+    #loader #ld-pct { margin-top: .9em; font-size: 11px; letter-spacing: .2em; opacity: .45; font-variant-numeric: tabular-nums; }
     #loader .rays { position: absolute; inset: 0; pointer-events: none; opacity: .35;
       background: repeating-linear-gradient(105deg, transparent 0 60px, rgba(180, 235, 255, .07) 60px 90px, transparent 90px 170px);
       mask-image: linear-gradient(to bottom, #000, transparent 70%); -webkit-mask-image: linear-gradient(to bottom, #000, transparent 70%);
@@ -503,7 +506,7 @@
   </script>
 </head>
 <body>
-  <div id="loader"><div class="rays"></div><div><h1>Boundless Blue</h1><p>descending&hellip;</p></div></div>
+  <div id="loader"><div class="rays"></div><div><h1>Boundless Blue</h1><p id="ld-txt">descending&hellip;</p><div id="ld-track" role="progressbar" aria-label="Loading"><div id="ld-bar"></div></div><p id="ld-pct">0%</p></div></div>
   <div id="note"></div>
   <div id="caption"></div>
   <div id="stats"></div>
