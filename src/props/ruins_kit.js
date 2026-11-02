@@ -4,7 +4,7 @@
 // are skipped and nothing floats. Walls are coursed masonry with doors, windows, arches and corbel vaults,
 // decay (a ruined top profile), physically consistent collapse (blocks need support) and fallen blocks.
 // Obstacle capsules are authored as the parts are built (tight around walls, roofs, columns).
-import { Builder, Template, T, TAU, vn3, sat, sstep, lerp, rotY, rotX, rotZ, mul3 } from './core.js';
+import { Builder, Template, T, TAU, vn3, sat, sstep, lerp, rotY, rotX, rotZ, mul3, alignY } from './core.js';
 import { mulberry32 } from '../noise.js';
 
 export const I3 = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -49,6 +49,16 @@ const BOX = (() => {
 })();
 const _J = new Float64Array(24), _K = new Float64Array(8), _GA = new Float64Array(8), _GI = new Uint8Array(8);
 const TOPQ = [0, 1, 3, 0, 3, 2]; // the +y face's two triangles (its 4 vertices are box vertices 12..15)
+
+// Debug: finished templates that carry domes (or a fallen dome), for the dome audit in ruins_audit.js. Only
+// with ?domeaudit=1 or window.__ruinsDomeAudit (the list keeps whole building templates alive).
+export const DOME_LOG = [];
+function recordDomes(t) {
+  if (typeof window === 'undefined') return;
+  if (!window.__ruinsDomeAudit && !(typeof location !== 'undefined' && /[?&]domeaudit=1/.test(location.search || ''))) return;
+  DOME_LOG.push(t);
+  if (DOME_LOG.length > 300) DOME_LOG.shift();
+}
 
 // 1D noise in [0, 1]
 export const n1 = (u, seed) => 0.5 + 0.5 * vn3(u, seed * 0.173, 0.37, seed);
@@ -171,6 +181,8 @@ export class Bld {
     this.pr = [];   // vertex ranges of curved geometry that get encrusting colour in finish()
     this.rng = mulberry32((seed ^ 0x5bd1e995) >>> 0 || 7);
     this.obs = []; this.fall = []; this.walls = [];
+    this.domes = [];   // built domes / crowns: vertex and index ranges (the dome audit checks what carries them)
+    this.colTops = []; // standing (unbroken) columns: [x, z, top y, capital radius] ...
     this.lo = o.tier === 'low';
     this.grow = o.grow ?? 0.9; this.silt = o.silt ?? 0.5; this.decay = o.decay ?? 0.5;
     this.key = 6.05 + this.rng() * 0.9;
@@ -238,6 +250,16 @@ export class Bld {
     const fl = this.minFloor(w, d, x, z, R) - sink;
     if (yTop <= fl + 0.05) return -1;
     return this.box(w, yTop - fl, d, x, (yTop + fl) / 2, z, R, col, bev, jit);
+  }
+  // solid round podium core: square piers from the ground up to yTop over a disc of radius R (blocks overlap
+  // the surrounding step ring), so what stands inside a ring of steps or terraces has something under it
+  podium(R, yTop, cx = 0, cz = 0, c = 1.3) {
+    const n = Math.ceil(R / c);
+    for (let i = -n; i <= n; i++) for (let j = -n; j <= n; j++) {
+      const x = cx + i * c, z = cz + j * c;
+      if (Math.hypot(x - cx, z - cz) > R) continue;
+      this.pier(c * 1.02, c * 1.02, x, z, yTop, null, this.tone(this.trim, 0.05), 0, 0.015);
+    }
   }
   // lowest ground under a (rotated) rectangle: corners plus a grid finer than the 1.5 m terrain lattice
   minFloor(w, d, x, z, R) {
@@ -682,6 +704,7 @@ export class Bld {
       const base = t.colStyleCol || [0.62, 0.58, 0.5], c = o.col || col;
       this.addTpl(t, yawM(this.rng() * TAU), x, yb, z, [kr, ky, kr], [c[0] / base[0], c[1] / base[1], c[2] / base[2]]);
       if (!o.noObs) this.cap(x, Math.min(fl, yb) + R, z, x, top + (brk ? 0 : R * 0.5), z, R * (st === 'papyrus' ? 1.45 : st === 'corinthian' ? 1.4 : 1.25));
+      if (!brk) this.colTops.push(x, z, yb + t.maxY * ky, R * 1.3);
       return brk ? top : yb + (t.maxY * ky);
     }
     const flutes = !this.lo && (st === 'doric' || st === 'ionic' || st === 'corinthian') ? 16 : 0;
@@ -715,6 +738,7 @@ export class Bld {
       for (let i = 0; i < nr; i++) b.t(ring + ((i + 1) % nr), ring + i, c);
     } else this.capital(x, top, z, R * (1 - taper), st, capc, o.capCol);
     if (!o.noObs) this.cap(x, Math.min(fl, yb) + R, z, x, top + (brk ? 0 : R * 0.5), z, R * (st === 'papyrus' ? 1.45 : st === 'corinthian' ? 1.4 : 1.25));
+    if (!brk) this.colTops.push(x, z, top + this.capH(st, R), R * 1.3);
     return top + (brk ? 0 : this.capH(st, R));
   }
   capH(st, R) { return st === 'corinthian' ? R * 2.2 + 0.22 : st === 'papyrus' || st === 'lotus' ? R * 2.4 : st === 'ionic' ? 0.55 : st === 'pagoda' ? 0.45 : st === 'khmer' ? 0.5 : 0.6; }
@@ -770,20 +794,128 @@ export class Bld {
     for (const sz of [-1, 1]) this.cap(-Math.max(0, ax - r), y + h * 0.4, sz * az * 0.45, Math.max(0, ax - r), y + h * 0.4, sz * az * 0.45, r);
   }
   // dome on a ring: centre (x, y, z), radius R, rise k*R; ribs, oculus, broken (holes) and gold leaf
+  // Call domeOn() rather than this directly: it checks that the base ring is carried.
   dome(x, y, z, R, o = {}) {
     const k = o.k ?? 1, ribs = o.ribs || 0, ocu = o.oculus || 0, brk = o.broken || 0, col = o.col || this.tone(this.stone, 0.05);
     const nu = this.lo ? 12 : 20, nv = this.lo ? 5 : 8, seed = this.seed;
-    const keep = brk > 0 ? (u, v) => n1(u * 9 + v * 2.3, seed + 11) * 0.7 + 0.3 * n1(v * 7, seed) > brk * (0.3 + 0.7 * v) : null;
+    let keep = null;
+    if (brk > 0) { // holes; only shell still joined to the base ring survives (a piece held by nothing has fallen)
+      const M = new Uint8Array(nu * nv), A = new Uint8Array(nu * nv), st = [];
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nu; i++) {
+        const u = (i + 0.5) / nu, v = (j + 0.5) / nv;
+        M[j * nu + i] = n1(u * 9 + v * 2.3, seed + 11) * 0.7 + 0.3 * n1(v * 7, seed) > brk * (0.3 + 0.7 * v) ? 1 : 0;
+      }
+      for (let i = 0; i < nu; i++) if (M[i]) { A[i] = 1; st.push(i); }
+      while (st.length) {
+        const c = st.pop(), i = c % nu, j = (c - i) / nu;
+        for (const q of [j * nu + (i + 1) % nu, j * nu + (i + nu - 1) % nu, j + 1 < nv ? c + nu : -1, j > 0 ? c - nu : -1]) if (q >= 0 && M[q] && !A[q]) { A[q] = 1; st.push(q); }
+      }
+      keep = (u, v) => A[Math.min(nv - 1, Math.floor(v * nv)) * nu + Math.min(nu - 1, Math.floor(u * nu))] === 1;
+    }
+    const v0 = this.b.vc, i0 = this.b.ic;
     this.surf(nu, nv, (u, v, out) => {
-      const a = u * TAU, t = (v * (1 - ocu)) * Math.PI / 2, rr = R * Math.cos(t) * (1 + (ribs ? 0.035 * Math.pow(Math.abs(Math.cos(a * ribs / 2)), 8) : 0));
+      // (the rib bulge starts above the base: the base ring stays a circle on its drum, not flaring past it)
+      const a = u * TAU, t = (v * (1 - ocu)) * Math.PI / 2, rr = R * Math.cos(t) * (1 + (ribs ? 0.035 * Math.pow(Math.abs(Math.cos(a * ribs / 2)), 8) * sstep(0, 0.3, v) : 0));
       out[0] = x + Math.cos(a) * rr; out[2] = z + Math.sin(a) * rr; out[1] = y + Math.sin(t) * R * k;
     }, o.gold ? [0.72, 0.5, 0.2] : col, { th: 0.3, keep, f0: o.gold ? 0 : this.grow, f1: o.gold ? GOLD_MODE : this.key });
+    const i1 = this.b.ic;
     if (ribs && !this.lo) for (let i = 0; i < ribs; i++) {
       const a = i / ribs * TAU, pts = [];
-      for (let q = 0; q <= 5; q++) { const t = q / 5 * (1 - ocu) * Math.PI / 2; pts.push([x + Math.cos(a) * R * Math.cos(t) * 1.02, y + Math.sin(t) * R * k * 1.02, z + Math.sin(a) * R * Math.cos(t) * 1.02]); }
+      for (let q = 0; q <= 5; q++) { const t = q / 5 * (1 - ocu) * Math.PI / 2, e = q ? 1.02 : 0.99; pts.push([x + Math.cos(a) * R * Math.cos(t) * e, y + Math.sin(t) * R * k * 1.02, z + Math.sin(a) * R * Math.cos(t) * e]); }
       this.tube(pts, pts.map((_, q) => 0.16 - q * 0.015), 5, o.ribCol || this.tone(this.trim, 0.04), false, o.ribGold ? 0 : this.grow, o.ribGold ? GOLD_MODE : this.key);
     }
+    // base ring: grid row 0 (outer skin) and its thickened copy (inner skin); shell triangles i0..i1
+    this.domes.push({ kind: 'dome', v0, cols: nu + 1, nu, inner: v0 + (nu + 1) * (nv + 1), i0, i1, i2: this.b.ic });
     this.cap(x, y + R * k * 0.3, z, x, y + R * k * 0.3, z, R * 1.04);
+  }
+  // Share of a ring (radius r at height y around x, z) resting on what is built so far: top faces of blocks,
+  // slabs and entablatures (this.tops) or the capitals of standing columns, from y - tol up to y + 0.5.
+  carried(x, y, z, r, n = 72, tol = 0.08) {
+    const T = this.tops, C = this.colTops, cand = [], m = r + 0.1;
+    for (let i = 0; i < T.length; i += 9) {
+      const ya = T[i + 1], yb = T[i + 4], yc = T[i + 7];
+      if (Math.max(ya, yb, yc) < y - tol || Math.min(ya, yb, yc) > y + 0.5) continue;
+      if (Math.max(T[i], T[i + 3], T[i + 6]) < x - m || Math.min(T[i], T[i + 3], T[i + 6]) > x + m) continue;
+      if (Math.max(T[i + 2], T[i + 5], T[i + 8]) < z - m || Math.min(T[i + 2], T[i + 5], T[i + 8]) > z + m) continue;
+      cand.push(i);
+    }
+    let ok = 0;
+    for (let q = 0; q < n; q++) {
+      const a = (q + 0.5) / n * TAU, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+      let hit = false;
+      for (let c = 0; c < C.length && !hit; c += 4) hit = C[c + 2] >= y - tol && C[c + 2] <= y + 0.5 && (C[c] - px) ** 2 + (C[c + 1] - pz) ** 2 <= C[c + 3] * C[c + 3];
+      for (let e = 0; e < cand.length && !hit; e++) {
+        const i = cand[e], x0 = T[i], z0 = T[i + 2], x1 = T[i + 3], z1 = T[i + 5], x2 = T[i + 6], z2 = T[i + 8];
+        const d = (z1 - z2) * (x0 - x2) + (x2 - x1) * (z0 - z2);
+        if (Math.abs(d) < 1e-12) continue;
+        const w0 = ((z1 - z2) * (px - x2) + (x2 - x1) * (pz - z2)) / d, w1 = ((z2 - z0) * (px - x2) + (x0 - x2) * (pz - z2)) / d, w2 = 1 - w0 - w1;
+        if (w0 < -1e-4 || w1 < -1e-4 || w2 < -1e-4) continue;
+        const yy = w0 * T[i + 1] + w1 * T[i + 4] + w2 * T[i + 7];
+        hit = yy >= y - tol && yy <= y + 0.5;
+      }
+      if (hit) ok++;
+    }
+    return ok / n;
+  }
+  // A dome only where a complete drum / ring of walls, a slab, an entablature or standing columns reaches
+  // its base (all 72 samples of the ring at the middle of the 0.3 m shell are carried). Otherwise it fell in:
+  // o.fallen = { floor(x, z) -> y, rIn, avoid: [[x, z, r]] } leaves its broken shell on the floor inside.
+  domeOn(x, y, z, R, o = {}) {
+    if (this.carried(x, y, z, Math.max(0.3, R - 0.15)) >= 1) { this.dome(x, y, z, R, o); return true; }
+    if (o.fallen) this.fallenDome(x, z, R, o.k ?? 1, o.fallen, o);
+    return false;
+  }
+  // The collapsed shell of a dome: curved shards lying convex side down on the floor (bellies sunk 6 cm),
+  // all inside radius f.rIn of (x, z) and clear of f.avoid, with a little rubble.
+  fallenDome(x, z, R, k, f, o = {}) {
+    const rng = this.rng, rIn = f.rIn, floor = f.floor, avoid = f.avoid || [], col = o.gold ? [0.72, 0.5, 0.2] : o.col || this.tone(this.stone, 0.05);
+    const ext = Math.min(0.75 * rIn, 3.2), n = 2 + ((rng() * 3) | 0), nu = this.lo ? 4 : 6, nv = this.lo ? 3 : 4, P = new Float64Array((nu + 1) * (nv + 1) * 3);
+    const free = (px, pz, r) => { if (Math.hypot(px - x, pz - z) > rIn - 0.15 - r) return false; for (const a of avoid) if (Math.hypot(px - a[0], pz - a[1]) < a[2] + r) return false; return true; };
+    const done = [];
+    for (let s = 0; s < n; s++) {
+      const va = rng() < 0.6 ? 0 : 0.2 + 0.3 * rng(), tc = (va + 0.15) * Math.PI / 2, rc = Math.max(0.3, R * Math.cos(tc));
+      const du = Math.min(0.2, (ext * (0.5 + 0.5 * rng())) / (TAU * rc)), dv = Math.min(0.5, (ext * (0.45 + 0.4 * rng())) / (R * Math.PI / 2));
+      const u0 = rng(), uc = u0 + du / 2, vc = va + dv / 2, ac = uc * TAU, t2 = vc * Math.PI / 2;
+      const dc = [Math.cos(ac) * Math.cos(t2), Math.sin(t2) / Math.max(0.3, k), Math.sin(ac) * Math.cos(t2)], dl = Math.hypot(dc[0], dc[1], dc[2]);
+      // convex side down: the shard's outward normal turned to -y, a random yaw and a little tilt
+      const A = alignY(-dc[0] / dl, -dc[1] / dl, -dc[2] / dl), At = [A[0], A[3], A[6], A[1], A[4], A[7], A[2], A[5], A[8]];
+      const Rr = mul3(mul3(rotY(rng() * TAU), mul3(rotX((rng() - 0.5) * 0.3), rotZ((rng() - 0.5) * 0.3))), At);
+      const pt = (u, v, out, oi) => {
+        const a = (u0 + u * du) * TAU, t = (va + v * dv) * Math.PI / 2, px = Math.cos(a) * R * Math.cos(t), py = Math.sin(t) * R * k, pz = Math.sin(a) * R * Math.cos(t);
+        out[oi] = Rr[0] * px + Rr[1] * py + Rr[2] * pz; out[oi + 1] = Rr[3] * px + Rr[4] * py + Rr[5] * pz; out[oi + 2] = Rr[6] * px + Rr[7] * py + Rr[8] * pz;
+      };
+      for (let j = 0; j <= nv; j++) for (let i = 0; i <= nu; i++) pt(i / nu, j / nv, P, (j * (nu + 1) + i) * 3);
+      let cx = 0, cz = 0, hr = 0;
+      const np = P.length / 3;
+      for (let i = 0; i < np; i++) { cx += P[i * 3] / np; cz += P[i * 3 + 2] / np; }
+      for (let i = 0; i < np; i++) hr = Math.max(hr, Math.hypot(P[i * 3] - cx, P[i * 3 + 2] - cz));
+      let ox = 0, oz = 0, ok = false;
+      for (let tr = 0; tr < 8 && !ok; tr++) {
+        const a = rng() * TAU, d = rng() * Math.max(0, rIn - 0.15 - hr);
+        ox = x + Math.cos(a) * d - cx; oz = z + Math.sin(a) * d - cz;
+        ok = free(cx + ox, cz + oz, hr) && done.every((q) => Math.hypot(q[0] - cx - ox, q[1] - cz - oz) > q[2] + hr * 0.8);
+      }
+      if (!ok) continue;
+      let lift = 1e9;
+      for (let i = 0; i < np; i++) lift = Math.min(lift, P[i * 3 + 1] - floor(P[i * 3] + ox, P[i * 3 + 2] + oz));
+      const oy = -lift - 0.06, v0 = this.b.vc, i0 = this.b.ic;
+      this.surf(nu, nv, (u, v, out) => { pt(u, v, out, 0); out[0] += ox; out[1] += oy; out[2] += oz; }, col, { th: 0.3, f0: o.gold ? 0 : this.grow, f1: o.gold ? GOLD_MODE : this.key });
+      this.domes.push({ kind: 'fallen', v0, cols: nu + 1, nu, n: (nu + 1) * (nv + 1), i0, i1: this.b.ic, i2: this.b.ic });
+      this.cap(cx + ox, floor(cx + ox, cz + oz) + 0.3, cz + oz, cx + ox, floor(cx + ox, cz + oz) + 0.3, cz + oz, hr * 0.85);
+      done.push([cx + ox, cz + oz, hr]);
+    }
+    // rubble: broken voussoirs and drum stones among the shards
+    for (let q = 0, m = 3 + ((rng() * 4) | 0); q < m; q++) {
+      const a = rng() * TAU, d = rng() * (rIn - 0.6), px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d, l = 0.3 + rng() * 0.4;
+      if (!free(px, pz, l * 0.7) || done.some((p) => Math.hypot(p[0] - px, p[1] - pz) < p[2] * 0.6)) continue;
+      const Rb = mul3(rotY(rng() * TAU), mul3(rotX((rng() - 0.5) * 0.4), rotZ((rng() - 0.5) * 0.4)));
+      let yb = 1e9;
+      for (const sx of [-0.5, 0.5]) for (const sy of [-0.5, 0.5]) for (const sz of [-0.5, 0.5]) {
+        const lx = sx * l, ly = sy * l * 0.7, lz = sz * l * 0.8;
+        yb = Math.min(yb, floor(px + Rb[0] * lx + Rb[1] * ly + Rb[2] * lz, pz + Rb[6] * lx + Rb[7] * ly + Rb[8] * lz) - (Rb[3] * lx + Rb[4] * ly + Rb[5] * lz));
+      }
+      this.box(l, l * 0.7, l * 0.8, px, yb - 0.05, pz, Rb, this.tone(col, 0.08), this.lo ? 0 : 0.03, 0.03);
+    }
   }
   // fallen blocks from the decay, scattered at the wall feet (no block lands inside a standing wall)
   dropFallen() {
@@ -867,6 +999,7 @@ export class Bld {
       obs: this.obs, label, fact, band: 0.03,
     });
     t.site = this.site; // (kept for audits: the frame the structure was fitted in)
+    if (this.domes.length) { t.domes = this.domes; recordDomes(t); }
     this.release();
     if (support && this.tops.length >= 9) { // light proxy of the top surfaces for the ground's support raycast
       const n = this.tops.length / 3, z = new Float32Array(n * 3), I = new Uint32Array(n);

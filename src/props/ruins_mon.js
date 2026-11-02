@@ -123,10 +123,10 @@ export function* genLandmark(B, kind) {
       for (let k = 0; k < 8; k++) { const a0 = (k + 0.5) / 8 * TAU, a1 = (k + 1.5) / 8 * TAU, p = linePath(Math.cos(a0) * R, Math.sin(a0) * R, Math.cos(a1) * R, Math.sin(a1) * R); B.wall(p, { t: 0.7, H: H2, top: tiers > 2 ? () => H2 : B.profile(H2, y0 + 0.5, p.L, k * 3, d1), ch: S.ch, bl: S.bl, floor: y0, open: k % 2 ? [{ kind: 'rect', u0: p.L / 2 - 0.25, u1: p.L / 2 + 0.25, v0: y0 + 2.4, v1: y0 + 3.4 }] : [], fall: 0.3 }); if (B.over()) yield; }
       y = H2;
       if (tiers === 3) B.box(R * 2 + 1.2, 0.4, R * 2 + 1.2, 0, y + 0.19, 0, null, B.tone(B.trim, 0.04), 0.04, 0.02); // on intact walls only
-      if (tiers === 3) { // round lantern tier with a dome
+      if (tiers === 3) { // round lantern tier with a dome (short blocks follow the small circle, so the dome's ring is carried)
         const R3 = R * 0.62, y1 = y + 0.4, H3 = y1 + B.r(3.5, 4.5);
-        B.wall(arcPath(0, 0, R3, 0, TAU), { t: 0.55, H: H3, ch: S.ch, bl: [0.8, 1.2], floor: y1, lap: 0.55 / R3 * 0.6 + 0.02, open: [0, 1, 2, 3].map((k) => ({ kind: 'arch', u0: R3 * (k * Math.PI / 2 + 0.3), u1: R3 * (k * Math.PI / 2 + 0.3) + 0.8, v0: y1 + 0.8, v1: y1 + 2.6 })), fall: 0.2 });
-        B.dome(0, H3, 0, R3 + 0.3, { k: 0.9 });
+        B.wall(arcPath(0, 0, R3, 0, TAU), { t: 0.55, H: H3, ch: S.ch, bl: [0.45, 0.6], floor: y1, lap: 0.55 / R3 * 0.6 + 0.02, open: [0, 1, 2, 3].map((k) => ({ kind: 'arch', u0: R3 * (k * Math.PI / 2 + 0.3), u1: R3 * (k * Math.PI / 2 + 0.3) + 0.8, v0: y1 + 0.8, v1: y1 + 2.6 })), fall: 0.2 });
+        B.domeOn(0, H3, 0, R3 + 0.3, { k: 0.9 });
         y = H3 + R3;
         if (S.key === 'greco' || S.key === 'egypt') statueOn(B, figs(S.statues), 0, y - 0.1, 0, 3.2, 0, S.key === 'greco' ? [0.5, 0.75, 0.6] : null);
       }
@@ -209,9 +209,11 @@ export function* genLandmark(B, kind) {
     let y = fl - 0.2;
     for (let k = 0; k < 2; k++) { y += 1.6; const w = 12 - k * 3.5; for (const [x, z, ww, dd] of [[0, w / 2 - 0.6, w, 1.2], [0, -w / 2 + 0.6, w, 1.2], [w / 2 - 0.6, 0, 1.2, w - 2.4], [-w / 2 + 0.6, 0, 1.2, w - 2.4]]) B.pier(ww, dd, x, z, y, null, B.tone(B.stone, 0.06), 0, 0.03); B.box(w - 2.3, 0.4, w - 2.3, 0, y - 0.2, 0, null, B.tone(B.stone, 0.05), 0, 0.02); }
     stair(B, 0, 6 - 0.4, y, 2.6, 0);
-    const R = 2.6, H = y + B.r(5, 6.5);
-    B.wall(arcPath(0, 0, R, Math.PI / 2, Math.PI / 2 + TAU), { t: 0.75, H, top: B.profile(H, y + 1, TAU * R, 0, B.decay * 0.8, false), ch: S.ch, bl: S.bl, floor: y, lap: 0.75 / R * 0.6 + 0.02, open: [{ kind: 'corbel', u0: 0.2, u1: 1.4, v0: y, v1: y + 2.6 }, { kind: 'rect', u0: R * 2.2, u1: R * 2.2 + 0.4, v0: H - 1.6, v1: H - 0.9 }, { kind: 'rect', u0: R * 4.0, u1: R * 4.0 + 0.4, v0: H - 1.6, v1: H - 0.9 }], fall: 0.35 });
-    if (B.decay < 0.5) B.dome(0, H, 0, R + 0.4, { k: 0.75, broken: B.r(0.3, 0.7) });
+    const R = 2.6, H = y + B.r(5, 6.5), keep = B.decay < 0.5 && rng() < 0.85 - B.decay; // the dome needs the whole drum
+    B.wall(arcPath(0, 0, R, Math.PI / 2, Math.PI / 2 + TAU), { t: 0.75, H, top: B.profile(H, y + 1, TAU * R, 0, keep ? 0 : B.decay * 0.8, false), ch: S.ch, bl: S.bl, floor: y, lap: 0.75 / R * 0.6 + 0.02, open: [{ kind: 'corbel', u0: 0.2, u1: 1.4, v0: y, v1: y + 2.6 }, { kind: 'rect', u0: R * 2.2, u1: R * 2.2 + 0.4, v0: H - 1.6, v1: H - 0.9 }, { kind: 'rect', u0: R * 4.0, u1: R * 4.0 + 0.4, v0: H - 1.6, v1: H - 0.9 }], fall: 0.35 });
+    const dO = { k: 0.75, broken: B.r(0.3, 0.7) };
+    if (keep) B.domeOn(0, H, 0, R + 0.375, { ...dO, fallen: { floor: () => y, rIn: R - 0.375 } });
+    else B.fallenDome(0, 0, R + 0.375, dO.k, { floor: () => y, rIn: R - 0.375 }, dO);
     out.h = H - fl + 2;
   } else if (kind === 'head') {
     const list = T.head || [], t = list.length ? B.pick(list) : null;
@@ -222,17 +224,19 @@ export function* genLandmark(B, kind) {
     const base = fl + B.r(1.2, 2.2);
     for (let k = 0; k < 3; k++) B.pier(w + 3 - k, w + 3 - k, 0, 0, base - (2 - k) * (base - fl) / 3, null, B.tone(B.stone, 0.06), 0, 0.03);
     const H = base + (kind === 'prasatSmall' ? B.r(3, 4) : B.r(5, 7)), t = 0.8;
+    const crown = B.decay < 0.75 && rng() < 1.05 - B.decay; // the crown needs the whole top of the tower walls
     const ws = [linePath(-w / 2 - t / 2, w / 2, w / 2 + t / 2, w / 2), linePath(w / 2, w / 2 - t / 2, w / 2, -w / 2 + t / 2), linePath(w / 2 + t / 2, -w / 2, -w / 2 - t / 2, -w / 2), linePath(-w / 2, -w / 2 + t / 2, -w / 2, w / 2 - t / 2)];
     let ph = 0;
-    ws.forEach((p, i) => { B.wall(p, { t, H, top: B.profile(H, base + 0.5, p.L, ph, B.decay * 0.5), ch: S.ch, bl: S.bl, floor: base, open: i === 0 ? [{ kind: 'corbel', u0: p.L / 2 - 0.7, u1: p.L / 2 + 0.7, v0: base, v1: base + 3.2 }] : [], fall: 0.3 }); ph += p.L; });
-    // porches with stacked pediments on the four sides
-    if (kind !== 'prasatSmall') for (let f = 0; f < 4; f++) { const m = B.mark(); B.box(2.4, 0.5, 1.2, 0, H - 0.25, w / 2 + 0.5, null, B.tone(B.trim, 0.04), 0.04, 0.02); B.prism([[-1.3, 0], [1.3, 0], [0.2, 1.4], [-0.2, 1.4]], 0.4, 0, H, w / 2 + 0.7, null, B.tone(B.trim, 0.04)); B.turn(m, f * Math.PI / 2); }
-    if (B.decay < 0.75) {
+    ws.forEach((p, i) => { B.wall(p, { t, H, top: B.profile(H, base + 0.5, p.L, ph, crown ? 0 : B.decay * 0.5), ch: S.ch, bl: S.bl, floor: base, open: i === 0 ? [{ kind: 'corbel', u0: p.L / 2 - 0.7, u1: p.L / 2 + 0.7, v0: base, v1: base + 3.2 }] : [], fall: 0.3 }); ph += p.L; });
+    if (crown) {
+      // porches with stacked pediments on the four sides, a capping slab over the walls, the lotus-bud tower on it
+      if (kind !== 'prasatSmall') for (let f = 0; f < 4; f++) { const m = B.mark(); B.box(2.4, 0.5, 1.2, 0, H - 0.25, w / 2 + 0.5, null, B.tone(B.trim, 0.04), 0.04, 0.02); B.prism([[-1.3, 0], [1.3, 0], [0.2, 1.4], [-0.2, 1.4]], 0.4, 0, H, w / 2 + 0.7, null, B.tone(B.trim, 0.04)); B.turn(m, f * Math.PI / 2); }
+      B.box(w + t, 0.4, w + t, 0, H + 0.19, 0, null, B.tone(B.stone, 0.05), 0, 0.02);
       if (kind === 'faceTower' && T.head && T.head.length) { // a serene face on each side, carved into the tower
         const hy = H + 0.2, s = w * 0.42;
-        prangTop(B, 0, H, 0, w / 2 + 0.3, B.r(4, 6));
+        prangTop(B, 0, H + 0.36, 0, w / 2 + 0.3, B.r(4, 6));
         for (let f = 0; f < 4; f++) { const m = B.mark(); B.addTpl(B.pick(T.head), null, 0, hy, w / 2 - 0.15 * s, s, [1.05, 1.0, 0.92]); B.turn(m, f * Math.PI / 2); }
-      } else prangTop(B, 0, H, 0, w / 2 + 0.3, B.r(4.5, 7));
+      } else prangTop(B, 0, H + 0.36, 0, w / 2 + 0.3, B.r(4.5, 7));
     }
     out.h = H - fl + 5; out.label = kind === 'faceTower' ? 'Face tower' : kind === 'prasatSmall' ? 'Prasat tower' : 'Prang tower';
   } else if (kind === 'horns') {
@@ -553,12 +557,16 @@ export function* genTemple(B, kind, W, D) {
       B.lathe(B.lo ? 16 : 24, 1, (v) => [(rr - 1.6) * v, y - 0.02], null, B.tone(B.trim, 0.03));
       if (B.over()) yield;
     }
+    B.podium(R0 - 4.8, y); // solid core inside the terraces: the columns and the statue stand on stone
     B.boxCaps(0, 0, R0 * 1.4, R0 * 1.4, fl, y);
     const Rc = R0 - 5.6, n = Math.max(8, Math.round(TAU * Rc / 2.2)), H = B.r(5.5, 7);
-    let top = y + H;
-    let standing = 0;
-    for (let i = 0; i < n; i++) { const a = i / n * TAU, brk = rng() < B.decay * 0.6 ? B.r(0.3, 0.8) : 0; top = Math.max(top, B.column(Math.cos(a) * Rc, y, Math.sin(a) * Rc, { style: 'atlantean', R: 0.34, H, broken: brk })); if (!brk) standing++; if (i % 4 === 3 && B.over()) yield; }
-    if (standing === n) B.dome(0, top, 0, Rc + 0.6, { k: 0.85, ribs: 12, ribGold: true, gold: rng() < 0.5, broken: rng() < 0.5 ? B.r(0.2, 0.5) : 0 });
+    let top = -1e9, standing = 0;
+    for (let i = 0; i < n; i++) { const a = i / n * TAU, brk = rng() < B.decay * 0.6 ? B.r(0.3, 0.8) : 0, tp = B.column(Math.cos(a) * Rc, y, Math.sin(a) * Rc, { style: 'atlantean', R: 0.34, H, broken: brk }); if (!brk) { standing++; top = Math.max(top, tp); } if (i % 4 === 3 && B.over()) yield; }
+    const dO = { k: 0.85, ribs: 12, ribGold: true, gold: rng() < 0.5, broken: rng() < 0.5 ? B.r(0.2, 0.5) : 0 };
+    if (standing === n) {
+      for (let i = 0, ne = n * 2; i < ne; i++) { const a = i / ne * TAU; B.box(TAU * Rc / ne * 1.14, 0.55, 0.9, Math.cos(a) * Rc, top + 0.27, Math.sin(a) * Rc, rotY(-a + Math.PI / 2), B.tone(B.trim, 0.04), 0, 0.02); }
+      B.domeOn(0, top + 0.5, 0, Rc + 0.4, { ...dO, fallen: { floor: () => y, rIn: Rc - 0.6, avoid: [[0, 0, 1.8]] } });
+    } else if (rng() < 0.75) B.fallenDome(0, 0, Rc + 0.4, dO.k, { floor: () => y, rIn: Rc - 0.6, avoid: [[0, 0, 1.8]] }, dO);
     statueOn(B, figs(['poseidon']), 0, y, 0, B.r(3.5, 4.8), 0, [1.0, 0.85, 0.55]);
     return { label: 'Temple of Poseidon', fact: 'In Plato\'s tale, the temple of Poseidon held a gold statue of the god driving six winged horses.', h: H + 5, poi: 'giant' };
   }

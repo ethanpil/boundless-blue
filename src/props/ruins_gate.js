@@ -75,7 +75,7 @@ export function* genGate(B, kind, hp, Rg) {
     B.wall(linePath(-L / 2, 0, L / 2, 0), { t: dz, H, top: B.profile(H, H - 2.5, L, 0, crown ? 0 : B.decay * 0.4), ch: S.ch, bl: S.bl, open: [{ kind: 'corbel', u0: pw, u1: pw + 2 * R2, v0: fl0, v1: 2 * vs - fl0 }], noObs: true, fall: 0.25 });
     if (crown && kind === 'corbelArch') { B.box(L + 0.3, 1.0, dz + 0.3, 0, H - 0.45, 0, null, B.tone(B.trim, 0.06), 0, 0.02); for (let k = 0; k < 7; k++) B.box(0.5, 0.5, 0.2, -L / 2 + 1 + k * (L - 2) / 6, H - 0.45, dz / 2 + 0.2, null, B.tone(B.trim, 0.1), 0.02, 0.01); }
     else if (crown) { // the solid tower mass above the vault, crowned by a lotus-bud tower
-      const yc = vs + (R2 - 0.45) / 0.7, rp = Math.min(3.4, R2 * 0.55);
+      const yc = vs + (R2 - 0.45) / 0.7, rp = Math.min(3.4, R2 * 0.55, dz / 2 + 0.2); // no wider than the mass it stands on
       B.box(2 * rp + 0.2, H - yc + 0.25, dz * 0.98, 0, (yc + H) / 2 - 0.12, 0, null, B.tone(B.stone, 0.05), 0, 0.02);
       prangTop(B, 0, H - 0.05, 0, rp, B.r(4.5, 6.5));
     }

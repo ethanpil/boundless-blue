@@ -146,8 +146,8 @@ function roofOn(B, kind, W, D, t, H, o = {}) {
     B.cap(-ax + r * 0.5, H + r * 0.3, 0, ax - r * 0.5, H + r * 0.3, 0, r * 0.9);
   } else if (kind === 'dome' || kind === 'shell') {
     const R = Math.min(ax, az) * 0.98;
-    if (Math.abs(ax - az) > 0.6) B.box(2 * ax, 0.35, 2 * az, 0, H + 0.17, 0, null, B.tone(B.stone, 0.05), 0, 0.02);
-    B.dome(0, H + 0.3, 0, R, { k: kind === 'shell' ? 1.25 : B.r(0.8, 1.1), ribs: S.gold || kind === 'shell' ? 8 + 4 * ((B.rng() * 3) | 0) : 0, ribGold: S.gold && B.rng() < 0.5, gold: S.gold && B.rng() < 0.25, broken: o.broken || 0, oculus: S.key === 'greco' && B.rng() < 0.5 ? 0.1 : 0 });
+    B.box(2 * ax, 0.35, 2 * az, 0, H + 0.17, 0, null, B.tone(B.stone, 0.05), 0, 0.02); // roof slab on the wall tops carries the dome
+    B.domeOn(0, H + 0.3, 0, R, { k: kind === 'shell' ? 1.25 : B.r(0.8, 1.1), ribs: S.gold || kind === 'shell' ? 8 + 4 * ((B.rng() * 3) | 0) : 0, ribGold: S.gold && B.rng() < 0.5, gold: S.gold && B.rng() < 0.25, broken: o.broken || 0, oculus: S.key === 'greco' && B.rng() < 0.5 ? 0.1 : 0 });
   }
 }
 
@@ -253,8 +253,11 @@ export function* genTower(B, round) {
   if (intact) {
     const ax = w / 2 + t / 2;
     if (S.key === 'pagoda') B.hipRoof(ax + 1.2, ax + 1.2, H, B.r(2.2, 3.2), { col: S.roofCol, up: 0.6, curve: 1.7, ridge: 0 });
-    else if (S.key === 'atlantis' || (S.key === 'greco' && round)) B.dome(0, H, 0, ax, { k: S.key === 'atlantis' ? 1.6 : 0.9, ribs: S.key === 'atlantis' ? 10 : 0, ribGold: S.key === 'atlantis' });
-    else if (round && S.key === 'maya') B.dome(0, H, 0, ax * 0.9, { k: 0.7 });
+    else if (S.key === 'atlantis' || (S.key === 'greco' && round)) {
+      const o = { k: S.key === 'atlantis' ? 1.6 : 0.9, ribs: S.key === 'atlantis' ? 10 : 0, ribGold: S.key === 'atlantis' };
+      if (round) B.domeOn(0, H, 0, ax, o); // on the round wall's top course
+      else { B.box(2 * ax, 0.35, 2 * ax, 0, H + 0.17, 0, null, B.tone(B.stone, 0.05), 0, 0.02); B.domeOn(0, H + 0.3, 0, ax, o); } // square: on a roof slab
+    } else if (round && S.key === 'maya') B.domeOn(0, H, 0, ax * 0.9, { k: 0.7 });
     else { // crenellations
       const n = Math.max(3, Math.round((round ? TAU * ax : 8 * ax) / 1.3));
       for (let i = 0; i < n; i += 2) {
@@ -284,6 +287,7 @@ export function* genRotunda(B, colRing) {
       const rr = Rc + 0.8 - k * 0.45, yTop = ystyl - (ns - 1 - k) * 0.3, n = Math.max(10, Math.round(TAU * rr / 1.4));
       for (let i = 0; i < n; i++) { const a = (i + (k % 2) * 0.5) / n * TAU; B.pier(TAU * rr / n * 1.03, 0.9, Math.cos(a) * (rr - 0.45), Math.sin(a) * (rr - 0.45), yTop, rotY(-a + Math.PI / 2), B.tone(B.trim, 0.05), 0, 0.02); }
     }
+    B.podium(Rc - 1.0, ystyl); // solid core inside the steps: the cella stands on it, not on air
   }
   const Hc = (colRing ? ystyl : ft) + B.r(4.5, 6.5);
   const p = arcPath(0, 0, R, Math.PI / 2, Math.PI / 2 + TAU), L = p.L;
@@ -309,10 +313,15 @@ export function* genRotunda(B, colRing) {
     if (topY > 1e8) topY = Hc;
     if (intact) { // entablature ring and a conical roof / dome
       const ne = n * 2, re = Rc;
-      for (let i = 0; i < ne; i++) { const a = i / ne * TAU; B.box(TAU * re / ne * 1.04, 0.55, 0.7, Math.cos(a) * re, topY + 0.27, Math.sin(a) * re, rotY(-a + Math.PI / 2), B.tone(B.trim, 0.04), 0, 0.02); }
-      B.dome(0, topY + 0.5, 0, Rc + 0.4, { k: S.key === 'atlantis' ? 1.0 : 0.45, ribs: S.gold ? 12 : 0, ribGold: !!S.gold, gold: !!S.gold && rng() < 0.4 });
+      for (let i = 0; i < ne; i++) { const a = i / ne * TAU; B.box(TAU * re / ne * 1.14, 0.55, 0.7, Math.cos(a) * re, topY + 0.27, Math.sin(a) * re, rotY(-a + Math.PI / 2), B.tone(B.trim, 0.04), 0, 0.02); }
+      B.domeOn(0, topY + 0.5, 0, Rc + 0.4, { k: S.key === 'atlantis' ? 1.0 : 0.45, ribs: S.gold ? 12 : 0, ribGold: !!S.gold, gold: !!S.gold && rng() < 0.4 });
     }
-  } else if (intact) B.dome(0, Hc, 0, R + t / 2, { k: S.key === 'atlantis' ? B.r(1.1, 1.5) : B.r(0.7, 1.0), ribs: S.gold ? 10 : 0, ribGold: !!S.gold, gold: !!S.gold && rng() < 0.3, broken: rng() < 0.5 ? B.r(0.2, 0.6) : 0 });
+  } else {
+    const o = { k: S.key === 'atlantis' ? B.r(1.1, 1.5) : B.r(0.7, 1.0), ribs: S.gold ? 10 : 0, ribGold: !!S.gold, gold: !!S.gold && rng() < 0.3, broken: rng() < 0.5 ? B.r(0.2, 0.6) : 0 };
+    // intact: on the drum's top course; ruined: the dome has fallen in and lies broken on the floor inside
+    if (intact) B.domeOn(0, Hc, 0, R + t / 2, o);
+    else if (rng() < 0.7) B.fallenDome(0, 0, R + t / 2, o.k, { floor: (x, z) => site.fl(x, z), rIn: R - t / 2 }, o);
+  }
   return { H: topY, lowF };
 }
 
@@ -416,7 +425,10 @@ export function* genShrine(B) {
     });
     if (intact) {
       if (k === 'maya') roofOn(B, 'flat', W, D, t, H, { comb: true });
-      else prangTop(B, 0, H, 0, W / 2 + 0.3, B.r(3, 4.5));
+      else { // capping slab over the cella walls, the tower on it (sized to the narrower side)
+        B.box(W + t, 0.4, D + t, 0, H + 0.19, 0, null, B.tone(B.stone, 0.05), 0, 0.02);
+        prangTop(B, 0, H + 0.36, 0, Math.min(W, D) / 2 + 0.2, B.r(3, 4.5));
+      }
     }
     return { H };
   }
@@ -439,15 +451,19 @@ export function stair(B, x, z0, yTop, w, yaw, rise = 0.32, run = 0.42) {
 }
 
 // Khmer prang top: stacked receding tiers with redented corners and a lotus-bud finial
+// Only on a full top (piers, a capping slab, intact wall courses): returns false and builds nothing otherwise.
 export function prangTop(B, x, y, z, R, H) {
-  const tiers = 4 + ((B.rng() * 2) | 0), c = B.tone(B.stone, 0.05);
+  if (B.carried(x, y, z, R * 0.7) < 1) return false;
+  const tiers = 4 + ((B.rng() * 2) | 0), c = B.tone(B.stone, 0.05), v0 = B.b.vc, i0 = B.b.ic, nu = B.lo ? 12 : 16;
   const red = (a) => { const s = Math.abs(Math.cos(a)) + Math.abs(Math.sin(a)); return 0.82 + 0.1 * Math.abs(Math.cos(a * 4)) + 0.08 * (s - 1); };
-  B.lathe(B.lo ? 12 : 16, tiers * 2, (v) => {
+  B.lathe(nu, tiers * 2, (v) => {
     const k = Math.floor(v * tiers), f = v * tiers - k, rr = R * (1 - 0.75 * Math.pow(v, 1.3)) * (f < 0.35 ? 1.06 : 0.97);
     return [rr, y + v * H];
   }, red, c, B.grow, B.key, x, 0, z);
   B.lathe(B.lo ? 8 : 10, 4, (v) => [R * 0.28 * Math.sin(Math.PI * (0.15 + 0.85 * v)) * (1 - v * 0.3), y + H + v * R * 0.9], null, c, B.grow, B.key, x, 0, z);
+  B.domes.push({ kind: 'prang', v0, cols: nu, nu, i0, i1: B.b.ic, i2: B.b.ic, scale: 0.7 });
   B.cap(x, y + H * 0.3, z, x, y + H * 0.8, z, R * 0.85);
+  return true;
 }
 
 // East Asian pavilion: hexagonal / square, columns on a platform, pyramidal curved roof
