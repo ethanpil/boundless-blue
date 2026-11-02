@@ -295,6 +295,7 @@ export class Terrain {
     this.pool = pool;
     this.generation = 0;         // bumped by reset(): an older primeAsync stops
     this._sync = false;          // inside prime(): build everything now, on this thread
+    this.onBuilt = null;         // (group) => void, once a chunk has all its props (main.js precompiles its shaders)
     this.floorMat = floorMaterial();
     this.ceilMat = ceilingMaterial();
     this.sky = new SkyMap(shape, seq, pool);
@@ -373,6 +374,7 @@ export class Terrain {
         }
       } catch (e) { console.error('populator failed', e); }
     }
+    if (this.onBuilt) this.onBuilt(chunk.group);
   }
 
   _ctx(chunk, xMin, xMax) {
@@ -555,7 +557,12 @@ class SkyMap {
     this.sync = budgetMs === Infinity;
     const active = this.seq.segmentsBetween(camS - 60, camS + 260).some((g) => BIOMES[g.key].ceil || BIOMES[g.key].canopy);
     U.uSkyActive.value = active && this.origin ? 1 : 0;
-    if (!active) { this.origin = null; return; }
+    if (!active) { // a map still being made is for a region left behind: drop it (primeAsync waits for sky.job)
+      this.origin = null;
+      if (this.pending) this.pool.cancel(this.pending);
+      this.job = null; this.pending = null;
+      return;
+    }
     const N = this.N, cell = this.cell;
     const wantS = Math.floor((camS - 40) / 32) * 32;
     if (!this.job && (!this.origin || Math.abs(this.origin.s - wantS) >= 32)) {

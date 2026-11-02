@@ -46,6 +46,9 @@ export class Creatures {
     this._idleQueued = false; this._resetPending = false;
     this._idleCb = (deadline) => {
       this._idleQueued = false;
+      // not during a zone jump: ctx.s may still be the old position, and looking it up in the restarted
+      // sequence (often kilometres ahead of the new start) grew and pruned it away from the camera
+      if (this._resetPending) return;
       let k = 0;
       for (const [key, q] of this.lodQueue) { // LOD levels requested by encounters first (close passes)
         if (k >= 3 || !(deadline.timeRemaining() > 6 || (k === 0 && deadline.didTimeout))) break;

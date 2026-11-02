@@ -338,15 +338,17 @@ export class Ambience {
   }
 
   // ---------- one-shot helpers ----------
-  // voice output: gain -> lowpass -> pan -> bus, plus a reverb send. Returns the input gain.
+  // voice output: gain -> lowpass -> pan -> bus, plus a reverb send. Returns the input gain; its `chain` lists the
+  // nodes after it, which _hold disconnects too (left wired to the bus, every voice ever played stayed in the graph).
   _out(pan, lp, gain, wet, bus) {
     const c = this.ctx, g = c.createGain(), f = c.createBiquadFilter();
     g.gain.value = gain; f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5;
     g.connect(f);
+    g.chain = [f];
     let o = f;
-    if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = pan; f.connect(p); o = p; }
+    if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = pan; f.connect(p); o = p; g.chain.push(p); }
     o.connect(bus);
-    if (wet > 0) { const w = c.createGain(); w.gain.value = wet; o.connect(w); w.connect(this.revIn); }
+    if (wet > 0) { const w = c.createGain(); w.gain.value = wet; o.connect(w); w.connect(this.revIn); g.chain.push(w); }
     return g;
   }
   // a call heard from d metres: quieter, darker and wetter with distance
@@ -354,7 +356,10 @@ export class Ambience {
     return this._out(pan, Math.min(lpMax, 500 + 9000 * Math.exp(-d / 35)), level / (1 + d / 25), Math.min(0.9, 0.15 + d / 120), this.bus.life);
   }
   // count a voice until its last source ends, then drop its chain
-  _hold(src, head) { this.voices++; src.onended = () => { this.voices--; head.disconnect(); }; }
+  _hold(src, head) {
+    this.voices++;
+    src.onended = () => { this.voices--; head.disconnect(); for (const n of head.chain) n.disconnect(); };
+  }
   _env(param, t, a, peak, hold, rel) {
     param.setValueAtTime(0, t); param.linearRampToValueAtTime(peak, t + a);
     param.setValueAtTime(peak, t + a + hold); param.exponentialRampToValueAtTime(0.0001, t + a + hold + rel);

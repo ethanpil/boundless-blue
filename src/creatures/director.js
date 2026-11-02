@@ -246,6 +246,12 @@ export class Director {
     const sys = this.sys;
     if (!this.primed || c.jumped) { this.prime(c, !this.primed); this.primed = true; return; }
     this._c = c;
+    // forget sightings older than their novelty horizon (800 s, 300 s): keys are per region, so these grew all dive long
+    if (this.clock > (this._pruneT ?? 0)) {
+      this._pruneT = this.clock + 300;
+      for (const [k, t] of this.seen) if (this.clock - t > 800) this.seen.delete(k);
+      if (this.closeSeen) for (const [k, t] of this.closeSeen) if (this.clock - t > 300) this.closeSeen.delete(k);
+    }
     this.delightTick(c);
     if (this.whaleTick(c) || this.holeTick(c)) return;
     this.closeTick(c);

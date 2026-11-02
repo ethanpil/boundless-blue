@@ -46,24 +46,50 @@ function wrap(name, fn) {
 }
 
 export function registerProps(terrain, env) {
-  const t0 = performance.now();
-  ENV.shape = env.shape;
-  initMaterials();
-  T.rocks = [...rockSet(ROCK_TYPE_KEYS.filter((k) => k !== 'pinnacle'), 4, { detail: 3 }), ...makePool('kelp', 'rocks', 7, 3)];
-  T.mound = rockSet(['boulder', 'angular', 'sediment', 'undercut', 'volcanic'], 2, { detail: 4, growth: 1.0 });
-  // shared floor micro detail + steer-around pinnacles
-  T.rubble = [pebblePatch(1, { n: 14, r: 0.6, size: 0.07, flat: 0.45, elong: 3, col: [0.85, 0.8, 0.7], growth: 0.4, mode: 2 }), pebblePatch(2, { n: 9, r: 0.4, size: 0.09, flat: 0.5, elong: 2.5, col: [0.8, 0.76, 0.68], growth: 0.5, mode: 2 })];
-  T.pebbles = [pebblePatch(3, { n: 16, r: 0.6, size: 0.06, flat: 0.6, col: [0.7, 0.68, 0.64] }), pebblePatch(4, { n: 7, r: 0.35, size: 0.12, flat: 0.55, col: [0.66, 0.64, 0.6] })];
-  T.grit = [pebblePatch(5, { n: 16, r: 0.55, size: 0.03, flat: 0.35, col: [0.95, 0.9, 0.82], growth: 0 })];
-  T.algae = [algaePatch(1), algaePatch(2, { r: 1.2, col: [0.42, 0.3, 0.14] })];
-  T.spongeLump = [rock(61, { detail: 2, sx: 0.25, sy: 0.2, sz: 0.22, rough: 0.5, growth: 0.3 }), rock(62, { detail: 2, sx: 0.18, sy: 0.25, sz: 0.2, rough: 0.6, growth: 0.3 })];
-  T.pinnacle = rockSet(['pinnacle'], 6, { detail: 4, growth: 0.9 });
-  initReef(); initKelp(); initSeagrass(); initCave(); initWreck();
-  initRuins(); initVents(); initTidepool(); initPolar(); initPelagic(); initSandflat(); initFeatures();
-  flagTemplates();
-  nameAll();
-  captureBase(); // startup pools = fallback while a segment's own palette is generated
-  stats.init = performance.now() - t0;
+  const it = registerPropsSteps(terrain, env);
+  while (!it.next().done);
+}
+
+// The same work in steps (one template group each, in the same order, so the world is identical): main.js boot
+// paints the title card's progress between them instead of freezing it for the ~0.9 s of the whole call.
+// Yields the fraction done (by typical cost); stats.initSteps keeps each step's ms.
+export function* registerPropsSteps(terrain, env) {
+  const steps = [
+    () => {
+      ENV.shape = env.shape;
+      initMaterials();
+      T.rocks = [...rockSet(ROCK_TYPE_KEYS.filter((k) => k !== 'pinnacle'), 4, { detail: 3 }), ...makePool('kelp', 'rocks', 7, 3)];
+    },
+    () => {
+      T.mound = rockSet(['boulder', 'angular', 'sediment', 'undercut', 'volcanic'], 2, { detail: 4, growth: 1.0 });
+      // shared floor micro detail + steer-around pinnacles
+      T.rubble = [pebblePatch(1, { n: 14, r: 0.6, size: 0.07, flat: 0.45, elong: 3, col: [0.85, 0.8, 0.7], growth: 0.4, mode: 2 }), pebblePatch(2, { n: 9, r: 0.4, size: 0.09, flat: 0.5, elong: 2.5, col: [0.8, 0.76, 0.68], growth: 0.5, mode: 2 })];
+      T.pebbles = [pebblePatch(3, { n: 16, r: 0.6, size: 0.06, flat: 0.6, col: [0.7, 0.68, 0.64] }), pebblePatch(4, { n: 7, r: 0.35, size: 0.12, flat: 0.55, col: [0.66, 0.64, 0.6] })];
+      T.grit = [pebblePatch(5, { n: 16, r: 0.55, size: 0.03, flat: 0.35, col: [0.95, 0.9, 0.82], growth: 0 })];
+      T.algae = [algaePatch(1), algaePatch(2, { r: 1.2, col: [0.42, 0.3, 0.14] })];
+      T.spongeLump = [rock(61, { detail: 2, sx: 0.25, sy: 0.2, sz: 0.22, rough: 0.5, growth: 0.3 }), rock(62, { detail: 2, sx: 0.18, sy: 0.25, sz: 0.2, rough: 0.6, growth: 0.3 })];
+    },
+    () => { T.pinnacle = rockSet(['pinnacle'], 6, { detail: 4, growth: 0.9 }); },
+    initReef, initKelp, initSeagrass, initCave, initWreck, initRuins, initVents, initTidepool, initPolar, initPelagic, initSandflat, initFeatures,
+    () => {
+      flagTemplates();
+      nameAll();
+      captureBase(); // startup pools = fallback while a segment's own palette is generated
+    },
+  ];
+  const W = [7, 2, 1, 22, 5, 2, 5, 4, 23, 13, 5, 3, 5, 1, 4, 0.2]; // typical cost of each step (browser, ms / 10)
+  const total = W.reduce((a, b) => a + b, 0);
+  stats.initSteps = [];
+  let busy = 0, done = 0;
+  for (let i = 0; i < steps.length; i++) {
+    const t = performance.now();
+    steps[i]();
+    const ms = performance.now() - t;
+    busy += ms; stats.initSteps.push(Math.round(ms));
+    done += W[i];
+    if (i < steps.length - 1) yield done / total;
+  }
+  stats.init = busy;
   console.info(`props: templates built in ${stats.init.toFixed(0)} ms`);
   // lazy per-segment rock / chimney generation (<= 2 ms slices), ahead of every other populator of a chunk
   terrain.populators.unshift(...rockGenStages());

@@ -6,7 +6,7 @@ import { BIOMES, BIOME_KEYS, BiomeSequence, WorldShape, sv, blueHoleOf } from '.
 import { Terrain } from './terrain.js';
 import { Background, Surface, MarineSnow } from './env.js';
 import { Post } from './post.js';
-import { registerProps } from './props/index.js';
+import { registerPropsSteps } from './props/index.js';
 import { registerNewBiomeProps } from './props/newbiomes.js';
 import { registerNewBiomeProps2 } from './props/newbiomes2.js';
 import { registerNewBiomeProps3 } from './props/newbiomes3.js';
@@ -294,7 +294,7 @@ const app = {
     const g = seq.segs[seq.segAt(s)];
     s = g.end + 100;
     jumping = true;
-    return terrain.primeAsync(s, onProgress, paint).finally(() => { jumping = false; });
+    return terrain.primeAsync(s, onProgress, paint).then(() => within(precompile(world), 4000)).finally(() => { jumping = false; });
   },
   // Jump to a zone in place (no page reload). Returns a promise; onProgress(0..1) reports the rebuild.
   jumpTo(key, onProgress) { return jumpInPlace(key, onProgress); },
@@ -577,6 +577,20 @@ function pickAt(cx, cy) {
   return bestE ? { name: bestE.name, fact: bestE.fact || '', dist: Math.hypot(bestE.x - camera.position.x, bestE.y - camera.position.y, bestE.z - Oz - camera.position.z) } : null;
 }
 
+// ---------- shader warm-up ----------
+// Programs are compiled as the scene pass draws them: into post's render target, which selects other variants
+// (linear output) than the canvas (with no target bound, the boot warm-up compiled programs nothing used). With
+// KHR_parallel_shader_compile this runs off the main thread, so a zone's new materials no longer stall the frame
+// that first draws them (1-2 s per program on an HD 4600). Every chunk is warmed as soon as it is built.
+function precompile(obj) {
+  if (!renderer.compileAsync) return Promise.resolve();
+  const prev = renderer.getRenderTarget();
+  renderer.setRenderTarget(post.sceneRT);
+  try { return renderer.compileAsync(obj, camera, scene).catch(() => {}); } catch (e) { return Promise.resolve(); } finally { renderer.setRenderTarget(prev); }
+}
+const within = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(r, ms))]);
+terrain.onBuilt = (group) => { precompile(group); };
+
 // ---------- zone jump without reloading ----------
 let jumping = false;
 async function jumpInPlace(key, onProgress) {
@@ -592,6 +606,7 @@ async function jumpInPlace(key, onProgress) {
     s = newS; lastSegId = -1; captionTimer = 0;
     placeCamera(0, simTime, C);
     await terrain.primeAsync(s, onProgress, paint);
+    await within(precompile(world), 4000); // the cover stays up until the new zone's shaders are ready
   } finally { jumping = false; }
 }
 
@@ -607,16 +622,27 @@ function bootProgress(f, label, ms) {
   if (ldPct) ldPct.textContent = Math.round(f * 100) + '%';
   if (label && ldTxt) ldTxt.textContent = label;
 }
-// A boot step that holds the main thread (registerProps alone is ~0.9 s on a fast laptop, all of it one call):
-// the bar starts easing toward the step's end first, and a transform transition runs on the compositor, so the
-// bar keeps moving while the step blocks. ms ~ 1.5x the step's cost on a fast laptop; the fractions follow costs.
+// A boot step that holds the main thread: the bar starts easing toward the step's end first, and a transform
+// transition runs on the compositor, so the bar keeps moving while the step blocks. ms ~ 1.5x the step's cost on a
+// fast laptop; the fractions follow costs.
 async function bootStep(to, ms, fn) { bootProgress(to, null, ms); await paint(); fn(); }
+// A boot task in steps (a generator yielding its fraction done), mapped onto the bar from a to b: the page paints
+// whenever ~100 ms of work has piled up (the bar itself eases on the compositor in between); each paint costs a
+// frame or more, which adds up on a busy CPU (registerProps: ~0.9 s in all on a fast laptop).
+async function bootSteps(it, a, b) {
+  let t = performance.now();
+  for (let r = it.next(); !r.done; r = it.next()) {
+    if (performance.now() - t < 100) continue;
+    bootProgress(a + (b - a) * r.value, null, 150); await paint(); t = performance.now();
+  }
+  bootProgress(b, null, 150);
+}
 let C = conditions.update(0), hud = null;
 const timer = new THREE.Timer();
 let time = 0, simTime = 0, lastFrame = 0, causticFrame = 0;
 async function boot() {
   bootProgress(0.1, 'filling the ocean'); await paint();   // the scripts have loaded (index.html creeps to 8% meanwhile)
-  await bootStep(0.34, 1300, () => registerProps(terrain, env));
+  await bootSteps(registerPropsSteps(terrain, env), 0.1, 0.34);
   bootProgress(0.34, 'raising wrecks and sunken cities');
   await bootStep(0.37, 250, () => registerNewBiomeProps(terrain, env));
   await bootStep(0.45, 600, () => registerNewBiomeProps2(terrain, env));
@@ -643,7 +669,7 @@ async function boot() {
     U.uNoiseTex.value.needsUpdate = true;
   }
   updateEnvironment(C);
-  try { if (renderer.compileAsync) await renderer.compileAsync(scene, camera); } catch (e) { /* compiles on first frame */ }
+  await precompile(scene);
   bootProgress(1, 'diving in');
   hud = new Hud(app);
   const l = document.getElementById('loader');
