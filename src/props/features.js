@@ -194,7 +194,7 @@ export function bottle(seed) {
   b.lathe(6, 1, (v) => [0.014, 0.32 + v * 0.025], null, (v, a, x, y, z, o) => { o[3] = 0.55; o[4] = 0.42; o[5] = 0.28; });
   b.lathe(6, 1, (v) => [0.03, 0.04 + v * 0.14], null, (v, a, x, y, z, o) => { o[3] = 0.9; o[4] = 0.85; o[5] = 0.7; });
   b.xform(0, rotZ(Math.PI / 2 - 0.25), 0.16, 0.0, 0);
-  b.label = 'Message in a bottle'; b.fact = 'The oldest known one was found in 2018, 132 years after it was thrown overboard.';
+  b.label = 'Message in a bottle'; b.fact = 'The oldest known one was found in 2018 on an Australian beach, 131 years after it was thrown overboard.';
   return b.build();
 }
 

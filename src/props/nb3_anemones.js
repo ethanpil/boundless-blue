@@ -114,7 +114,7 @@ export function* magnificent(seed, { R = 0.3, col = [0.5, 0.05, 0.3], tent = [0.
   }
   const t = foot(b.build(), R * 0.5);
   t.label = 'Magnificent sea anemone';
-  t.fact = 'A magnificent sea anemone can reach a metre across; at night it balls up and shows its brightly coloured column.';
+  t.fact = 'A magnificent sea anemone can spread a metre across, and clownfish and shrimp live among its tentacles.';
   t.solid = false; t.nbR = R * (1 + fA + rA) + Lb * 0.6; t.nbTop = H + Math.max(0.6 * Lb, pile ? hD * 0.95 : 0); // the fringe reaches past the rim
   return t;
 }
@@ -144,7 +144,7 @@ function* closedMagnificent(seed, { R, col, tent, tip, tier }) {
   }
   const t = foot(b.build(), Rb * 0.62);
   t.label = 'Magnificent sea anemone';
-  t.fact = 'A magnificent sea anemone can reach a metre across; when it closes it balls up and shows its brightly coloured column.';
+  t.fact = 'Threatened, a magnificent sea anemone pulls its tentacles into a ball and shows its coloured column.';
   t.solid = false; t.nbR = Rb * 1.05; t.nbTop = yT; t.closed = true;
   return t;
 }

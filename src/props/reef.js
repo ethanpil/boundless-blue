@@ -187,7 +187,7 @@ function giantClam(seed, mantle) {
     }
     o[0] = px; o[1] = py + 0.12; o[2] = pz; o[3] = c[0]; o[4] = c[1]; o[5] = c[2]; o[6] = f; o[7] = 8;
   });
-  b.label = 'Giant clam'; b.fact = 'Giant clams farm algae in their mantles and can live for over a century.';
+  b.label = 'Giant clam'; b.fact = 'Giant clams farm algae in their mantles, and how long they live is still unknown.';
   return b.build();
 }
 

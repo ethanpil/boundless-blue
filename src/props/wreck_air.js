@@ -314,7 +314,7 @@ export function seaplane(r, o) {
       b.xform(v0, rotX(Math.PI / 2), 0, -1.35, z0 + 0.6);
       for (const dz of [0.3, 0.45]) cyl(b, [0, -1.2, z0 + dz * len], [0, 0.25, z0 + dz * len + 0.3], 0.06, 0.06, 4, c, f);
       for (const sx of [-1, 1]) { const tx = sx * 5.0, v1 = b.vc; b.lathe(8, 5, (v) => [0.22 * Math.sin(Math.min(1, v * 1.1 + 0.05) * Math.PI * 0.7) + 0.02, v * 2.0], null, (v, a, x, y, z, oo) => { oo[3] = c[0]; oo[4] = c[1]; oo[5] = c[2]; oo[6] = f[0]; }); b.xform(v1, rotX(Math.PI / 2), tx, -0.1, z0 + len * 0.27); cyl(b, [tx, -0.05, z0 + len * 0.33], [tx, R * 0.7, z0 + len * 0.33], 0.04, 0.04, 4, c, f); }
-      b.feats.push({ name: 'Main float', fact: 'The big central float held the plane up; small floats under the wingtips kept it level.', p: [0, -1.3, z0 + len * 0.4] });
+      b.feats.push({ name: 'Main float', fact: 'Some floatplanes, like the Kingfisher, sat on one central float with small stabilising floats under the wings.', p: [0, -1.3, z0 + len * 0.4] });
       void R;
     };
     d.H.D += 1.5;
@@ -355,7 +355,7 @@ export function seaplane(r, o) {
       }
       // struts from the hull to the wing
       for (const sx of [-1, 1]) cyl(b, [sx * 0.8, 2.6, wz + 2], [sx * 4.5, wy - 0.1, wz + 2], 0.07, 0.07, 4, top, f);
-      b.feats.push({ name: 'Parasol wing', fact: "The Catalina's wing sat on a pylon high above the hull, keeping the engines clear of spray.", p: [0, wy, wz] });
+      b.feats.push({ name: 'Parasol wing', fact: "The Catalina's wing sat on a pylon high above the hull, well clear of the water.", p: [0, wy, wz] });
     }
     if (inT(0.93)) {
       const ty = sec(0.95)[3] + 1.3, tz = zt(0.86);

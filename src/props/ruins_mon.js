@@ -94,7 +94,7 @@ export function* genLandmark(B, kind) {
     pyramid: 'The Great Pyramid was once cased in polished white limestone that shone in the sun.',
     stelaGroup: 'Maya stelae record kings, dates and wars in a calendar that counted days from 3114 BC.',
     observatory: 'The round Caracol of Chichen Itza has windows aligned with the setting points of Venus.',
-    head: 'The largest Olmec colossal heads weigh about 40 tonnes, each carved from a single boulder.',
+    head: 'The largest known Olmec colossal head weighs about 40 tonnes and was carved from a single basalt boulder.',
     faceTower: 'The Bayon temple has over 200 serene stone faces gazing out from its towers.',
     prang: 'Khmer temple towers are shaped like lotus buds and stand for the peaks of Mount Meru.',
     buddha: 'The naga king Mucalinda spread his hoods to shelter the meditating Buddha from a storm.',
