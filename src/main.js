@@ -333,8 +333,9 @@ const app = {
   // are this viewer's settings and stay out of a shared link.
   shareUrl() {
     const u = new URL(location.origin + location.pathname);
-    u.searchParams.set('seed', SEED); u.searchParams.set('biome', START_KEY);
-    if (num('start') !== null) u.searchParams.set('start', qs.get('start'));
+    // after an in-place zone jump, share the zone the viewer is looking at, not the one the dive began in
+    u.searchParams.set('seed', SEED); u.searchParams.set('biome', jumpDist ? seq.segs[seq.segAt(s)].key : START_KEY);
+    if (!jumpDist && num('start') !== null) u.searchParams.set('start', qs.get('start'));
     return u.toString();
   },
   // Live readings for the control deck. Values are approximate where real instruments would be (compass, current).
