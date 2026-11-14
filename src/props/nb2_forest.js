@@ -287,6 +287,9 @@ export function* layoutSfC(ctx, env) {
   }
   const sm = shaftMesh(ctx, beams, sun);
   if (sm) extra.push(sm);
+  // the widest beam beside the route: a sun-shaft pause for the camera (camera.js 'light-shaft')
+  const wb = beams.filter((b) => b.r0 > 0.7 && Math.abs(b.x - pc.x(b.s)) > 2.5 && Math.abs(b.x - pc.x(b.s)) < 13).sort((a, b) => b.r0 - a.r0)[0];
+  if (wb && ctx.addPOI) ctx.addPOI('light-shaft', wb.x, ctx.surfaceY - 2.5, wb.s, 4, { name: 'Sunbeam between the trunks' });
   return { batches: [near], extra };
 }
 export { KINDS };

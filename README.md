@@ -57,7 +57,7 @@ The share link reproduces the world (seed and the zone you are in) without your 
 | `quality=low\|medium\|high\|ultra` | force a quality tier (default: chosen from the GPU, then adjusted at runtime) |
 | `wake=0` | let the screen dim and sleep as usual |
 | `surprise=<kind>` | trigger a rare encounter soon after load: `divers sub rov glider kaiju` |
-| `event=<kind>` | trigger a rare wildlife event at the first chance: `sperm hammerheads devilrays octopus` |
+| `event=<kind>` | trigger a rare wildlife event or signature moment at the first chance: `sperm hammerheads devilrays octopus bayhunt curtain lampsoff jellyarc cathedral` |
 | `ruinstyle=<style>` | force a sunken-city style: `greco egypt maya khmer minoan pagoda atlantis` |
 | `captions=0` | hide zone captions |
 | `start=<metres>` | start further along the path |

@@ -19,6 +19,11 @@ Object.assign(POI_INTEREST, { 'octopus-garden': 0.95 });
 // Lost City: the landmark tower (its POI sits ~11 m above the route, so watching it tilts the view up the tower)
 Object.assign(POI_INTEREST, { 'lc-tower': 0.85, 'lc-flange': 0.55 });
 Object.assign(POI_INTEREST, { 'coral-summit': 0.85, 'trawl-scar': 0.6 }); // --- coldcoral ---
+// --- moments 2026-11 --- a strong sun shaft beside the route (kelp canopy gaps, cenote skylights, beams between drowned
+// trunks or into a blue hole; the POI sits high in the beam): the camera slows to half speed and tilts up into it for
+// 6-8 s, by day in clear weather only (lightOK, set by main.js) and at most once every 2.5-4.5 min
+Object.assign(POI_INTEREST, { 'light-shaft': 0.75 });
+const LIGHT_HOLD = 7;
 
 // procedural reef-fish variants ('proc:reef:123') tire the camera as one family
 const famKey = (k) => (k.charCodeAt(0) === 112 && k.startsWith('proc:') ? k.slice(0, k.indexOf(':', 5) >>> 0) : k);
@@ -50,6 +55,9 @@ export class CameraDirector {
     this.hasSubject = false;
     this.curiosity = 1;           // 0 = steady forward view, 1 = documentary camera that watches things
     this.biasYaw = 0; this.biasPitch = 0; // per-zone framing preference (set by main.js: wall face, blue-hole drop)
+    // signature moments (creatures/moments.js): { w, gaze, gx, gy, gz (GLOBAL), yaw, pitch, speed, alt } or null
+    this.moment = null;
+    this.lightOK = true; this.lightNext = 0; this.forceLight = false; this.clock = 0; // sun-shaft pauses (light-shaft POIs)
     this._f = new THREE.Vector3(); this._d = new THREE.Vector3(); this._up = new THREE.Vector3(0, 1, 0);
     this._q = new THREE.Quaternion(); this._e = new THREE.Euler(0, 0, 0, 'YXZ');
   }
@@ -60,6 +68,7 @@ export class CameraDirector {
     this.cooldown.clear(); this.seen.clear(); this.fatigue.clear();
     for (const k of ['alt', 'yaw', 'pitch']) { this[k].x = 0; this[k].v = 0; }
     this.focus.x = 12; this.focus.v = 0; this.speedMul.x = 1; this.speedMul.v = 0;
+    this.moment = null; this.lightNext = 0; this.forceLight = false;
   }
 
   // Pick the most interesting visible thing ahead. Returns null when nothing beats the wander.
@@ -70,11 +79,13 @@ export class CameraDirector {
       poisFn(s + 6, s + 70, this.pois);
       for (const p of this.pois) {
         const id = 'poi:' + p.type + ':' + Math.round(p.x) + ':' + Math.round(p.s);
+        if (p.type === 'light-shaft' && !(this.subject && this.subject.id === id) && !this.forceLight && !(this.lightOK && this.clock >= this.lightNext)) continue;
         const base = POI_INTEREST[p.type] ?? 0.4;
         // a rare set piece seen for the first time beats almost anything else
-        const interest = base >= 0.7 && !this.seen.has(id) ? Math.min(1.6, base * 1.7) : base;
+        const light = p.type === 'light-shaft';
+        const interest = light && this.forceLight ? 1.6 : base >= 0.7 && !this.seen.has(id) ? Math.min(1.6, base * 1.7) : base;
         c.push({ id, x: p.x, y: p.y + Math.min(2.5, (p.r || 3) * 0.3), z: -p.s, vx: 0, vy: 0, vz: 0, r: p.r || 3, interest, poi: true,
-          hole: p.type === 'bluehole' ? p : null });
+          hole: p.type === 'bluehole' ? p : null, light });
       }
     }
     const maxD = Math.min(60, 2.6 / Math.max(0.01, sigmaG));
@@ -112,8 +123,9 @@ export class CameraDirector {
    * surge 0..1, subjectsFn(out), poisFn(s0, s1, out). Returns {x, y, gz} global camera position.
    */
   update(dt, time, s, Oz, sigmaG, surge, subjectsFn, poisFn) {
-    const sh = this.shape, cam = this.camera;
+    const sh = this.shape, cam = this.camera, mo = this.moment && this.moment.w > 0.002 ? this.moment : null;
     const px = sh.pathX(s), py = sh.pathY(s);
+    this.clock = time;
 
     // ---- altitude mood: drift up for overviews, skim low for detail, within safe headroom ----
     const n = noise1(s / 190, 401) + 0.35 * noise1(s / 60, 402);
@@ -121,7 +133,8 @@ export class CameraDirector {
     const ceil = sh.ceilingAt(px, s + 4), floor = sh.floorAt(px, s + 4);
     const upLim = Math.max(0, Math.min(2.8, ceil - py - 1.8, -0.9 - py));
     const downLim = Math.min(0, Math.max(-0.6, floor + 1.9 - py));
-    if (this.subject && this.subject.interest > 0.6) aT += clamp((this.subject.y - (py + this.alt.x)) * 0.25, -1, 1.2);
+    if (this.subject && this.subject.interest > 0.6 && !this.subject.light) aT += clamp((this.subject.y - (py + this.alt.x)) * 0.25, -1, 1.2);
+    if (mo) aT += (mo.alt - aT) * mo.w * this.curiosity; // a moment's own height (held low for a hunt, raised under the jellies)
     aT = clamp(aT, downLim, upLim);
     spring(this.alt, aT, 0.35, dt);
     this.alt.x = clamp(this.alt.x, downLim, upLim);
@@ -151,9 +164,13 @@ export class CameraDirector {
       this.watchTime += dt;
       if (this.subject.poi && this.watchTime > 3) this.seen.add(this.subject.id);
       if (this.seen.size > 400) this.seen.clear();
+      if (this.subject && this.subject.light && this.watchTime > 1) { // a sun-shaft pause started: the next one in 2.5-4.5 min
+        if (this.lightNext <= time) this.lightNext = time + 150 + 120 * (0.5 + 0.5 * noise1(time / 7, 931));
+        this.forceLight = false;
+      }
       // a blue hole is watched until the camera is over its middle (it leaves the POI window there)
       // (a highlight, e.g. a whale or a pod at play, is followed for up to 24 s rather than dropped mid-pass)
-      if (this.watchTime > (this.subject.hole ? 60 : this.subject.interest >= 0.9 ? 24 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
+      if (this.watchTime > (this.subject.hole ? 60 : this.subject.light ? LIGHT_HOLD : this.subject.interest >= 0.9 ? 24 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
     }
 
     // ---- gaze: blend the path heading with the subject direction ----
@@ -180,13 +197,28 @@ export class CameraDirector {
       const d = D.length(); D.divideScalar(d);
       const yawS = Math.atan2(F.z * D.x - F.x * D.z, F.x * D.x + F.z * D.z); // signed angle F->D about +Y
       const pitchS = Math.asin(clamp(D.y, -1, 1)) - Math.asin(clamp(F.y, -1, 1));
-      const w = smoothstep(0, 1.2, this.watchTime) * (e.hole ? 1 : 0.8) * this.curiosity;
+      const w = smoothstep(0, 1.2, this.watchTime) * (e.hole || e.light ? 1 : 0.8) * this.curiosity;
       yawT = yawT * (1 - w) + clamp(yawS, -0.95, 0.95) * w;
-      pitchT = pitchT * (1 - w) + clamp(pitchS, e.hole ? -0.62 : -0.5, 0.45) * w;
+      pitchT = pitchT * (1 - w) + (e.light ? clamp(pitchS + 0.12, 0, 0.55) : clamp(pitchS, e.hole ? -0.62 : -0.5, 0.45)) * w; // (a sun shaft: up into the light)
       focusT = d;
       this.focusPos.set(e.x, e.y, e.z);
       if (e.interest >= 0.7 && dS < 45) speedT = 1 - 0.5 * this.curiosity;            // linger on highlights
       else if (e.interest >= 0.5 && dS < 30) speedT = 1 - 0.25 * this.curiosity;
+    }
+    if (mo) { // a signature moment (creatures/moments.js) takes the gaze and the pace by its weight
+      const w = mo.w * this.curiosity;
+      let my = mo.yaw, mp = mo.pitch;
+      if (mo.gaze) {
+        const D = this._d.set(mo.gx - cam.position.x, mo.gy - cam.position.y, (mo.gz - Oz) - cam.position.z), d = D.length();
+        if (d > 0.5) {
+          D.divideScalar(d);
+          my = clamp(Math.atan2(F.z * D.x - F.x * D.z, F.x * D.x + F.z * D.z), -0.95, 0.95);
+          mp = clamp(Math.asin(clamp(D.y, -1, 1)) - Math.asin(clamp(F.y, -1, 1)), -0.5, 0.45);
+          focusT += (d - focusT) * w;
+        }
+      }
+      yawT += (my - yawT) * w; pitchT += (mp - pitchT) * w;
+      speedT = Math.min(speedT, 1 + (mo.speed - 1) * w);
     }
     spring(this.yaw, yawT, 1.1, dt);
     spring(this.pitch, pitchT, 1.1, dt);

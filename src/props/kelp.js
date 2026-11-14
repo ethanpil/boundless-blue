@@ -303,6 +303,9 @@ export function layoutKelp(ctx) {
     }
     const m = shaftMesh(ctx, beams, U.uSunDir.value);
     if (m) extra.push(m);
+    // the strongest window beside the route: a sun-shaft pause for the camera (camera.js 'light-shaft')
+    const w = beams.find((b) => b.r0 > 1.1 && Math.abs(b.x - ctx.pathX(b.s)) > 2.5 && Math.abs(b.x - ctx.pathX(b.s)) < 13);
+    if (w) poi(ctx, 'light-shaft', w.x, ctx.surfaceY - 2.5, w.s, 4, { name: 'Sunlight through the canopy' });
   });
   return { batches: [st, kb], more, extra };
 }

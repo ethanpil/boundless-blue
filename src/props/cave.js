@@ -272,6 +272,8 @@ export function makeCaveLayout(env) {
       for (const c of clusters) {
         const yc = fs.at(c.x, c.s);
         if (c.r >= 2.5) poi(ctx, 'cave-opening', c.x, lerp(yc, ctx.surfaceY, 0.45), c.s, c.r, { r: c.r }); // real skylights only
+        // looking up through a skylight beside the route: a sun-shaft pause for the camera (camera.js 'light-shaft')
+        if (c.r >= 3 && Math.abs(c.x - ctx.pathX(c.s)) < 12) poi(ctx, 'light-shaft', c.x, ctx.surfaceY - 2.5, c.s, 4, { name: 'Skylight' });
         const n = Math.min(3, 1 + Math.floor(c.r / 4)) * comm.trees;
         for (let k = 0; k < n; k++) {
           if (rng() > ctx.weightOf(c.s, 'cave')) continue;

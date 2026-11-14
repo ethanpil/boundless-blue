@@ -12,8 +12,10 @@
 //   octopus garden  deep plain: octopuses brooding upside down in the cracks of a warm-spring field (props:
 //                   octogarden.js registers the field and its nests with an 'octopus-garden' POI)
 // Debug: ?event=sperm|hammerheads|devilrays|octopus (octopus also puts a garden in every deep plain segment), or
-// __ocean.creatures.director.triggerEvent(kind) from the console.
+// __ocean.creatures.director.triggerEvent(kind) from the console. The signature moments (moments.js) take the same
+// route: bayhunt, curtain, lampsoff, jellyarc, cathedral, strike.
 import { Obstacles } from '../obstacles.js';
+import { MOMENT_KINDS } from './moments.js';
 
 const TAU = Math.PI * 2;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
@@ -222,6 +224,7 @@ function octoGarden(dir, p, c) {
 // Debug: start an event right here (ignores zones, time of day and cooldowns where it can). Returns true if spawned.
 export function triggerEvent(dir, kind) {
   const sys = dir.sys, c = dir._c || sys.ctx, sh = sys.shape, env = sys.env;
+  if (MOMENT_KINDS.has(kind)) return dir.moments.trigger(kind);
   state(dir);
   if (kind === 'sperm') return spawnSperm(dir, c, true);
   if (kind === 'devilrays') return spawnDevil(dir, c, true);

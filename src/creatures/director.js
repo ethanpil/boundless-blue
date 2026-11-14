@@ -6,6 +6,7 @@ import { Obstacles } from '../obstacles.js';
 import { sargassumCover, blueHoleOf } from '../biomes.js';
 import { eventsTick, eventPiece, eventPrewarm, triggerEvent, eventSkip, eventRare, EVENT_POI_SPECIES } from './events.js';
 import { Pacing } from './pacing.js';
+import { Moments } from './moments.js';
 
 // [species key | 'proc:<kind>', weight, cooldown (s)]
 // target = desired simultaneous encounters, lat = max lateral offset from the camera path.
@@ -169,7 +170,8 @@ export const TABLES = {
   biobay: { cover: 3, target: 11, lat: 20, list: [
     ['combJelly', 4, 35], ['moonJelly', 2.5, 50], ['pelagia', 2, 60], ['needlefish', 3.5, 40], ['mullet', 4, 40], ['silverside', 3, 40],
     ['cassiopea', 2.5, 60], ['tarpon', 1.5, 90], ['southernRay', 1, 100], ['lemonShark', 0.8, 150], ['reefSquid', 1, 90], ['juvSnapper', 1, 70],
-  ] },
+    // after dark the tarpon come in to feed and the silverside schools gather; squid and comb jellies rise
+  ], night: [['tarpon', 3, 70], ['silverside', 3, 50], ['combJelly', 2, 50], ['needlefish', 1.5, 60], ['reefSquid', 1.5, 80], ['lemonShark', 0.6, 160]] },
   // the Arctic pack-ice edge: narwhals (tusked males with females), belugas, a bowhead, ringed and harp seals, Arctic
   // cod hiding under the floes, sea angels
   iceedge: { cover: 3, target: 11, lat: 50, ensure: { N: ['narwhal', 'beluga'], S: ['narwhal', 'beluga'] }, list: [
@@ -193,7 +195,7 @@ const REMORA_HOSTS = { whaleShark: 0.85, whaleSharkFeed: 0.9, mantaFeed: 0.5, ma
 const CURIOUS = new Map([['greenTurtle', 2], ['hawksbill', 2], ['manatee', 2], ['dugong', 2], ['potatoGrouper', 2], ['napoleon', 2], ['goliath', 2],
   ['giantSeaBass', 2], ['manta', 2], ['cuttlefish', 2], ['beluga', 4]]);
 const PLAY = new Set(['bottlenose', 'commonDolphin', 'seaLion', 'harbourSeal', 'leopardSeal', 'ringedSeal', 'harpSeal']);
-const HUNTERS = { pelagic: ['yellowfin', 'sailfish', 'commonDolphin'], kelp: ['seaLion', 'kelpBass'], polar: ['adeliePenguin'],
+export const HUNTERS = { pelagic: ['yellowfin', 'sailfish', 'commonDolphin'], kelp: ['seaLion', 'kelpBass'], polar: ['adeliePenguin'],
   reef: ['jack', 'barracuda', 'blacktip'], wall: ['jack', 'barracuda'], softcoral: ['jack', 'barracuda'], sandflat: ['jack', 'barracuda'],
   wreck: ['jack', 'barracuda'], ruins: ['jack', 'barracuda'], seagrass: ['barracuda'], mangrove: ['juvBarracuda', 'tarpon'],
   seamount: ['jack', 'barracuda', 'yellowfin', 'silkyShark', 'bluefinTrevally'], bluehole: ['jack', 'barracuda', 'bluefinTrevally'], sargassum: ['mahi'],
@@ -236,6 +238,7 @@ export class Director {
     this.emptyTime = 0; this.primed = false; this.lastSpawn = -1;
     this.forced = sys.forceSpecies || null;
     this.pace = new Pacing(this);
+    this.moments = new Moments(this); // signature moments (moments.js)
   }
 
   // Zone jump: forget everything tied to the old place (set pieces done, the blue hole, close-encounter pacing, spawn
@@ -250,6 +253,7 @@ export class Director {
     if (this._pois) this._pois.length = 0;
     if (this._ppw) this._ppw.length = 0;
     this.pace.reset();
+    this.moments.reset();
   }
 
   species(key) {
@@ -276,6 +280,7 @@ export class Director {
     }
     this.pace.tick(c);
     this.delightTick(c);
+    if (this.moments.tick(c, dt)) return;
     if (this.whaleTick(c) || this.holeTick(c) || eventsTick(this, c)) return;
     this.closeTick(c);
     if (this.poiTick(c)) return;
@@ -520,6 +525,7 @@ export class Director {
         const ps = -(e.anchorZ + e.Cz);
         plan.s0 = ps + 8; plan.l0 = e.Cx - sys.shape.pathX(ps) + (r() < 0.5 ? -6 : 6); plan.route = 'strike'; plan.zone = 'mid';
         plan.n = Math.max(1, Math.min(plan.n, sp.beh.n[1] > 20 ? 14 : 6)); plan.fadeIn = true;
+        if ((plan.kind || sp.beh.kind) === 'mill') { plan.kind = 'school'; plan.formation = 'loose'; } // (a milling ring faced its circling, not its dash: jacks slid sideways)
         const h = sys.spawn(sp, plan);
         if (h) { h.event = { type: 'strike', prey: e, t: 0, dur: 22 + r() * 10, a: r() * TAU, w: 0.28 * (r() < 0.5 ? 1 : -1) }; h.route = 'strike'; }
       }

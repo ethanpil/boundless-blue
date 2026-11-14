@@ -609,6 +609,9 @@ export function* layoutBhC(ctx, env) {
     }
     const sm = shaftMesh(ctx, beams, sun);
     if (sm) extra.push(sm);
+    // the widest beam falling into the hole: a sun-shaft pause for the camera (camera.js 'light-shaft')
+    const wb = beams.filter((b) => b.r0 > 1.2 && Math.abs(b.x - pc.x(b.s)) < 14).sort((a, b) => b.r0 - a.r0)[0];
+    if (wb && ctx.addPOI) ctx.addPOI('light-shaft', wb.x, ctx.surfaceY - 2.5, wb.s, 4, { name: 'Sunlight falling into the blue hole' });
   }
   return { batches: [near, mid, sw], extra };
 }

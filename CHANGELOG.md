@@ -7,6 +7,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 ### Added
 - Two new zones, built from published descriptions: **Lost City** (white carbonate towers on the Atlantis Massif, with a Poseidon-like landmark, mirror-like flange pools, wreckfish and cut-throat eels) and **Cold-Water Coral Reef** (Lophelia mounds in the twilight zone, with redfish, ling and tusk, and a trawl-scar set piece).
 - Four rare wildlife events, staged so the camera slows and holds: sperm whales resting upright at the surface, a scalloped hammerhead school over seamount pinnacles by day, schools of Munk's devil rays, and the Octopus Garden on the deep plain (`?event=`).
+- Signature moments: tarpon hunting in the bioluminescent bay's glow at night, silverside curtains parting around the camera in cenote light, slow tilts up into sun shafts (kelp, caves, sunken forest, blue hole), a lamps-off moment in the deep when glowing animals are near, and a composed camera arc through Jellyfish Lake.
 - `docs/SOURCES.md`: every fact added or corrected in this release, with the source that was read. Facts for 31 species that had none.
 - `G` key and More > Instruments for the full instrument cockpit.
 - `tools/shot.cjs`, a headless capture script.
@@ -28,6 +29,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 - After a zone jump the first wrecks were placed behind the camera, and the trip distance went negative.
 - On low-end devices the kelp forest left 20-30 m of bare sand along the path.
 - Sun shafts were a flat glow because of a texture-sampling bug.
+- Hunters slid sideways during strikes; they now face where they lunge.
 
 ## [2026-11-02]
 

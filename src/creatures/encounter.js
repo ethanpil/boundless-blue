@@ -138,6 +138,7 @@ export class Encounter {
     this.R = 0; this.HB = null; this.hbI = 0; this.hbT = 0; this.DLY = null; this.obsGrid = null; this.lbd = undefined; this.lbx = 0; this.lby = 0;
     this.orbA = undefined; this.calfT = undefined; this.hunted = false; this.FLASH = null; this.AX = null; this.OCL = null; this.OCT = null; this.ALT = null;
     this.IFD = null; this.recOn = false; this.recT = 0; this.recI = 0; // recycled drift swarms: per-instance fade-in, active while in their biome
+    this.recSide = 0; // (moments.js: -0.5..0.5 bias of the side recycled members land on, + = right of the path)
     this.fsq = 1; // pods / pairs bunch up (formation scale < 1) to pass rocks and walls
     this.threats = null; this.threatsNext = null; this.nThreat = 0; this.nThreatNext = 0;
     this.nearMesh = null; this.nearEntry = null; this.nearGeo = null; this.nearIdx = null; this.nearCount = 0; this.nearMark = null; this.nearCopy = null; this.nearAttrs = null;
@@ -360,7 +361,8 @@ export class Encounter {
     if (plan.calf && n >= 2) this.SZ[1] = this.SZ[0] * 0.33; // humpback mother and calf
     if (FLOCK_KINDS.has(kind)) {
       const spacing = size * (kind === 'pod' ? 2.6 : kind === 'solo' ? 1.5 : kind === 'bait' ? 2.0 : 1.9) * (kind === 'bait' ? 1 : this.moodSpacing) * (plan.spacing ?? beh.spacing ?? 1);
-      const FORM = { ellipsoid: [0.85, 0.42, 1.4], ball: [0.8, 0.8, 0.8], ribbon: [0.35, 0.3, 2.6], wall: [2.0, 1.1, 0.3], loose: [1.6, 0.7, 2.1], column: [0.5, 2.2, 0.5] };
+      const FORM = { ellipsoid: [0.85, 0.42, 1.4], ball: [0.8, 0.8, 0.8], ribbon: [0.35, 0.3, 2.6], wall: [2.0, 1.1, 0.3], loose: [1.6, 0.7, 2.1], column: [0.5, 2.2, 0.5],
+        curtain: [0.22, 1.3, 3.2] }; // (moments.js: a tall sheet across the route, the fish broadside to the camera)
       const iceAbove = sh.hasCeiling(s0);
       const fm = FORM[plan.formation] || FORM.ellipsoid;
       const R = spacing * Math.cbrt(n) * (kind === 'bait' ? 0.75 : 0.95);
@@ -1645,7 +1647,9 @@ export class Encounter {
         // camera, rocks) at its own pace, it only drives itself along that heading, and sideways motion (pushes) dies
         // away. With the wanted direction behind it, it keeps way on and swims round in an arc (pressed by the camera it
         // may slow almost to a stop and turn on the spot). Dodging a rock or a hunter it may still slip sideways.
-        const free = kind !== 'mill' && OA[i3] === 0 && OA[i3 + 1] === 0 && OA[i3 + 2] === 0 && STL[i] < 0.3 && !dash;
+        // (a hunter's lunge is driven along its heading too, startled or not: it faces where it goes, slows and turns
+        // round once past the ball instead of sliding back through it; strikes had 95th-percentile sideslip of 120-140 deg)
+        const free = kind !== 'mill' && OA[i3] === 0 && OA[i3 + 1] === 0 && OA[i3 + 2] === 0 && (STL[i] < 0.3 || strike);
         if (free) {
           const cs = h3(V[i3], V[i3 + 1], V[i3 + 2]), dl2 = h3(dvx, dvy, dvz) || 1, k = cs / dl2; // wanted direction, current speed
           this._orientFor(i, dts, dvx * k + V[i3] * 0.2, dvy * k + V[i3 + 1] * 0.2, dvz * k + V[i3 + 2] * 0.2, dt, kind);
@@ -2287,7 +2291,7 @@ export class Encounter {
       const i = this.recI = (this.recI + 1) % n, i3 = i * 3, ahead = -(P[i3 + 2] + az) - c.s;
       if (ahead > -4 && ahead < 34 && Math.abs(P[i3] - c.x) < 13) continue;
       for (let k = 0; k < 3; k++) { // lateral offsets crowd toward the camera's line (they are seen up close only there)
-        const r = rng(), s = c.s + 12 + rng() * 18, l = (rng() < 0.5 ? -1 : 1) * (1.2 + 10 * r * r), x = sh.pathX(s) + off + l;
+        const r = rng(), s = c.s + 12 + rng() * 18, l = (rng() < 0.5 - this.recSide ? -1 : 1) * (1.2 + 10 * r * r), x = sh.pathX(s) + off + l;
         const fl = sh.floorAt(x, s), ce = Math.min(sh.ceilingAt(x, s), 0);
         const lo = fl + this.mFloor, hi = Math.min(ce - this.mCeil, this.surfY), yLo = Math.max(lo, Math.min(c.y - 2.2, hi - 0.5));
         if (hi - yLo < 0.5) continue;

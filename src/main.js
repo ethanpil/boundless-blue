@@ -89,6 +89,8 @@ const env = {
   pois: { query: (s0, s1, out = []) => terrain.queryPOIs(s0, s1, out) },
   // post a short narrative note at the bottom of the screen (e.g. a surprise encounter)
   note: (text) => note(text),
+  // the viewer leaves the lamps to the dive (creatures/moments.js only dims them then)
+  get lampAuto() { return lampMode === 'auto'; },
 };
 // Props, creatures and surprises are created during the staged boot below (so the title card shows progress).
 let creatures = null, surprises = null, ambience = null;
@@ -99,6 +101,7 @@ labels.add((out) => { if (surprises && surprises.labels) surprises.labels(out); 
 
 const conditions = new Conditions(SEED, { time: qs.get('time'), weather: qs.get('weather'), dayMinutes: parseFloat(qs.get('day')) || 60 });
 const director = new CameraDirector(camera, shape);
+env.camDirector = director; // signature moments steer the camera (creatures/moments.js -> director.moment)
 
 const background = new Background(); scene.add(background.mesh);
 const surface = new Surface(); scene.add(surface.mesh);
@@ -169,6 +172,8 @@ function framingBias() {
 function placeCamera(dt, time, C) {
   rebase(-s);
   framingBias();
+  // sun-shaft pauses (camera 'light-shaft' POIs): by day, sun well up, clear sky
+  director.lightOK = C.daylight > 0.85 && C.elevAir > 0.35 && C.shaftMul > 0.9 && C.cloud < 0.45;
   const r = director.update(dt, time, s, Oz, Math.max(0.005, U.uSigma.value.y), C.surge, subjectsFn, poisFn);
   camState.s = s; camState.x = r.x; camState.y = r.y; camState.z = r.gz; camState.Oz = Oz;
   camera.getWorldDirection(camState.forward);
@@ -479,7 +484,8 @@ function updateEnvironment(C) {
   const dimLamp = smoothstep(dimAt, dimAt - 0.2, sceneLight);
   const autoLamp = Math.max(deepDark, p.cave * 0.55, C.lampAdd, dimLamp);
   // auto lamps respect a zone's cap (the bioluminescent bay needs the dark); 'on' is the viewer's override
-  U.uLamp.value = lampMode === 'on' ? Math.max(0.85, autoLamp) : lampMode === 'off' ? 0 : Math.min(P.lampMax, autoLamp);
+  // (lampDim: the deep zones' lamps-off moment, auto only)
+  U.uLamp.value = lampMode === 'on' ? Math.max(0.85, autoLamp) : lampMode === 'off' ? 0 : Math.min(P.lampMax, autoLamp) * (creatures ? creatures.lampDim : 1);
   sun.color.setRGB(C.sunColor[0], C.sunColor[1], C.sunColor[2]);
   sun.intensity = 3.0 * p.sun * C.sunMul;
   placeSun();
