@@ -495,6 +495,61 @@ BIOMES.sunkenforest.floorTint = (x, s, nn, T) => { // silt with leaf litter
 };
 BIOMES.bluehole.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.6, nn); T[3] -= 0.05 * p; T[4] += 0.03 * p; };
 
+// ---------- Lost City (added 2026-11-13) ----------
+// The alkaline hydrothermal field near the summit of the Atlantis Massif (Mid-Atlantic Ridge), about 800 m down:
+// a steep massif of dark serpentinite stepped into terraces, with white carbonate chimneys (props: nb5_lostcity.js).
+// Each segment has one landmark complex modelled on Poseidon (60 m tall). It stands on a bench cut into the slope,
+// centred beside the sharpest bend of its stretch and on the outside of it (see WorldShape.pathCurv), so it rises
+// dead ahead and the camera curves past it. A segment the camera starts in has it ~90 m ahead. {x, s, R, Rb, side}
+export function lostCityTowerOf(g) {
+  if (!g || g.key !== 'lostcity') return null;
+  if (g._lc) return g._lc;
+  const bend = (s) => pathXAt(s + 20) - 2 * pathXAt(s) + pathXAt(s - 20); // + = bending toward +x
+  const L = g.end - g.start;
+  let s = g.camStart !== undefined && g.camStart > g.start ? g.camStart + 90 : g.start + L * (0.32 + 0.2 * sv(g, 30));
+  let b = bend(s);
+  for (let t = s + 5, s0 = s; t <= s0 + 60; t += 5) { const bt = bend(t); if (Math.abs(bt) > Math.abs(b)) { b = bt; s = t; } }
+  const side = Math.abs(b) > 0.25 ? -Math.sign(b) : sv(g, 31) < 0.5 ? -1 : 1;
+  const R = 8 + 3 * sv(g, 32); // footprint radius of the complex (talus apron included)
+  // (main tower radius ~R / 2 plus its flanges, ~4 m clear of the route: the lamps light its face from ~6 m)
+  g._lc = { x: pathXAt(s) + side * (R * 0.56 + 6), s, R, Rb: R + 5, side };
+  return g._lc;
+}
+const LC_TH = 4.5; // terrace riser height scale (m)
+Object.assign(BIOMES, {
+  lostcity: {
+    label: 'Lost City', camY: -64, clearance: 5.5, len: [550, 850], weight: 0.7,
+    // (clear water, absorbing red only a little more than green and blue: the lamp-lit carbonate stays white over
+    // the 3-15 m it is seen at; with the usual deep-water red loss it came out teal)
+    sigma: [0.05, 0.035, 0.03], lightSigma: [0.05, 0.02, 0.015],
+    // (deep, near-black blue: everything that shows is lit by the lamps; the pale carbonate carries the frame)
+    deep: C(0x01070c), up: C(0x061620), sun: 0.03, caustic: 0, shafts: 0, ambient: 0.38, glow: 0.4, snow: 1.5,
+    sand: [0.46, 0.45, 0.42], rock: [0.23, 0.25, 0.23],
+    // a steep massif stepped into terraces: rising on one side of the route (its riser lines wander with fbm),
+    // falling away in terraces on the other, rough serpentinite between; a bench under the landmark complex
+    floor(x, s, ad, g, dx) {
+      const side = sv(g, 1) < 0.5 ? -1 : 1, t = dx * side + fbm2(x / 23, s / 23, 2, 301) * 7;
+      const st = LC_TH * (1 + 0.6 * sv(g, 2)), steep = 0.9 + 0.5 * sv(g, 3);
+      const terr = (u) => (Math.floor(u) + smoothstep(0.62, 1, u - Math.floor(u))) * st;
+      const up = Math.max(0, t - 8) * steep / st, dn = Math.max(0, -t - 11) * 0.75 / st;
+      let h = terr(up) - Math.min(terr(dn), 36) + fbm2(x / 7, s / 7, 3, 302) * 1.1 + ridge2(x / 16, s / 16, 3, 303) * 1.8 * smoothstep(4, 14, ad);
+      const T = lostCityTowerOf(g);
+      if (T) {
+        const d = Math.hypot(x - T.x, s - T.s);
+        if (d < T.Rb + 12) { const k = smoothstep(T.Rb + 12, T.Rb, d); h += (-1.5 + 0.4 * fbm2(x / 5, s / 5, 2, 304) - h) * k; }
+      }
+      return h;
+    },
+  },
+});
+Object.assign(META, { lostcity: { subtitle: 'white carbonate towers on the Atlantis Massif', tempC: 7, ripple: 0.15 } });
+Object.assign(BIOMES.lostcity, META.lostcity);
+// pale carbonate caps on the terrace treads (the rock faces stay dark serpentinite, a little green)
+BIOMES.lostcity.floorTint = (x, s, nn, T) => {
+  const p = smoothstep(0.3, 0.72, fbm2(x / 13, s / 13, 2, 305)), q = smoothstep(0.3, 0.7, fbm2(x / 6, s / 6, 2, 306));
+  T[0] += 0.2 * p; T[1] += 0.2 * p; T[2] += 0.18 * p; T[3] -= 0.01 * q; T[4] += 0.01 * q;
+};
+
 // Colours above are authored in sRGB; shaders work in linear light.
 const toLin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 for (const b of Object.values(BIOMES)) for (const k of ['deep', 'up', 'sand', 'rock']) b[k] = b[k].map(toLin);

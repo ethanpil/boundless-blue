@@ -2,7 +2,7 @@
 // and the `app` control API shared by the keyboard and the touch/mouse control deck (hud.js).
 import * as THREE from 'three';
 import { U, Caustics, makeNoiseTexture } from './water.js';
-import { BIOMES, BIOME_KEYS, BiomeSequence, WorldShape, sv, blueHoleOf } from './biomes.js';
+import { BIOMES, BIOME_KEYS, BiomeSequence, WorldShape, sv, blueHoleOf, lostCityTowerOf } from './biomes.js';
 import { Terrain } from './terrain.js';
 import { Background, Surface, MarineSnow } from './env.js';
 import { Post } from './post.js';
@@ -11,6 +11,7 @@ import { registerNewBiomeProps } from './props/newbiomes.js';
 import { registerNewBiomeProps2 } from './props/newbiomes2.js';
 import { registerNewBiomeProps3 } from './props/newbiomes3.js';
 import { registerNewBiomeProps4 } from './props/newbiomes4.js';
+import { registerNewBiomeProps5 } from './props/newbiomes5.js'; // Lost City
 import { Ambience } from './audio/index.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
@@ -157,6 +158,9 @@ function framingBias() {
     else if (e.key === 'bluehole') {
       const H = blueHoleOf(e.g);
       if (H) bp -= 0.28 * e.w * smoothstep(H.R + 20, H.R * 0.4, Math.hypot(shape.pathX(s) - H.x, s - H.s));
+    } else if (e.key === 'lostcity') { // Lost City: tilt up the landmark tower while passing it
+      const T = lostCityTowerOf(e.g);
+      if (T) bp += 0.22 * e.w * smoothstep(45, 8, Math.abs(s + 6 - T.s));
     }
   }
   director.biasYaw = by; director.biasPitch = bp;
@@ -273,7 +277,7 @@ const app = {
   weathers: WEATHER_KEYS, times: TIME_KEYS,
   // Instrument depth: the deep zones are rendered ~40-55 m down but depict the deep sea, so the deck's
   // depth gauge adds a nominal offset (blended across zone cross-fades) to read like the real thing.
-  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930 },
+  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736 }, // (Lost City: ~800 m)
   _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
@@ -659,6 +663,7 @@ async function boot() {
   await bootStep(0.45, 600, () => registerNewBiomeProps2(terrain, env));
   await bootStep(0.47, 150, () => registerNewBiomeProps3(terrain, env));
   await bootStep(0.57, 750, () => registerNewBiomeProps4(terrain, env));
+  await bootStep(0.58, 150, () => registerNewBiomeProps5(terrain, env)); // Lost City
   bootProgress(0.57, 'waking the sea life');
   await bootStep(0.6, 300, () => {
     creatures = new Creatures(world, env);

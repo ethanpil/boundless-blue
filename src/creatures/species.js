@@ -1817,6 +1817,39 @@ Object.assign(FAMILIES, {
   bluehole: ['Wrasse', 'Damselfish', 'Snapper', 'Fusilier', 'Grunt', 'Surgeonfish'],
 });
 
+// --- lostcity ---
+// Lost City (Atlantis Massif, ~800 m): the few larger animals seen moving about the towers. Wreckfish are common
+// there (~1 m); cut-throat eels and geryonid crabs (the deep-sea red crab's body plan) are rarer.
+Object.assign(SPECIES, {
+  wreckfish: fish({
+    det: 2,
+    body: { depth: 0.31, width: 0.56, tm: 0.34, nose: 0.62, tail: 1.35, ped: 0.14, snout: 0.12 },
+    fins: { dorsal: [{ t0: 0.26, t1: 0.5, h: 0.1, shape: 'spiny', spikes: 11 }, { t0: 0.52, t1: 0.72, h: 0.08, shape: 'round' }], anal: [{ t0: 0.58, t1: 0.72, h: 0.07 }],
+      caudal: { shape: 'truncate', size: 0.2 }, pect: { h: 0.13 } },
+    col: C(0x4c4842, 0x8e887e, 0x2a2622, 0x403c36, 0, 0x2a2a2a), eye: { r: 0.03 }, iris: 0.3, sheen: 0.15, rough: 0.5,
+    mot: { amp: 0.045, beat: 0.9, idle: 0.5 }, beh: { ...SOLO, n: [1, 2], speed: [0.15, 0.35], alt: [1, 5], dist: [5, 18] }, size: [0.9, 1.4], interest: 0.65,
+  }),
+  // (a tapered eel with a distinct head, continuous dorsal and anal fins, dull grey-brown: under the warm lamps
+  // a pale, glossy body read as a pink rod)
+  cutthroatEel: merge(EEL, {
+    det: 1, body: { depth: 0.085, width: 0.72, tm: 0.12, nose: 0.55, tail: 1.0, ped: 0.04, tEnd: 0.995, snout: 0.12 },
+    fins: { dorsal: [{ t0: 0.2, t1: 0.995, h: 0.03, shape: 'long', sweep: 0.15 }], anal: [{ t0: 0.38, t1: 0.995, h: 0.026, shape: 'long', sweep: 0.15 }],
+      pect: { t: 0.1, h: 0.035, shape: 'round' }, caudal: { shape: 'pointed', size: 0.02 } },
+    eye: { t: 0.035, v: 0.42, r: 0.013 }, iris: 0.4,
+    col: C(0x3e3630, 0x6a6058, 0x2a2420, 0x4a423a), cs: [-0.45, 0.1], sheen: 0.08, rough: 0.6,
+    beh: { kind: 'solo', n: [1, 1], zone: 'floor', alt: [0.3, 1.5], speed: [0.2, 0.45], dist: [4, 14], routes: { cross: 2, hold: 1, along: 1 } }, size: [0.45, 0.8], interest: 0.55,
+  }),
+  lcCrab: merge(SPECIES.deepCrab, { beh: { n: [1, 2], spread: 3 }, size: [0.3, 0.42] }),
+});
+for (const k of ['wreckfish', 'cutthroatEel', 'lcCrab']) { SPECIES[k].key = k; SPECIES[k].name = k; }
+S.cutthroatEel.gill = false;
+Object.assign(NAMES, { wreckfish: 'Wreckfish', cutthroatEel: 'Cut-throat eel', lcCrab: 'Geryonid crab' });
+Object.assign(FACTS, {
+  wreckfish: 'Big animals are rare here: most residents are under 1 cm, though ~1 m wreckfish are common.',
+  cutthroatEel: 'Wreckfish, cut-throat eels and geryonid crabs are the larger animals seen moving about Lost City.',
+  lcCrab: 'Rare larger animals here include crabs, shrimp, sea urchins, eels and a diverse array of corals.',
+});
+
 export function commonName(sp) {
   const k = sp.key || '';
   if (k.startsWith('proc:')) {

@@ -20,6 +20,7 @@ const LIFE = {
   bluehole: [0.7, 0.05], otterkelp: [0.85, 0.5], whaleshark: [0.15, 0.1], biobay: [0.3, 0.45], iceedge: [0.25, 0.6],
   hadal: [0.08, 0.9],
 };
+LIFE.lostcity = [0.06, 0.85]; // Lost City: bare serpentinite, a trace of pale microbial film
 const TINT = new Float32Array(6);
 
 // Travel distance of row j (-1 .. NZ) of chunk idx: the rows a chunk build samples.

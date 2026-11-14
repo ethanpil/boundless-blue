@@ -69,6 +69,35 @@ Rules for new facts: one sentence, at most 140 characters, plain language. Prefe
 
 ## New zones
 
+### Lost City (`lostcity`)
+
+| Where it appears | Fact text | Source | URL |
+|---|---|---|---|
+| Giant carbonate tower | Lost City's tallest tower, Poseidon, rises 60 m: the largest known hydrothermal structure when measured. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Active carbonate chimney | These white towers are limestone-like carbonate, not metal sulfide, built by warm alkaline fluid meeting seawater. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Active carbonate chimney (variant) | Vent fluid here is 40-91 °C and strongly alkaline (pH 9-11), far cooler than black smokers above 300 °C. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Young carbonate spire | Young vents grow delicate beehive-like deposits and snow-white branching fingers of carbonate. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Inactive carbonate chimney | Old, inactive chimneys turn brown and knobby and are colonised by corals. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Carbonate tower | Individual Lost City chimneys date from 17 years old to about 120,000 years old. | Ludwig et al. 2011, Geochimica et Cosmochimica Acta (abstract) | https://experts.umn.edu/en/publications/u-th-systematics-and-sup230sup-th-ages-of-carbonate-chimneys-at-t/ |
+| Carbonate tower | The reactions make hydrogen and methane, which microbes can use as food without sunlight. | Kelley et al. 2007, Oceanography 20(4) | https://tos.org/oceanography/assets/docs/20-4_kelley.pdf |
+| Carbonate tower | Lost City was found in December 2000 by a camera survey from the research ship Atlantis, about 800 m deep. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Flange pool | Ledges called flanges trap pools of 40-55 °C vent fluid beneath them, with a mirror-like surface. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Fallen chimney | Fallen chimney pieces up to several metres long lie at the base of towers, cemented by newer carbonate. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Carbonate talus | Lost City is the longest-lived hydrothermal system known to date. | Ludwig et al. 2011, Geochimica et Cosmochimica Acta (abstract) | https://experts.umn.edu/en/publications/u-th-systematics-and-sup230sup-th-ages-of-carbonate-chimneys-at-t/ |
+| Serpentinite | Heat comes from seawater reacting with mantle rock (serpentinization), not from magma. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Carbonate veins | Branching carbonate veins run through the rock: one of the four kinds of carbonate deposit mapped here. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Cold-water coral (Lost City) | Corals are especially abundant at the top of the massif, where strong currents are frequent. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Demosponge | Demosponges live on the friable flanges here, with tiny polychaetes, amphipods, ostracods and foraminifera. | Kelley et al. 2007, Oceanography 20(4) | https://tos.org/oceanography/assets/docs/20-4_kelley.pdf |
+| Wreckfish | Big animals are rare here: most residents are under 1 cm, though ~1 m wreckfish are common. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Cut-throat eel | Wreckfish, cut-throat eels and geryonid crabs are the larger animals seen moving about Lost City. | Kelley et al. 2007, Oceanography 20(4) | https://tos.org/oceanography/assets/docs/20-4_kelley.pdf |
+| Geryonid crab | Rare larger animals here include crabs, shrimp, sea urchins, eels and a diverse array of corals. | Kelley 2005, Oceanography 18(3) | https://tos.org/oceanography/assets/docs/18-3_kelley.pdf |
+| Deck water temperature (7 °C) | Ambient bottom water in the area was measured at 7 °C. | Kelley et al. 2001, Nature 412:145-149 | https://doi.org/10.1038/35084000 |
+
+The water absorption, lamp reach and faint self-lit glow on the carbonate are picture choices, not measurements.
+Nothing on screen states how curious wreckfish are, or where sediment lies: the sources do not say.
+
+### Cold-Water Coral Reef (`coldcoral`)
+
 (to be filled in)
 
 ## New events

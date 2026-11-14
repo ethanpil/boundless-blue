@@ -50,6 +50,8 @@ const GRADE = {
   iceedge:      [0.96, 1.1, 0.15, 0.1, 0, 0.004, 0.01, 0.98, 1.0, 1.03],
   hadal:        [1.1, 1.2, 0, 0.25, 0, 0.001, 0.003, 1.0, 1.0, 1.0],
 };
+// (Lost City: strong white balance against the water cast, so lamp-lit carbonate reads white, not teal)
+GRADE.lostcity = [1.02, 1.15, 0.45, 0.15, 0, 0.001, 0.003, 1.03, 1.01, 1.0, 0.7]; // (last: subject colour restoration)
 const GRADE_DEFAULT = [1.12, 1.1, 0.2, 0.2, 0, 0.003, 0.006, 1.02, 1.0, 0.98];
 const _G = new Float32Array(11);
 

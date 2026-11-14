@@ -197,6 +197,9 @@ const HUNTERS = { pelagic: ['yellowfin', 'sailfish', 'commonDolphin'], kelp: ['s
 const WHALE_ZONES = new Set(['pelagic', 'seamount', 'wall', 'bluehole', 'sargassum']);
 // lamp-lit deep zones: no shallow-water species once they dominate the blend
 const DEEP_ZONES = new Set(['abyss', 'deepplain', 'vents', 'hadal']);
+// --- lostcity --- (~800 m, lamp-lit: sparse, as in reality; wreckfish hold near the towers)
+TABLES.lostcity = { cover: 1.6, target: 4, lat: 18, list: [['wreckfish', 4, 40], ['cutthroatEel', 2.5, 60], ['lcCrab', 2, 60]] };
+DEEP_ZONES.add('lostcity');
 const CLOSE_SKIP = new Set(['strike', 'play', 'lunge', 'circle', 'curious', 'majestic', 'swirl', 'shadow']);
 // species a set piece will need (prebuilt in idle time when such a POI is coming up)
 const POI_SPECIES = { 'cleaning-station': ['manta', 'cleanerWrasse'], 'whale-fall': ['hagfish', 'rattail', 'deepCrab', 'sleeperShark'],
@@ -206,6 +209,7 @@ const POI_SPECIES = { 'cleaning-station': ['manta', 'cleanerWrasse'], 'whale-fal
   'mangrove-roots': ['juvSnapper', 'grunt', 'juvBarracuda'], statue: ['jack', 'snapper'], giant: ['jack', 'snapper'], arch: ['jack', 'snapper'], treasure: ['moray', 'spotMoray'],
   anemone: ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown', 'cleanerShrimp', 'dominoDamsel'] };
 Object.assign(POI_SPECIES, EVENT_POI_SPECIES); // events 2026-11 (events.js)
+Object.assign(POI_SPECIES, { 'lc-tower': ['wreckfish'], 'lc-flange': ['lcCrab'] }); // Lost City
 const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
@@ -391,6 +395,10 @@ export class Director {
         if (r() < 0.3) this.spawnAt(r() < 0.6 ? 'dominoDamsel' : 'humbug', p, { kind: 'hover', homeY: p.y + 0.25, n: 3 + Math.floor(r() * 6), spread: rad * 1.3 + 0.3, altMul: 0.5, noSeek: true });
         return !!fam;
       }
+      case 'lc-tower': // Lost City: a wreckfish (sometimes two) holding beside the landmark tower
+        return !!this.spawnAt('wreckfish', p, { kind: 'hover', homeY: p.data && p.data.yh !== undefined ? p.data.yh : p.y - 6, n: 1 + (r() < 0.3 ? 1 : 0) });
+      case 'lc-flange': // now and then a geryonid crab on the rock below a flange tower
+        return r() < 0.45 && !!this.spawnAt('lcCrab', p, { n: 1 });
       default: return eventPiece(this, p, c); // rare wildlife events at pinnacles and the octopus garden (events.js)
     }
   }

@@ -34,6 +34,7 @@ const PROFILE = {
   jellylake: {}, sunkenforest: { kelp: 0.5 }, anemone: { shrimp: 0.7 }, bluehole: { cave: 0.4, song: 0.3 },
   otterkelp: { kelp: 1, shrimp: 0.4, wash: 1.3 }, whaleshark: { song: 0.7 }, biobay: { shrimp: 0.9 },
   iceedge: { ice: 0.8, song: 0.6, seal: 1 }, hadal: { hum: 1 },
+  lostcity: { hum: 0.8, vent: 0.15 }, // Lost City: the deep hum; its vents only weep, so barely a hiss
 };
 for (const k in PROFILE) PROFILE[k] = { ...Z0, ...PROFILE[k] };
 // species key -> call voice

@@ -16,6 +16,8 @@ const POI_INTEREST = {
 };
 // --- events 2026-11 --- (the garden's POI sits below the floor, so the camera looks down across it while it slows)
 Object.assign(POI_INTEREST, { 'octopus-garden': 0.95 });
+// Lost City: the landmark tower (its POI sits ~11 m above the route, so watching it tilts the view up the tower)
+Object.assign(POI_INTEREST, { 'lc-tower': 0.85, 'lc-flange': 0.55 });
 
 // critically damped spring toward target (x, v) -> mutates state object {x, v}
 function spring(st, target, omega, dt) {
