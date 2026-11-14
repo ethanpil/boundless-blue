@@ -4,7 +4,7 @@
 // on top of rock_gen.js palettes, weighted picking and small placement helpers.
 import * as THREE from 'three';
 import { applyWater } from '../water.js';
-import { Builder, TAU, vn3, sat, sstep, lerp, releaseAfterUpload, CHUNK } from './core.js';
+import { Builder, TAU, vn3, sat, sstep, lerp, releaseAfterUpload, CHUNK, spatialSort } from './core.js';
 import { paletteOf } from './rock_gen.js';
 import { registerNB, finishNB, surfGrid, rayY, basePts } from './nb_common.js';
 import { MAT } from './materials.js';
@@ -575,6 +575,7 @@ export function stagedNB2(layout, nBuild = 16, verts = 18000) {
     cache.set(ctx.group, L);
     registerNB(ctx, L.batches, L.labels);
     if (L.pois && ctx.addPOI) for (const p of L.pois) ctx.addPOI(p.type, p.x, p.y, p.s, p.r, p.data);
+    for (const b of L.batches) if (b && b.items.length && b.vc > (b.jobVerts || verts)) spatialSort(b, ctx); // after registration
   };
   const buildJobs = (st, last) => {
     const jobs = last ? st.jobs.slice(st.j) : st.jobs.slice(st.j, st.j + 1);
@@ -602,7 +603,7 @@ export function stagedNB2(layout, nBuild = 16, verts = 18000) {
     if (!L || !L.jobs || L.j >= L.jobs.length) { cache.delete(ctx.group); return null; }
     const parts = buildJobs(L, last);
     if (L.j >= L.jobs.length) cache.delete(ctx.group);
-    return finishNB(parts);
+    return finishNB(parts, ctx.tier);
   };
   const pops = [(ctx) => {
     const r = layout(ctx);

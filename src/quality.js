@@ -43,17 +43,22 @@ export function tierFor(g, ua = '', touchMac = false, cores = 4) {
   if (PHONE.test(ua)) return 'low';                                                // phones
   if (touchMac || /iPad/i.test(ua)) return 'medium';                               // tablets
   if (/SwiftShader|llvmpipe|softpipe|Software|Basic Render/i.test(g)) return 'low'; // CPU rasterisers
+  if (/Adreno\D*X\d/i.test(g)) return 'medium';                                     // Snapdragon X laptops (Adreno X1-85): Iris Xe class
   if (/Mali|Adreno|PowerVR|Tegra|VideoCore|Immortalis/i.test(g)) return 'low';     // ARM laptops, Chromebooks
   if (!g) return cores >= 8 ? 'medium' : 'low';                                     // renderer hidden: be modest
   if (ULTRA.test(g)) return 'ultra';
-  if (/Apple/i.test(g)) return 'high';                                              // Apple Silicon ("Apple M2", "Apple GPU")
+  // Apple Silicon ("Apple M2"); Safari reports every Mac as "Apple GPU", and only Apple Silicon has 8+ cores everywhere
+  if (/Apple/i.test(g)) return /Apple M\d/i.test(g) || cores >= 8 ? 'high' : 'medium';
   if (/Intel/i.test(g)) {
     if (/Arc\(TM\) [AB]\d{3}|Arc [AB]\d{3}/i.test(g)) return 'high';               // discrete Arc A770, B580
+    if (/Iris(\(R\)|\(TM\))?\s*Graphics\s*[56]\d00\b/i.test(g)) return 'low';        // Haswell / Broadwell Iris 5100, 6100 (not Iris Pro): HD 4600 class
     return /Iris|Xe|Arc/i.test(g) ? 'medium' : 'low';                               // Iris / Xe / Arc iGPU vs HD / UHD
   }
   if (/AMD|Radeon|ATI/i.test(g)) {
     if (/RX\s?\d|Pro\s?W?\d{3,4}|R9|Vega\s?(56|64)|Radeon VII/i.test(g)) return 'high'; // discrete
-    return 'medium';                                                                  // Vega / 680M / 780M integrated
+    // old APUs (Kaveri / Carrizo "R7 Graphics", "HD 8610G", Vega 3) and the 2-CU Radeon 610M
+    if (/\b(R[2-7]|Vega\s?[23])\s+Graphics|HD\s?\d{4}[GD]\b|\b6[01]0M\b/i.test(g)) return 'low';
+    return 'medium';                                                                  // Vega 6-11 / 680M / 780M integrated
   }
   if (/NVIDIA|GeForce|Quadro|RTX|GTX|Tesla/i.test(g)) {
     return /MX\s?\d|GT\s?\d{3}|NVS|GeForce \d{3}M?\b|GTX\s?(6|7)\d0M?\b/i.test(g) ? 'medium' : 'high';
@@ -112,12 +117,12 @@ export const qualityController = () => ACTIVE;
 export class AdaptiveResolution {
   constructor(renderer, onResize, preset, fpsCap, enabled) {
     this.renderer = renderer; this.onResize = onResize; this.preset = preset;
-    const dpr = window.devicePixelRatio || 1, phone = preset === PRESETS.low && PHONE.test(navigator.userAgent);
-    this.baseDPR = Math.min(dpr, phone ? 1 : preset.dprMax);   // pixel ratio at scale 1
-    this.scaleMax = phone && enabled ? Math.max(1, Math.min(dpr, 2) / this.baseDPR) : 1;
+    const phone = this.phone = preset === PRESETS.low && PHONE.test(navigator.userAgent);
+    this.enabled = enabled;
+    this._dpr();
     this.scale = phone ? 1 : preset.resStart;
     this.resMin = preset.resMin ?? 0.5;
-    this.fpsCap = fpsCap; this.enabled = enabled;
+    this.fpsCap = fpsCap;
     this.frameAvg = 16; this.timer = 0; this.age = 0;
     this.bonus = preset === PRESETS.high && enabled;
     this.ladder = featureLadder(preset, this.bonus);
@@ -126,9 +131,28 @@ export class AdaptiveResolution {
     this.features = this.ladder[this.level];
     this.post = null; this.sun = null;
     this.slowFor = 0; this.roomFor = 0; this.sinceUp = 1e9; this.stableFor = 0; this.backoff = 0;
-    this.lastDown = 'res'; this.lastUp = 'feat';
+    this.lastDown = 'res'; this.lastUp = 'feat'; this.undo = null; // undo: state before the last step up
     renderer.setPixelRatio(this.baseDPR * this.scale);
+    this._watchDPR();
     ACTIVE = this;
+  }
+  // Pixel ratio at scale 1 (capped by the preset) and how far a phone may climb past it, from the screen's density.
+  _dpr() {
+    const dpr = window.devicePixelRatio || 1;
+    this.baseDPR = Math.min(dpr, this.phone ? 1 : this.preset.dprMax);
+    this.scaleMax = this.phone && this.enabled ? Math.max(1, Math.min(dpr, 2) / this.baseDPR) : 1;
+  }
+  // Follow the window to a screen of another density (or a browser zoom): otherwise a window moved from a 1x to a
+  // 2x monitor stays blurry, or the reverse keeps paying for 2x. The scale (and the feature level) are kept.
+  _watchDPR() {
+    if (typeof matchMedia !== 'function') return;
+    const mq = matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`);
+    const on = () => { if (mq.removeEventListener) mq.removeEventListener('change', on); this.dprChanged(); this._watchDPR(); };
+    if (mq.addEventListener) mq.addEventListener('change', on);
+  }
+  dprChanged() {
+    this._dpr();
+    this._setScale(Math.min(this.scale, this.scaleMax));
   }
   get fps() { return 1000 / this.frameAvg; }
   get gpuMs() { return this.post && this.post.gpuValid ? this.post.gpuMs : 0; }
@@ -155,6 +179,17 @@ export class AdaptiveResolution {
     this.onResize();
   }
   _down() {
+    // the last step up was too optimistic: undo exactly that step. A regular step down (0.08) after a 0.04 step
+    // up overshot below where it started, and the next probe climbed back: a resize every few minutes.
+    if (this.sinceUp < 12 && this.undo) {
+      const u = this.undo; this.undo = null;
+      if (u.scale !== this.scale) this._setScale(u.scale);
+      if (u.level !== this.level) { this.level = u.level; this.features = this.ladder[u.level]; this._apply(); }
+      this.backoff = Math.min(5, this.backoff + 1);
+      this.stableFor = 0;
+      return;
+    }
+    this.undo = null;
     const canF = this.level < this.ladder.length - 1, canR = this.scale > this.resMin + 1e-3, hi = this.scale > 1 + 1e-3;
     // density above scale 1 goes first; then mild resolution drops (down to 0.76) alternate with feature drops,
     // and deeper drops come only once features are gone
@@ -168,9 +203,11 @@ export class AdaptiveResolution {
     const canF = this.level > this.minLevel, canR = this.scale < this.scaleMax - 1e-3, hi = this.scale > 1 - 1e-3;
     // past scale 1 (phones) only once every feature is back
     const res = canR && (this.scale < 0.76 || !canF || (this.lastUp === 'feat' && !hi));
+    const prev = { scale: this.scale, level: this.level };
     if (res) { this._setScale(Math.min(hi ? this.scaleMax : 1, +(this.scale + (hi ? 0.1 : 0.04)).toFixed(2))); this.lastUp = 'res'; }
     else if (canF) { this.features = this.ladder[--this.level]; this._apply(); this.lastUp = 'feat'; }
     else return;
+    this.undo = prev;
     this.sinceUp = 0;
   }
   update(dt) {

@@ -511,10 +511,12 @@ export class Batch {
     const pos = new Float32Array(vc * 3), nor = new Float32Array(vc * 3);
     const col = new Float32Array(vc * 3), fx = new Float32Array(vc * 2);
     const idx = vc > 65535 ? new Uint32Array(ic) : new Uint16Array(ic);
-    let vo = 0, io = 0;
+    let vo = 0, io = 0, itemR = 0;
     for (let q = i0; q < i1; q++) {
       const it = this.items[q];
       const t = it.tpl, R = it.R, sx = it.sx, sy = it.sy, sz = it.sz;
+      const ext = Math.max(t.r ?? 99, (t.maxY - t.minY) || 0) * Math.max(sx, sy, sz); // largest item (far culling, finish)
+      if (!(ext <= itemR)) itemR = ext;
       const r0 = R[0], r1 = R[1], r2 = R[2], r3 = R[3], r4 = R[4], r5 = R[5], r6 = R[6], r7 = R[7], r8 = R[8];
       const P = t.pos, N = t.nor, C = t.col, F = t.fx, tx = it.x, ty = it.y, tz = it.z;
       const cr = it.cr, cg = it.cg, cb = it.cb, fa = it.fa, ko = it.ko;
@@ -563,6 +565,7 @@ export class Batch {
     const m = new THREE.Mesh(g, this.mat);
     m.matrixAutoUpdate = false;
     if (this.lod) m.userData.lod = this.lod;
+    m.userData.itemR = itemR;
     return m;
   }
 }
@@ -811,19 +814,22 @@ export function presence(ctx, key) {
 // merge work goes out one job per stage (<= VERTS_PER_STAGE vertices). The last stage flushes whatever is left.
 const VERTS_PER_STAGE = 10000, STAGE_BUDGET = 2; // vertices per merge stage; ms of layout continuations per stage
 const morton = (i, j) => { let k = 0; for (let b = 0; b < 4; b++) k |= ((i >> b) & 1) << (2 * b) | ((j >> b) & 1) << (2 * b + 1); return k; };
+// Spatially coherent slices: items in Z-order over 16 m tiles, so each merged slice is a compact patch with a tight
+// bounding sphere; frustum culling then drops the parts behind or beside the camera, and per-slice LOD works.
+// Only the order of the merge changes (what is placed, and where, stays the same). Sort after registration.
+export function spatialSort(b, ctx) {
+  if (!(b instanceof Batch)) return; // other mergers (crusts, nb4 fillItems) keep their own order
+  const px = ctx.pathX(ctx.s0 + 32);
+  for (const it of b.items) it._k = morton(Math.max(0, Math.min(15, Math.floor(-it.z / 16))), Math.max(0, Math.min(15, Math.floor((it.x - px) / 16 + 8))));
+  b.items.sort((p, q) => p._k - q._k);
+}
 export function staged(layout, nBuild = 96) { // ~3x the stages a reef chunk needs here; an idle stage costs ~1 us
   const cache = new WeakMap();
   const plan = (ctx, L) => { // slice into merge jobs; queue the registration steps
     L.jobs = [];
     for (const b of L.batches) {
       if (!b || !b.items.length) continue;
-      // spatially coherent slices: items in Z-order over 16 m tiles, so each merged slice is a compact
-      // patch with a tight bounding sphere and frustum culling drops the parts behind or beside the camera
-      if (b.vc > VERTS_PER_STAGE) {
-        const px = ctx.pathX(ctx.s0 + 32);
-        for (const it of b.items) it._k = morton(Math.max(0, Math.min(15, Math.floor(-it.z / 16))), Math.max(0, Math.min(15, Math.floor((it.x - px) / 16 + 8))));
-        b.items.sort((p, q) => p._k - q._k);
-      }
+      if (b.vc > VERTS_PER_STAGE) spatialSort(b, ctx);
       const n = Math.max(1, Math.ceil(b.vc / VERTS_PER_STAGE));
       for (let k = 0; k < n; k++) L.jobs.push([b, k, n]);
     }
@@ -866,25 +872,37 @@ export function staged(layout, nBuild = 96) { // ~3x the stages a reef chunk nee
 // Assemble populator output from batches / meshes
 // Per-mesh LOD (same distances as the core's per-chunk LOD): each 'near' / 'mid' slice sits in a
 // THREE.LOD at its bounding-sphere centre, so a slice is hidden by its own distance, not its chunk's.
-const LOD_DIST = { high: { near: 70, mid: 150 }, low: { near: 45, mid: 100 } };
+// Low tier only: merged slices of small items (each under FAR_ITEM m) also stop at `far`. There the water lets
+// through under ~5% of their contrast and the composite has softened them; set pieces, big rocks and the terrain
+// keep the full fog distance. Visibility only: obstacles, labels and POIs stay registered.
+const LOD_DIST = { high: { near: 70, mid: 150 }, low: { near: 45, mid: 100, far: 150 } };
+const FAR_ITEM = 3.5;
+export function lodDistance(m, tier) {
+  if (!tier) return 0;
+  const D = LOD_DIST[tier === 'low' ? 'low' : 'high'];
+  if (m.userData.lod) return D[m.userData.lod] || 0;
+  return D.far && m.userData.itemR > 0 && m.userData.itemR < FAR_ITEM ? D.far : 0;
+}
+// Add mesh m to group g, inside a THREE.LOD at its bounding-sphere centre when it has a draw distance.
+export function addLod(g, m, d) {
+  const bs = d && (m.isInstancedMesh ? m.boundingSphere : m.geometry.boundingSphere);
+  if (!bs) { g.add(m); return; }
+  const lod = new THREE.LOD();
+  lod.position.copy(bs.center); lod.updateMatrix(); lod.matrixAutoUpdate = false;
+  m.position.copy(bs.center).negate(); m.updateMatrix();
+  lod.addLevel(m, 0); lod.addLevel(new THREE.Object3D(), d);
+  g.add(lod);
+}
 export function finish(parts, tier = null) {
   const g = new THREE.Group();
   g.matrixAutoUpdate = false;
-  const meshes = [], D = tier ? LOD_DIST[tier === 'low' ? 'low' : 'high'] : null;
+  const meshes = [];
   for (const p of parts) {
     if (!p) continue;
     const m = p.build ? p.build() : p;
     if (!m) continue;
     meshes.push(m);
-    const d = D && m.userData.lod && D[m.userData.lod];
-    const bs = d && (m.isInstancedMesh ? m.boundingSphere : m.geometry.boundingSphere);
-    if (bs) {
-      const lod = new THREE.LOD();
-      lod.position.copy(bs.center); lod.updateMatrix(); lod.matrixAutoUpdate = false;
-      m.position.copy(bs.center).negate(); m.updateMatrix();
-      lod.addLevel(m, 0); lod.addLevel(new THREE.Object3D(), d);
-      g.add(lod);
-    } else g.add(m);
+    addLod(g, m, lodDistance(m, tier));
   }
   if (!meshes.length) return null;
   return {

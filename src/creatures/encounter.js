@@ -2613,7 +2613,10 @@ export class Encounter {
   _lodTick(c) {
     const sp = this.sp, cache = this.sys.cache;
     if (sp.plan === 'siphon') return;
-    const d = this.dist, want = d > 48 ? -1 : d < 40 ? 0 : this.lod;
+    // low tier: by apparent size, so a fish switches when it looks as small as a 3 m animal does at 48 m (~1/16 rad
+    // long); never nearer than 24 m, and 3 m+ animals keep 48 m
+    const far = this.sys.tierScale < 0.7 ? Math.min(48, Math.max(24, this.baseSize * 16)) : 48;
+    const d = this.dist, want = d > far ? -1 : d < far - 8 ? 0 : this.lod;
     if (want !== this.lod) {
       const k = want + 1;
       if (!this.lodGeo[k] && cache.has(sp, want)) { this.lodEntry[k] = cache.acquire(sp, want); this.lodGeo[k] = this._makeGeo(this.lodEntry[k]); }

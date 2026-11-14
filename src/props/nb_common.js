@@ -3,7 +3,7 @@
 // exact seating on any support surface, a cached flight-tube clearance test, staged merging with LOD tags,
 // labels with facts, and per-populator stats.
 import * as THREE from 'three';
-import { TUBE, LENS, LOW_GAP, CHUNK, alignY, rotY, mul3, releaseAfterUpload } from './core.js';
+import { TUBE, LENS, LOW_GAP, CHUNK, alignY, rotY, mul3, releaseAfterUpload, spatialSort, lodDistance, addLod } from './core.js';
 import { applyWater } from '../water.js';
 
 export const NBSTATS = { init: 0, pops: {} };
@@ -354,6 +354,7 @@ export function stagedNB(layout, nBuild = 8) {
     cache.set(ctx.group, L);
     registerNB(ctx, L.batches, L.labels);
     if (L.pois && ctx.addPOI) for (const p of L.pois) ctx.addPOI(p.type, p.x, p.y, p.s, p.r, p.data);
+    for (const b of L.batches) if (b && b.vc > VERTS_PER_STAGE) spatialSort(b, ctx); // after registration (see core.js)
     return L.extra && L.extra.length ? L.extra : [];
   };
   const buildJobs = (st, last) => {
@@ -375,30 +376,32 @@ export function stagedNB(layout, nBuild = 8) {
       if (!v.done) return null;
       if (!v.value) { cache.delete(ctx.group); return null; }
       const extra = finalize(ctx, v.value);
-      if (!last) return finishNB(extra);
+      if (!last) return finishNB(extra, ctx.tier);
       const L = cache.get(ctx.group);
       cache.delete(ctx.group);
-      return finishNB([...extra, ...buildJobs(L, true)]);
+      return finishNB([...extra, ...buildJobs(L, true)], ctx.tier);
     }
     if (st.j >= st.jobs.length) { cache.delete(ctx.group); return null; }
     const parts = buildJobs(st, last);
     if (st.j >= st.jobs.length) cache.delete(ctx.group);
-    return finishNB(parts);
+    return finishNB(parts, ctx.tier);
   };
   const pops = [(ctx) => {
     const r = layout(ctx);
     if (!r) return null;
     if (typeof r.next === 'function') { cache.set(ctx.group, { gen: r }); return step(ctx, false); }
-    return finishNB(finalize(ctx, r));
+    return finishNB(finalize(ctx, r), ctx.tier);
   }];
   for (let k = 0; k < nBuild; k++) pops.push((ctx) => step(ctx, k === nBuild - 1));
   return pops;
 }
-export function finishNB(parts) {
+// tier 'low': per-slice draw distances as core.js finish() (near / mid tags, far for small items); other tiers keep
+// the terrain's per-chunk LOD for tagged meshes (unchanged look there)
+export function finishNB(parts, tier = null) {
   const g = new THREE.Group();
   g.matrixAutoUpdate = false;
   const meshes = parts.filter(Boolean);
-  for (const m of meshes) g.add(m);
+  for (const m of meshes) addLod(g, m, tier === 'low' ? lodDistance(m, tier) : 0);
   if (!meshes.length) return null;
   return { object: g, dispose() { for (const m of meshes) m.geometry.dispose(); } };
 }
