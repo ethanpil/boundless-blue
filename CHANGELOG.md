@@ -2,6 +2,30 @@
 
 All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-11-14]
+
+### Added
+- Two new zones, built from published descriptions: **Lost City** (white carbonate towers on the Atlantis Massif, with a Poseidon-like landmark, mirror-like flange pools, wreckfish and cut-throat eels) and **Cold-Water Coral Reef** (Lophelia mounds in the twilight zone, with redfish, ling and tusk, and a trawl-scar set piece).
+- Four rare wildlife events, staged so the camera slows and holds: sperm whales resting upright at the surface, a scalloped hammerhead school over seamount pinnacles by day, schools of Munk's devil rays, and the Octopus Garden on the deep plain (`?event=`).
+- `docs/SOURCES.md`: every fact added or corrected in this release, with the source that was read. Facts for 31 species that had none.
+- `G` key and More > Instruments for the full instrument cockpit.
+- `tools/shot.cjs`, a headless capture script.
+
+### Changed
+- Calmer controls: one tap shows a single labelled bar (zone, what is next, pause, next zone, zones, time, weather, sound, identify, fullscreen, More). The instrument cockpit is optional and remembered. Cockpit labels use plain words, settings are grouped with one-line explanations, and the zone picker is grouped.
+- Water and light: finer caustics in the shallows that soften with depth; distinct sun shafts that slant at dusk and fade under cloud; a rippling surface and blue Snell's window seen from below; soft out-of-focus motes near the lens; no dark tunnel at the frame edges.
+- Lighter on low-end GPUs: 17-30% fewer triangles per frame in the wall, soft-coral, mangrove and seamount zones with no visible change; better GPU detection (Snapdragon X, old Iris and AMD APUs, Intel Macs); resolution follows the window between screens and no longer oscillates.
+- The share link carries the zone you are in after a zone jump.
+
+### Fixed
+- 21 facts that were wrong or misleading (for example flying fish gliding "50 m above the waves" was a distance, not a height; depth records for snailfish and cusk-eels; giant clam and barrel sponge ages).
+- A phone that put the page in the background could come back to a frozen picture (lost WebGL context); it now reloads into the same seed and zone.
+- `speed=abc`, `seed=abc` or `start=abc` in the URL blacked out the world; unknown `quality` and `biome` values are ignored.
+- The title card could stay stuck after a failed start or when a worker never answered.
+- After a zone jump the first wrecks were placed behind the camera, and the trip distance went negative.
+- On low-end devices the kelp forest left 20-30 m of bare sand along the path.
+- Sun shafts were a flat glow because of a texture-sampling bug.
+
 ## [2026-11-02]
 
 ### Added

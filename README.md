@@ -18,17 +18,18 @@ Then open http://localhost:8000. (`tools/serve.py` disables caching so edited mo
 
 ## Controls
 
-Tap or click anywhere to open the **control deck**: zone, depth gauge, compass, speed, water current, temperature, visibility, clock, weather, sonar, dive log, and buttons for every function below (zones, time, weather, lamps, camera mode, quality, wake lock, share link). It hides itself when idle. Everything works by touch or mouse; the keyboard shortcuts remain. The quick row beside the menu toggles identify mode, lamps, sound and fullscreen. With identify mode on, a tap names whatever is under it, and the deck opens from its handle instead. New-species alerts can be switched off under Systems.
+Tap or click anywhere to open the **controls**: a single bar with the current zone, what comes next, and labelled buttons for pause, next zone, zones, time, weather, sound, identify, fullscreen and More (lamps, speed, camera, captions, names, alerts, wake lock, quality, share link). It hides itself when idle. For the full **instrument cockpit** (depth gauge, compass, sonar, clock, environment readouts, dive log), turn on More > Instruments or press `G`; the choice is remembered. Everything works by touch or mouse; the keyboard shortcuts remain. With identify mode on, a tap names whatever is under it, and the controls open from their handle instead. New-species alerts can be switched off under More.
 
 Ambient sound (generated in the browser, no audio files) starts on the first tap or key press, because browsers block autoplay.
 
 The screen is kept awake while the dive is visible (where the browser supports it; `wake=0` turns this off).
 
-The share link reproduces the world (seed and starting zone) without your own settings such as quality, frame cap, wake lock or a locked time and weather.
+The share link reproduces the world (seed and the zone you are in) without your own settings such as quality, frame cap, wake lock or a locked time and weather.
 
 | Key | Action |
 | --- | --- |
-| `M` / `Tab` | open the control deck (`Esc` closes it) |
+| `M` / `Tab` | open the controls (`M` again: instruments; `Esc` closes) |
+| `G` | instrument cockpit on / off |
 | `H` | toggle zone captions |
 | `I` | show names of creatures and objects on screen (with a fun fact for whatever the camera is watching) |
 | `T` | skip ahead in time of day |
@@ -47,7 +48,7 @@ The share link reproduces the world (seed and starting zone) without your own se
 | Param | Meaning |
 | --- | --- |
 | `seed=<int>` | fixed world seed (default: random each load) |
-| `biome=<key>` | starting zone: `reef softcoral wall kelp seagrass mangrove sandflat pelagic cave wreck ruins vents deepplain tidepool abyss polar seamount sargassum champagne jellylake sunkenforest anemone bluehole otterkelp whaleshark biobay iceedge hadal` (default: random) |
+| `biome=<key>` | starting zone: `reef softcoral wall kelp seagrass mangrove sandflat pelagic cave wreck ruins vents deepplain tidepool abyss polar seamount sargassum champagne jellylake sunkenforest anemone bluehole otterkelp whaleshark biobay iceedge hadal lostcity coldcoral` (default: random) |
 | `time=<phase>` | starting time of day: `dawn morning day afternoon dusk night` (default: random) |
 | `weather=<kind>` | lock the weather: `clear crystal overcast rain plankton surge` |
 | `day=<minutes>` | length of a full day/night cycle (default 60) |
@@ -56,6 +57,7 @@ The share link reproduces the world (seed and starting zone) without your own se
 | `quality=low\|medium\|high\|ultra` | force a quality tier (default: chosen from the GPU, then adjusted at runtime) |
 | `wake=0` | let the screen dim and sleep as usual |
 | `surprise=<kind>` | trigger a rare encounter soon after load: `divers sub rov glider kaiju` |
+| `event=<kind>` | trigger a rare wildlife event at the first chance: `sperm hammerheads devilrays octopus` |
 | `ruinstyle=<style>` | force a sunken-city style: `greco egypt maya khmer minoan pagoda atlantis` |
 | `captions=0` | hide zone captions |
 | `start=<metres>` | start further along the path |
@@ -65,6 +67,8 @@ The share link reproduces the world (seed and starting zone) without your own se
 
 - **Path first, world second.** A smooth camera path is defined first. Terrain, ceilings and props are then generated around it, so the flight tube is always clear.
 - **A documentary camera.** A director picks the most interesting creature or set piece ahead, turns to watch it, slows down for highlights, varies altitude within safe headroom and pulls focus (depth of field).
+- **Wildlife events.** Rare, staged moments drawn from the scientific record: sperm whales resting upright at the surface, a scalloped hammerhead school over a seamount by day, schools of Munk's devil rays, and the Octopus Garden on the deep plain. The camera slows and holds on them.
+- **Sourced facts.** On-screen facts added or corrected since November 2026 are listed with the source that was read in [docs/SOURCES.md](docs/SOURCES.md).
 - **Surprises.** Rare encounters on persistent timers: waving scuba divers, a research submarine, an ROV, an ocean glider, and very rarely something enormous in the murk.
 - **Time and weather.** A 60-minute day with golden dusk and a moonlit night dive (lamps on, bioluminescence, coral spawning on some nights), plus crystal-clear, overcast, rain, plankton-bloom and surge weather.
 - **Biomes.** A seeded endless sequence of zones, each 450–1100 m long, with cross-fades of about 180 m. Each zone defines water optics, camera depth, terrain shape, props and encounter tables.

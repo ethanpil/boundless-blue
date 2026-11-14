@@ -29,6 +29,17 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
 - **ROV lamps** (`uLamp`): the deep zones and caves are physically too dark to watch, so lamps mounted beside the camera light the scene, as in documentary footage.
   - Auto mode (`updateEnvironment` in main.js) also estimates the light reaching the scene (sun and sky through the water above the camera) and switches the lamps on when it is low. The threshold rises with turbidity (`uSigma.y`), so murky mangrove, kelp or bloom water gets lamps at dusk while clear reef water waits for night (`C.lampAdd`).
   - In turbid zones the in-scatter colours (`deep`, `up`) carry most of the frame, so a dark palette there reads as a black screen. Mangrove was 0x2b4a35 and gave a mean luminance of ~40 at 2 m by day.
+- **Caustics texture channels:** R is the fine, fast network (shallows), G the coarse network (deep), B the blurred focusing bands (the shaft mask). `causticRGB` blends R into G with depth and flattens contrast with `uCloud`. Low takes one tap, with no dispersion.
+- **Shafts** sample B with `textureLod`: derivatives are meaningless inside the jittered march and always picked the 1x1 mip, which made the shafts a flat glow. They march the first 40 m and add the rest as an analytic tail. Beam contrast follows `uCloud` and sun elevation.
+- **Near motes:** marine snow includes `count/60` soft bokeh motes in an 8 m box; the box must divide 1024.
+- **Vignette:** the old one dimmed the outer third of the frame to 30%, which crushed murky zones to black at the edges. Zones were tuned around it, so frames are now a little brighter overall.
+- **Context loss:** props free their CPU vertex arrays after upload, so a lost WebGL context cannot be refilled. main.js pauses while the context is lost and, once restored, reloads with the same seed and the current zone.
+- **URL params** go through `num()` (non-finite values fall back to the default); unknown `quality` or `biome` values are ignored.
+- **Per-segment set pieces** that should start in view of the camera use `seg.camStart`, never `seg.id === 0`: ids are never reused, so after a zone jump the first segment has a later id.
+- **Prop slices:** every merge pipeline (`staged`, `stagedNB`, `stagedNB2`) Z-sorts batch items with `spatialSort()` after registration, so slices are compact and frustum culling can drop them. On low, `finish` / `finishNB` put near/mid slices in a `THREE.LOD` (45/100 m), and slices whose largest item is under 3.5 m (`userData.itemR`) stop at 150 m. Big items and set pieces keep the fog distance; obstacles and labels are never culled.
+- **Creature LOD on low:** the coarse mesh switches in by apparent size, `min(48, max(24, 16 × length))` m. Creatures are the largest triangle cost on low (budget `maxTris`), about twice as expensive per triangle as props.
+- **Adaptive resolution:** a step down within 12 s of a step up reverts exactly that step (a regular step overshot and climbed back). `dprChanged()` follows devicePixelRatio changes (matchMedia).
+- **Low-tier kelp** thins only plants more than 10 m from the path: thinned beside it too, the camera crossed 20-30 m of bare sand between groves.
 - **GPU tiers:** integrated and mobile GPUs (regex in `main.js`) get no MSAA, quarter-res shafts with 16 steps, and DPR ≤ 1. Measured on an Intel HD 4600 at 1024×576: about 7.5 ms per frame for the bare scene (no props or creatures). The full scene (2026-10-18) costs 10–15 ms depending on biome: pelagic ~10, reef ~15. Of that, the post pipeline is a fixed ~5 ms and visible triangles are ~0.25–0.6M.
 - **Shadows (high tier only):**
   - A 2048² PCF sun shadow covers ±48 m around a point 32 m ahead of the camera, snapped to shadow texels to prevent shimmer.
@@ -74,6 +85,8 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - Night tables blend by `U.uNight`, and POI set pieces have per-type cooldowns.
   - Encounters keep a single hidden class, which matters for V8 speed.
 - **Control deck** (`hud.js`, `src/hud/`): talks only to `window.__ocean.app` (main.js). DOM writes are cached and refreshed at ≤ 5 Hz (heading) or 1 Hz slices; sonar and compass are canvases at ≤ 20 fps. No CSS transitions on gauges: restarting them cost 1–2 ms per refresh on the HD 4600.
+  - Two levels: the essentials bar (default) and the instrument cockpit (`hud.inst`, localStorage `ocean.deck.mode`; More > Instruments, `G`, or `M` twice). In essentials mode `app.info()` runs at 1 Hz and the sonar and compass canvases neither draw nor resize.
+  - Zone picker groups are `ZONE_GROUPS` in `hud/markup.js`. A zone key not listed there falls back by `tempC`, so add new zones to a group.
 - **Quality** (`quality.js`):
   - Tiers are low, medium, high and ultra, set by `tierFor()` from the GPU string. The `WQ` macro bakes the tier into every water shader.
   - At runtime, `AdaptiveResolution` steps features first and then resolution, with hysteresis. It uses GPU timer queries when available (`post.gpuMs`).
@@ -114,8 +127,25 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - `(await import('/src/creatures/prof.js')).prof(30)` (creature CPU)
   - `tools/` (Node harnesses)
 
+- **Facts need sources:** an on-screen fact (species `FACTS`, prop `fact`, notes) must come from a page that was opened and read. List it in `docs/SOURCES.md` when adding or changing one. Prefer a conservative wording that can be confirmed over a bigger number that cannot; depictions the sources do not support (poses, rock types, durations) may be shown but not stated.
+- **Rare wildlife events** (`creatures/events.js`): resting sperm whales (route `'hang'`), a day-only hammerhead school at `pinnacle` POIs, layered Munk's devil-ray schools, and the Octopus Garden (`props/octogarden.js` registers an `octopus-garden` POI with nest spots; brooding octopuses are `octo` with `plan.brood`).
+  - Timed events count time spent in fitting zones. Group sizes per tier are in `EVENT_N`.
+  - Event groups use interest > 1 so the camera director holds on them. `eventSkip()` keeps `hammerheadSchool` out of the tables at night.
+  - Debug: `?event=sperm|hammerheads|devilrays|octopus` or `__ocean.creatures.director.triggerEvent(kind)`.
+- **Lost City** (`nb5_lostcity.js`, `newbiomes5.js`): a terraced serpentinite massif with carbonate chimneys built by `columnG` row lathes, scaled up for the big towers.
+  - The landmark per segment comes from `biomes.lostCityTowerOf(g)`: a bench in `floor`, placed on the outside of a bend.
+  - Flange pools are a separate template per chimney (`t.pool`, material `nb5-lc-pool`), placed with the chimney's own transform. Shimmer emitters are in `t.haze`. These vents weep: no smoke.
+  - Big towers and the landmark carry authored obstacle capsules (`colObs`); one fitted capsule of the whole complex reached into the flight tube.
+  - Carbonate has its own material (`nb5-lc-carb`) and a faint lamp-proportional glow so pale towers read at range. The red-heavy default water absorption turned lamp-lit white to teal over the round trip, hence the zone's flatter `sigma` and its grade.
+- **Cold-water coral** (`nb6_*.js`, `newbiomes6.js`): `coldCoral(g)` in biomes.js lists each segment's mounds, elongated along the current; about a third of segments are Darwin-Mounds style; one trawl scar and one summit POI per segment.
+  - `ccSample(g, x, s)` gives props the dominant mound's frame and the scar mask.
+  - Reef fabric is `layoutCcC`: a dark framework tangle on a jittered 0.64 m lattice (the step divides 64 m, so chunk borders match) plus instanced bush fields (`nb6_lophelia.bush`, 120 triangles; 520 / 950 / 1600 per chunk for low / medium / high). The detailed `colonyJob` colonies are a hero layer within about 11 m of the path. A painted shell alone read as a flat pale sheet.
+  - `floorTint(x, s, nn, T, g)` may set `T[6]` (ripple multiplier) and `T[7]` (added rockiness); other zones get 1 and 0.
+- **Merging parallel branches:** two branches that each append a block after the same anchor share its closing `};` / `});` line, so a keep-both conflict resolution drops one closer. After any merge, import the touched modules (`node --import ./audit/register.mjs --input-type=module -e "await import('../src/...')"` from tools/): `node --check` does not catch it.
+
 ## Debugging
 - `__ocean.advance(seconds)` steps the simulation without rAF (the preview pane throttles rAF). `__ocean.bench(w, h, n)` measures GPU ms per frame at a fixed size. Benchmarks are unreliable while other tabs render the app.
 - `window.__ocean` exposes the scene, camera, terrain, shape, seq, creatures, post and U.
 - `window.__props` holds per-populator timings and triangle counts.
 - `?cr=<species>&crstats=1` forces a creature species and logs creature stats.
+- `tools/shot.cjs` captures the app headless (software GL): it gates rAF after boot, skips drawing while it steps the sim, then renders a few real frames. Read the canvas in the same task as the last tick. Useful for before/after checks without a GPU; timings from it are not GPU timings.
