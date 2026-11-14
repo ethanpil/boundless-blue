@@ -20,6 +20,9 @@ Object.assign(POI_INTEREST, { 'octopus-garden': 0.95 });
 Object.assign(POI_INTEREST, { 'lc-tower': 0.85, 'lc-flange': 0.55 });
 Object.assign(POI_INTEREST, { 'coral-summit': 0.85, 'trawl-scar': 0.6 }); // --- coldcoral ---
 
+// procedural reef-fish variants ('proc:reef:123') tire the camera as one family
+const famKey = (k) => (k.charCodeAt(0) === 112 && k.startsWith('proc:') ? k.slice(0, k.indexOf(':', 5) >>> 0) : k);
+
 // critically damped spring toward target (x, v) -> mutates state object {x, v}
 function spring(st, target, omega, dt) {
   const f = 1 + 2 * dt * omega, oo = omega * omega, hoo = dt * oo, hhoo = dt * hoo;
@@ -42,6 +45,7 @@ export class CameraDirector {
     this.cooldown = new Map();    // id -> seconds remaining
     this.cands = []; this.pois = [];
     this.seen = new Set();        // set pieces already watched once (rare ones get a novelty boost)
+    this.fatigue = new Map();     // species key -> recent seconds watched (decays), so one species cannot hog the camera
     this.focusPos = new THREE.Vector3();
     this.hasSubject = false;
     this.curiosity = 1;           // 0 = steady forward view, 1 = documentary camera that watches things
@@ -53,7 +57,7 @@ export class CameraDirector {
   // Forget the current subject and settle the springs (zone jump in place).
   reset() {
     this.subject = null; this.hasSubject = false; this.watchTime = 0; this.evalTimer = 0;
-    this.cooldown.clear(); this.seen.clear();
+    this.cooldown.clear(); this.seen.clear(); this.fatigue.clear();
     for (const k of ['alt', 'yaw', 'pitch']) { this[k].x = 0; this[k].v = 0; }
     this.focus.x = 12; this.focus.v = 0; this.speedMul.x = 1; this.speedMul.v = 0;
   }
@@ -86,12 +90,18 @@ export class CameraDirector {
       const ang = Math.pow(clamp((cosA - (e.poi ? 0.08 : 0.25)) / (e.poi ? 0.92 : 0.75), 0, 1), e.poi ? 0.8 : 1.2);
       const vis = Math.exp(-sigmaG * dv * 0.7);
       const size = 0.55 + 0.45 * clamp(e.r / 1.5, 0, 1);
-      const sc = e.interest * ang * vis * size;
+      // species fatigue: after ~30 s of the same species in the last few minutes its score halves (60 s: a fifth),
+      // so the camera turns to whatever else is around, or simply glides on (sea otters, sweepers, chimaeras or
+      // golden jellies had 45-85% of the watch time)
+      // (animals in the middle of a highlight, interest >= 0.9, tire it half as fast: a lunge or a hunt is the show)
+      const fat = e.key ? (this.fatigue.get(famKey(e.key)) || 0) / (e.interest >= 0.9 ? 60 : 30) : 0;
+      const sc = e.interest * ang * vis * size / (1 + fat * fat);
       if (this.subject && e.id === this.subject.id) curScore = sc;
       if (sc > bestScore) { bestScore = sc; best = e; }
     }
     // hysteresis: keep watching the current subject unless something clearly better appears
-    if (this.subject && curScore > 0 && (curScore > bestScore * 0.65 || this.watchTime < 4)) {
+    // (a subject the fatigue has worn below the glide threshold is let go after its first few seconds)
+    if (this.subject && curScore > 0 && (curScore > bestScore * 0.65 || this.watchTime < 4) && (curScore > 0.08 || this.watchTime < 4)) {
       for (const e of c) if (e.id === this.subject.id) return e;
     }
     return bestScore > 0.12 ? best : null;
@@ -130,6 +140,9 @@ export class CameraDirector {
     this.evalTimer -= dt;
     if (this.evalTimer <= 0) {
       this.evalTimer = 0.4;
+      const decay = Math.exp(-0.4 / 150); // (fatigue fades with a ~2.5 min time constant)
+      for (const [k, v] of this.fatigue) { if (v < 0.1) this.fatigue.delete(k); else this.fatigue.set(k, v * decay); }
+      if (this.subject && this.subject.key) { const k = famKey(this.subject.key); this.fatigue.set(k, (this.fatigue.get(k) || 0) + 0.4); }
       const pick = this._choose(cam.position, sigmaG, subjectsFn, poisFn, s, Oz);
       if (!pick || !this.subject || pick.id !== this.subject.id) this.watchTime = 0;
       this.subject = pick ? Object.assign(this.subject && this.subject.id === pick.id ? this.subject : {}, pick) : null;
@@ -139,7 +152,8 @@ export class CameraDirector {
       if (this.subject.poi && this.watchTime > 3) this.seen.add(this.subject.id);
       if (this.seen.size > 400) this.seen.clear();
       // a blue hole is watched until the camera is over its middle (it leaves the POI window there)
-      if (this.watchTime > (this.subject.hole ? 60 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
+      // (a highlight, e.g. a whale or a pod at play, is followed for up to 24 s rather than dropped mid-pass)
+      if (this.watchTime > (this.subject.hole ? 60 : this.subject.interest >= 0.9 ? 24 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
     }
 
     // ---- gaze: blend the path heading with the subject direction ----

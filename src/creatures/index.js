@@ -99,7 +99,10 @@ export class Creatures {
     const cp = this.env.camera.position, Oz = this.ctx.Oz;
     for (const e of this.enc) {
       if (e.done || e.fade < 0.3 || e.dist > 70) continue;
-      const P = e.P, V = e.V, az = e.anchorZ, it = e.interest;
+      // an animal in the middle of a moment (play, a hunt, somersaults, a curious pass) is what the camera should be
+      // on, and it slows down for interest >= 0.7
+      const et = e.event && e.event.type;
+      const P = e.P, V = e.V, az = e.anchorZ, it = !et ? e.interest : et !== 'curious' ? Math.max(e.interest, 0.9) : e.baseSize >= 0.5 ? Math.max(e.interest, 0.75) : e.interest;
       if (e.n <= 4 || (it >= 0.65 && e.n <= 8)) {
         for (let i = 0; i < e.n; i++) {
           const x = P[i * 3], y = P[i * 3 + 1], z = az + P[i * 3 + 2];

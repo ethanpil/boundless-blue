@@ -1576,7 +1576,10 @@ export class Encounter {
       const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2], f0x = F[i3], f0y = F[i3 + 1], f0z = F[i3 + 2], b0 = this.BANK[i] + (this.SPIN ? this.SPIN[i] : 0);
       let dvx = (tx - px) * kp + tvx, dvy = (ty - py) * kp + tvy, dvz = (tz - pz) * kp + tvz;
       let dl = h3(dvx, dvy, dvz);
-      const mS = strike && this.MODE[i] === 1 ? maxS * 2.6 : maxS;
+      // a hunter's dash: it turns toward the prey first and lunges only once it faces it (dashing wherever the slot was
+      // made big hunters slide sideways through the ball, 90-130 deg of sideslip)
+      const dash = strike && this.MODE[i] === 1 && (dvx * f0x + dvy * f0y + dvz * f0z) > 0.8 * dl;
+      const mS = dash ? maxS * 2.6 : maxS;
       if (dl > mS) { const f = mS / dl; dvx *= f; dvy *= f; dvz *= f; }
       if (TH) for (let k = 0; k < nT; k++) { // the ball splits around hunters
         const qx = px - TH[k * 3], qy = py - TH[k * 3 + 1], qz = pz - TH[k * 3 + 2], d2 = qx * qx + qy * qy + qz * qz;
@@ -1642,7 +1645,7 @@ export class Encounter {
         // camera, rocks) at its own pace, it only drives itself along that heading, and sideways motion (pushes) dies
         // away. With the wanted direction behind it, it keeps way on and swims round in an arc (pressed by the camera it
         // may slow almost to a stop and turn on the spot). Dodging a rock or a hunter it may still slip sideways.
-        const free = kind !== 'mill' && OA[i3] === 0 && OA[i3 + 1] === 0 && OA[i3 + 2] === 0 && STL[i] < 0.3 && !(strike && this.MODE[i] === 1);
+        const free = kind !== 'mill' && OA[i3] === 0 && OA[i3 + 1] === 0 && OA[i3 + 2] === 0 && STL[i] < 0.3 && !dash;
         if (free) {
           const cs = h3(V[i3], V[i3 + 1], V[i3 + 2]), dl2 = h3(dvx, dvy, dvz) || 1, k = cs / dl2; // wanted direction, current speed
           this._orientFor(i, dts, dvx * k + V[i3] * 0.2, dvy * k + V[i3 + 1] * 0.2, dvz * k + V[i3 + 2] * 0.2, dt, kind);

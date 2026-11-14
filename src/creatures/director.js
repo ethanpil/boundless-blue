@@ -5,6 +5,7 @@ import { speciesOf, DIEL } from './species.js';
 import { Obstacles } from '../obstacles.js';
 import { sargassumCover, blueHoleOf } from '../biomes.js';
 import { eventsTick, eventPiece, eventPrewarm, triggerEvent, eventSkip, eventRare, EVENT_POI_SPECIES } from './events.js';
+import { Pacing } from './pacing.js';
 
 // [species key | 'proc:<kind>', weight, cooldown (s)]
 // target = desired simultaneous encounters, lat = max lateral offset from the camera path.
@@ -72,7 +73,7 @@ export const TABLES = {
     ['viperfish', 1.5, 110], ['lanternfish', 2, 90], ['siphonophore', 0.8, 240], ['octopus', 1.5, 120], ['glowSquid', 1, 120], ['proc:vents', 2, 30],
   ] },
   tidepool: { cover: 2.5, target: 7, lat: 3, list: [
-    ['sculpin', 4, 40], ['blenny', 4, 40], ['silverside', 4, 40], ['opaleye', 3, 60], ['garibaldi', 2, 80], ['octopus', 1, 150],
+    ['sculpin', 4, 40], ['blenny', 4, 40], ['silverside', 4, 40], ['opaleye', 3, 60], ['garibaldi', 2, 80], ['octopus', 2, 100], // (the pool's hunter)
     ['proc:tidepool', 3, 25],
   ] },
   // lamp-lit midnight zone: groups pass close to the camera (the lamps reach ~10 m), so the lateral range is narrow
@@ -156,6 +157,7 @@ export const TABLES = {
     ['seaOtter', 4, 45], ['seaOtterUrchin', 2, 70], ['seaOtterMom', 1.6, 90], ['garibaldi', 4, 40], ['kelpRockfish', 3.5, 45], ['sheephead', 3, 60],
     ['kelpBass', 3.5, 45], ['senorita', 4, 45], ['blacksmith', 3, 50], ['opaleye', 2, 60], ['harbourSeal', 2, 110], ['batRay', 1, 150],
     ['leopardShark', 0.8, 160], ['giantSeaBass', 0.5, 240], ['seaNettle', 0.8, 140], ['octopus', 0.8, 140], ['proc:otterkelp', 4, 15],
+    ['seaLion', 0.8, 180], // California sea lions hunt and play through the same kelp beds as the otters
   ] },
   // open blue over sand ~40 m down: whale sharks ram-feeding at the surface (remoras, pilot trevally, cobia), mantas
   // somersaulting through the plankton, bait balls
@@ -186,13 +188,20 @@ const TAU = Math.PI * 2;
 const dielW = (k, night) => { const d = DIEL[k] ?? (k.startsWith('proc:') ? 'day' : null); return d === 'day' ? 1 - 0.75 * night : d === 'night' ? night : 1; };
 const REMORA_HOSTS = { whaleShark: 0.85, whaleSharkFeed: 0.9, mantaFeed: 0.5, manta: 0.6, oceanicWhitetip: 0.6, reefShark: 0.3, blacktip: 0.25, whitetip: 0.2, greatWhite: 0.3,
   hammerhead: 0.25, hammerheadSchool: 0.2, sandTiger: 0.3, lemonShark: 0.25, greenTurtle: 0.2, hawksbill: 0.15, blueShark: 0.2, silkyShark: 0.35, loggerhead: 0.25 };
-const CURIOUS = new Set(['greenTurtle', 'hawksbill', 'manatee', 'dugong', 'potatoGrouper', 'napoleon', 'goliath', 'giantSeaBass']);
+// species that come to look at divers in nature -> the largest group that still makes a curious pass (mantas and
+// cuttlefish approach divers; belugas investigate them in small groups)
+const CURIOUS = new Map([['greenTurtle', 2], ['hawksbill', 2], ['manatee', 2], ['dugong', 2], ['potatoGrouper', 2], ['napoleon', 2], ['goliath', 2],
+  ['giantSeaBass', 2], ['manta', 2], ['cuttlefish', 2], ['beluga', 4]]);
 const PLAY = new Set(['bottlenose', 'commonDolphin', 'seaLion', 'harbourSeal', 'leopardSeal', 'ringedSeal', 'harpSeal']);
 const HUNTERS = { pelagic: ['yellowfin', 'sailfish', 'commonDolphin'], kelp: ['seaLion', 'kelpBass'], polar: ['adeliePenguin'],
   reef: ['jack', 'barracuda', 'blacktip'], wall: ['jack', 'barracuda'], softcoral: ['jack', 'barracuda'], sandflat: ['jack', 'barracuda'],
   wreck: ['jack', 'barracuda'], ruins: ['jack', 'barracuda'], seagrass: ['barracuda'], mangrove: ['juvBarracuda', 'tarpon'],
   seamount: ['jack', 'barracuda', 'yellowfin', 'silkyShark', 'bluefinTrevally'], bluehole: ['jack', 'barracuda', 'bluefinTrevally'], sargassum: ['mahi'],
-  champagne: ['jack', 'bluefinTrevally'], anemone: ['bluefinTrevally'], sunkenforest: ['barracuda', 'jack'], whaleshark: ['yellowfin', 'rainbowRunner'] };
+  champagne: ['jack', 'bluefinTrevally'], anemone: ['bluefinTrevally'], sunkenforest: ['barracuda', 'jack'], whaleshark: ['yellowfin', 'rainbowRunner'],
+  // tarpon herding silversides in caverns and mangrove lagoons (in the bioluminescent bay every strike lights up)
+  cave: ['tarpon'], biobay: ['tarpon'] };
+// besides bait balls, big silverside / anchovy schools are struck where the zone has hunters for them
+const PREY = new Set(['silverside', 'anchovy']);
 // zones open enough for a passing blue whale
 const WHALE_ZONES = new Set(['pelagic', 'seamount', 'wall', 'bluehole', 'sargassum']);
 // lamp-lit deep zones: no shallow-water species once they dominate the blend
@@ -226,6 +235,7 @@ export class Director {
     this.cool = new Map(); this.seen = new Map(); this.spCache = new Map();
     this.emptyTime = 0; this.primed = false; this.lastSpawn = -1;
     this.forced = sys.forceSpecies || null;
+    this.pace = new Pacing(this);
   }
 
   // Zone jump: forget everything tied to the old place (set pieces done, the blue hole, close-encounter pacing, spawn
@@ -239,6 +249,7 @@ export class Director {
     this._pw = null; this._c = null;
     if (this._pois) this._pois.length = 0;
     if (this._ppw) this._ppw.length = 0;
+    this.pace.reset();
   }
 
   species(key) {
@@ -263,6 +274,7 @@ export class Director {
       for (const [k, t] of this.seen) if (this.clock - t > 800) this.seen.delete(k);
       if (this.closeSeen) for (const [k, t] of this.closeSeen) if (this.clock - t > 300) this.closeSeen.delete(k);
     }
+    this.pace.tick(c);
     this.delightTick(c);
     if (this.whaleTick(c) || this.holeTick(c) || eventsTick(this, c)) return;
     this.closeTick(c);
@@ -479,14 +491,14 @@ export class Director {
     if (this.dlT > 0) return;
     this.dlT = 30;
     const sys = this.sys, r = this.rng, now = this.clock, cool = this.dcool || (this.dcool = {});
-    const ready = (k, cd) => (cool[k] ?? -1e9) + cd < now;
+    const ready = (k, cd) => (cool[k] ?? -1e9) + cd * this.pace.cdMul < now;
     const biome = sys.seq.weights(c.s + 40)[0].key;
     for (const e of sys.enc) {
       if (e.done || e.event || e.fade < 0.9) continue;
       const key = e.sp.key, ahead = -(e.anchorZ + e.bounds.z) - c.s, flock = e.kind === 'solo' || e.kind === 'pod';
       if (e.plan.calf && e.calfT === undefined && e.visible && e.dist < 50) e.calfT = 0; // the calf loops around its mother
       if (!e.visible) continue;
-      if (CURIOUS.has(key) && flock && e.n <= 2 && ahead > 10 && ahead < 40 && ready('curious', 110) && r() < 0.4) { // a curious look
+      if (CURIOUS.has(key) && flock && e.n <= CURIOUS.get(key) && ahead > 10 && ahead < 40 && ready('curious', 110) && r() < 0.4) { // a curious look
         e.route = 'curious'; e.zone = 'mid'; e.event = { type: 'curious', t: 0, ph: 0, side: r() < 0.5 ? -1 : 1 };
         cool.curious = now; continue;
       }
@@ -497,8 +509,10 @@ export class Director {
       }
       if ((key === 'mantaFeed' || (key === 'manta' && biome === 'whaleshark')) && e.dist < 45 && ready('flip', 14) && r() < 0.6 && e.startFlip(r)) { cool.flip = now; continue; } // feeding somersaults
       if (key === 'manta' && e.dist < 32 && ready('roll', 35) && r() < 0.35) { e.event = { type: 'roll', t: 0, dur: 3.2 }; cool.roll = now; continue; }
-      if (e.kind === 'bait' && !e.hunted && e.dist < 40 && ahead > -5 && ready('strike', 80)) { // hunters strike the bait ball
-        e.hunted = true; cool.strike = now;
+      const prey = e.kind === 'bait' || (PREY.has(key) && HUNTERS[biome] && (e.kind === 'school' || e.kind === 'mill') && e.n >= 40 && !e.plan.sleepy);
+      // (a school hunt is a crescendo: at most one every ~2.5 min, so it does not become the zone's routine)
+      if (prey && !e.hunted && e.dist < 40 && ahead > -5 && ready('strike', 80) && (e.kind === 'bait' || ready('hunt', 150))) { // hunters strike the bait ball
+        e.hunted = true; cool.strike = now; if (e.kind !== 'bait') cool.hunt = now;
         const opts = HUNTERS[biome] || HUNTERS.reef;
         const sp = this.species(opts[Math.floor(r() * opts.length)]);
         const plan = sp && this.plan(sp, c, true, sys.seq.weights(c.s + 40), sys.maxInstances - sys.instances, sys.maxTris - sys.trisTotal, false, false);
@@ -763,14 +777,16 @@ export class Director {
       const cooling = (this.cool.get(ck) ?? -1) > this.clock && !this.forced;
       if (cooling && !lead) return; // lead requests may reuse a cooling species (at lower weight) to keep the view alive
       if (sp.hemi && sp.hemi !== hemi && ws.some((x) => x.key === 'polar')) return;
-      if (sp.hl && (!allowHl || this.hlTimer > 0) && !this.forced) return;
+      // a highlight-class animal of this zone: big, rare (hl), curious or playful; favoured while one is overdue
+      const hlc = sp.hl || sp.size[0] + sp.size[1] >= 3 || CURIOUS.has(sp.key) || PLAY.has(sp.key);
+      if (sp.hl && (!allowHl || (this.hlTimer > 0 && this.pace.urge < 1)) && !this.forced) return;
       if ((activeCount.get(sp.key) || 0) >= (sp.swarm ?? (sp.beh.kind === 'shoal' || key.startsWith('proc:') || small ? 2 : 1)) && !this.forced) return;
       const nMin = sp.beh.n[0];
       if (nMin > instBudget) return;
       const novelty = 1 + Math.min(2, (this.clock - (this.seen.get(ck) ?? -1e4)) / 400);
       const rd = (sp.size[0] + sp.size[1]) * 0.5 * (sp.beh.n[1] >= 20 ? 75 : 24) * (sp.plan === 'jelly' ? 0.6 : sp.plan === 'siphon' ? 0.12 : 1);
       if (lead && (rd < 7 || sp.beh.loose || ['shoal', 'hover', 'drift', 'colony', 'peek', 'octo', 'mill', 'rest', 'otter'].includes(sp.beh.kind) && !(sp.beh.kind === 'shoal' && rd >= 7))) return;
-      const ww = w * bw * novelty * (near ? (rd >= 8 ? 3 : 0.4) : 1) * (cooling ? 0.3 : 1);
+      const ww = w * bw * novelty * (near ? (rd >= 8 ? 3 : 0.4) : 1) * (cooling ? 0.3 : 1) * (hlc ? this.pace.boost : 1);
       cands.push({ sp, ck, ww, cd }); tot += ww;
     };
     const night = sys.U ? sys.U.uNight.value : 0, dusk = clamp(1 - Math.abs(night * 2 - 1) * 1.4, 0, 1);
