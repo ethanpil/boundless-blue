@@ -1,7 +1,7 @@
 // Ambient environment: water-volume background, the surface seen from below (Snell's window),
 // and drifting marine snow / bioluminescent motes.
 import * as THREE from 'three';
-import { U, WATER_PARS } from './water.js';
+import { U, WATER_PARS, waterQuality } from './water.js';
 import { currentPreset } from './quality.js';
 
 const WORLD_VERT = /* glsl */`
@@ -41,12 +41,12 @@ export class Surface {
     });
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
+      defines: { WQ: waterQuality() },
       vertexShader: WORLD_VERT,
       fragmentShader: /* glsl */`
         varying vec3 vWPos;
         uniform vec4 uBoat;
         uniform vec3 uBoatDim;
-        uniform float uCloud;
         ${WATER_PARS}
         // expanding raindrop rings on the surface (cells of 0.8 m; 1024 / 0.8 is whole, so seamless)
         vec2 rainGrad(vec2 q, float t) {
@@ -72,7 +72,8 @@ export class Surface {
           vec2 g1 = (texture2D(uNoiseTex, q / 32.0 + vec2(t * 0.011, t * 0.007)).rg - 0.5) * 1.3;
           vec2 g2 = (texture2D(uNoiseTex, mat2(0.8, 0.6, -0.6, 0.8) * q * 0.09765625 - vec2(t * 0.023, -t * 0.017)).ba - 0.5) * 0.7;
           float rough = 1.0 + 1.6 * uSurge;
-          vec2 g = (g1 + g2 + (texture2D(uNoiseTex, q / 2.0 + vec2(-t * 0.05, t * 0.04)).rg - 0.5) * 0.25) * rough;
+          vec2 g3 = texture2D(uNoiseTex, q / 2.0 + vec2(-t * 0.05, t * 0.04)).rg - 0.5;
+          vec2 g = (g1 + g2 + g3 * 0.25) * rough;
           float dist = length(vWPos - cameraPosition);
           float distFade = exp(-dist * 0.012);
           if (uRain > 0.01) g += rainGrad(q, t) * 0.9 * uRain * exp(-dist * 0.03);
@@ -82,6 +83,19 @@ export class Surface {
           float shallow = exp(-max(0.0, -cameraPosition.y) * 0.12) * smoothstep(45.0, 10.0, uFloorDist);
           vec3 refl = mix(waterColor(R), uFloorCol, shallow * smoothstep(-0.05, -0.5, R.y) * 0.8);
           refl *= 0.75 + 0.6 * (g.x + 0.5 * g.y);
+          // Silver sheen: ripple faces tilted toward the bright water above (and the window) catch light, so the
+          // mirror reads as a moving, rippled ceiling instead of flat blue. It fades with distance like the ripples.
+          float sheen = smoothstep(0.1, 0.55, g.x * 0.8 + g.y * 0.6) * distFade;
+#if WQ > 0
+          // medium and up: the crests of the coarse caustic network sharpen it into bright filaments
+          sheen *= 0.6 + 1.2 * texture2D(uCaustics, q * 0.125 + g * 0.05).g;
+#endif
+          refl += (uWaterUp * 0.7 + uSunColor * 0.25) * uSunScatter * sheen * 0.35;
+          // glitter: small ripple facets tipped toward the sun flash, mostly looking toward it; none under cloud
+          vec2 sd = normalize(uSunDir.xz + vec2(1e-4));
+          float glint = pow(clamp(dot(g3 + 0.3 * g2, sd) * 2.6, 0.0, 1.0), 10.0)
+            * (0.35 + 0.65 * max(dot(normalize(V.xz + vec2(1e-4)), sd), 0.0)) * distFade * (1.0 - 0.85 * uCloud);
+          refl += uSunColor * uSunScatter * glint * 2.5;
           vec3 col = refl;
           // Snell's window: the sky squeezed into a 97 degree cone (critical angle 48.6 deg, cos 0.6614).
           // Its rim follows the smoothed waves (swell and half the chop) and fades over ~5 degrees, so the
@@ -99,7 +113,8 @@ export class Surface {
             vec3 sA = vec3(uSunDir.x * 1.333, 0.0, uSunDir.z * 1.333);   // the sun's direction in the air
             sA.y = sqrt(max(0.0, 1.0 - dot(sA.xz, sA.xz)));
             float hy = clamp(Tg.y, 0.0, 1.0);
-            vec3 sky = mix(vec3(0.62, 0.78, 0.95), vec3(0.14, 0.36, 0.82), sqrt(hy)) * 1.15;
+            // kept below white so the window reads as blue sky with white clouds and the sun's glitter on top
+            vec3 sky = mix(vec3(0.5, 0.7, 0.92), vec3(0.08, 0.27, 0.72), sqrt(hy)) * 0.85;
             sky = mix(sky, sky * uSunColor * 1.25, 0.6);    // warm skies at dusk, silver under the moon
             sky *= 1.0 - 0.8 * uNight;                      // a moonlit sky is a dim one: moon and stars carry it
             // clouds drifting across the window (direction based: they sit at infinity)
@@ -179,14 +194,19 @@ export class MarineSnow {
   // count: particles in the 64 m box around the camera (default: per quality tier, see quality.js)
   constructor(count = currentPreset().snow || 6000) {
     const B = 64;
-    const pos = new Float32Array(count * 3), rnd = new Float32Array(count * 4);
-    for (let i = 0; i < count; i++) {
-      pos[i * 3] = Math.random() * B; pos[i * 3 + 1] = Math.random() * B; pos[i * 3 + 2] = Math.random() * B;
+    // plus a few motes in an 8 m box around the lens: soft out-of-focus discs that give the water depth
+    const nNear = Math.round(count / 60), total = count + nNear;
+    const pos = new Float32Array(total * 3), rnd = new Float32Array(total * 4), near = new Float32Array(total);
+    for (let i = 0; i < total; i++) {
+      const b = i < count ? B : 8;
+      pos[i * 3] = Math.random() * b; pos[i * 3 + 1] = Math.random() * b; pos[i * 3 + 2] = Math.random() * b;
       for (let k = 0; k < 4; k++) rnd[i * 4 + k] = Math.random();
+      near[i] = i < count ? 0 : 1;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
     geo.setAttribute('aRand', new THREE.BufferAttribute(rnd, 4));
+    geo.setAttribute('aNear', new THREE.BufferAttribute(near, 1));
     this.uniforms = Object.assign({}, U, {
       uBox: { value: B }, uDensity: { value: 0.6 }, uGlowAmt: { value: 0 }, uPx: { value: 800 }, uCamR: { value: new THREE.Vector3() },
       uSpawn: { value: 0 }, uCamSpeed: { value: 3 }, uSizeK: { value: Math.min(1, Math.sqrt(6000 / count)) },
@@ -195,12 +215,35 @@ export class MarineSnow {
       uniforms: this.uniforms,
       vertexShader: /* glsl */`
         attribute vec4 aRand;
+        attribute float aNear;
         uniform float uBox, uDensity, uGlowAmt, uPx, uTime, uSpawn, uCamSpeed, uNight, uLamp, uSizeK;
         uniform vec3 uCamR, uSigma, uLightSigma, uSunColor, uWaterUp, uSunDir;
         uniform float uSunScatter, uSurfaceY;
         varying vec4 vCol;
-        varying vec3 vShape;   // flake rotation (cos, sin) and elongation
+        varying vec3 vShape;   // flake rotation (cos, sin) and elongation; z < 0: an out-of-focus disc
         void main() {
+          if (aNear > 0.5) {
+            // Near motes, 0.4-3 m from the lens, far out of focus: dim soft discs carried by a slow current
+            // (one drift for all, so they move together). More of them in turbid water (uDensity).
+            vec3 p = position + vec3(0.11, -0.025, 0.06) * uTime
+              + vec3(sin(uTime * 0.21 + aRand.x * 6.28), sin(uTime * 0.17 + aRand.z * 6.28), cos(uTime * 0.19 + aRand.y * 6.28)) * 0.15;
+            vec3 r = mod(p - uCamR, 8.0) - 4.0;   // 8 m divides the 1024 m rebase: no jump
+            p = r + uCamR;
+            vec4 mv = modelViewMatrix * vec4(p, 1.0);
+            float d = -mv.z;
+            vec3 ar = abs(r);
+            float vis = step(aRand.y, uDensity * 0.85) * smoothstep(3.6, 2.6, max(ar.x, max(ar.y, ar.z)))
+              * smoothstep(0.35, 0.8, d) * (1.0 - 0.7 * uNight);
+            gl_PointSize = clamp((0.05 + 0.05 * aRand.x) * uPx / max(d, 0.1), 1.0, 48.0);
+            // invisible ones are moved off screen so they cost no fill
+            gl_Position = vis > 0.004 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
+            float dB = max(0.0, uSurfaceY - p.y);
+            vec3 lit = uSunColor * uSunScatter * exp(-uLightSigma * dB) * 0.7 + uWaterUp * 0.5;
+            lit += vec3(1.0, 0.94, 0.85) * uLamp * 1.2 / (1.0 + 0.2 * d * d);
+            vCol = vec4(lit * exp(-uSigma * d), vis * 0.09);
+            vShape = vec3(1.0, 0.0, -1.0);
+            return;
+          }
           bool spawn = aRand.w > 1.0 - 0.3 * uSpawn;     // coral-spawning bundles rise instead of sink
           vec3 p = position + vec3(sin(uTime * 0.13 + aRand.x * 6.28) * 0.6,
                                    spawn ? uTime * 0.11 * (0.5 + aRand.y) : -uTime * 0.04 * (0.4 + aRand.y),
@@ -257,8 +300,11 @@ export class MarineSnow {
         void main() {
           vec2 c = gl_PointCoord - 0.5;
           c = vec2(c.x * vShape.x - c.y * vShape.y, c.x * vShape.y + c.y * vShape.x);   // tumbling flakes
-          c.x *= vShape.z;
-          float a = smoothstep(0.5, 0.05, length(c));
+          c.x *= abs(vShape.z);
+          float rr = length(c);
+          // flakes: a soft dot; out-of-focus discs: flat with a slightly brighter rim, like a lens bokeh
+          float a = vShape.z < 0.0 ? smoothstep(0.5, 0.2, rr) * (0.8 + 0.25 * smoothstep(0.1, 0.38, rr))
+                                   : smoothstep(0.5, 0.05, rr);
           if (vCol.a * a < 0.004) discard;
           gl_FragColor = vec4(vCol.rgb * a * vCol.a, 1.0);
         }`,

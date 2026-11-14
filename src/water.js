@@ -115,6 +115,7 @@ uniform float uFill;
 uniform float uNight;
 uniform float uRain;
 uniform float uSurge;
+uniform float uCloud;
 uniform vec3 uFloorCol;
 uniform float uFloorDist;
 uniform sampler2D uCaustics;
@@ -143,33 +144,40 @@ vec3 waterColor(vec3 dir) {
 
 // Caustic network projected along the sun direction. Two layers (8 m, and 10.24 m rotated by atan(3/4) so
 // that both still tile over 1024 m) are domain-warped and blended by a low-frequency field, so the pattern
-// never visibly repeats; it softens with depth below the surface.
+// never visibly repeats. The texture holds a fine, fast network (R) and a coarse, slower one (G): the fine
+// filaments rule the shallows and hand over to the coarse network with depth, which also blurs (mip bias).
+// A third tap of the broad bands (B, 21.3 m) adds the large-scale swell focusing on top.
 vec3 causticRGB(vec3 wp) {
   vec2 p = wp.xz - uSunDir.xz / max(uSunDir.y, 0.35) * (wp.y - uSurfaceY);
   float dB = max(0.0, uSurfaceY - wp.y);
   float lb = clamp(dB * 0.045 - 0.25, 0.0, 1.6);                // mip bias: deeper caustics are softer
+  float kD = smoothstep(6.0, 28.0, dB);
+  vec2 sel = vec2(3.8 - 3.8 * kD, 2.6 * kD);                      // fine -> coarse, at about the same mean
   vec4 lf = texture2D(uNoiseTex, p * 0.0078125);
   vec2 w = (lf.rg - 0.5) * 1.8;
   vec2 uv = p * 0.125 + w;
   vec2 d = vec2(0.002, 0.0);   // dispersion: 1.6 cm between the red and blue images, a hint of colour on the lines
 #if WQ == 0
-  vec3 c = vec3(texture2D(uCaustics, uv + d).r, texture2D(uCaustics, uv).r, texture2D(uCaustics, uv - d).r);
+  vec3 c = vec3(dot(texture2D(uCaustics, uv).rg, sel));   // low: one tap, no dispersion (invisible at low res)
 #else
   float blur = exp2(lb);
   vec2 gx = dFdx(uv) * blur, gy = dFdy(uv) * blur;
-  vec3 c = vec3(textureGrad(uCaustics, uv + d, gx, gy).r, textureGrad(uCaustics, uv, gx, gy).r,
-                textureGrad(uCaustics, uv - d, gx, gy).r);
+  vec3 c = vec3(dot(textureGrad(uCaustics, uv + d, gx, gy).rg, sel), dot(textureGrad(uCaustics, uv, gx, gy).rg, sel),
+                dot(textureGrad(uCaustics, uv - d, gx, gy).rg, sel));
   vec2 uv2 = mat2(0.8, 0.6, -0.6, 0.8) * p * 0.09765625 - w.yx;
   vec2 hx = dFdx(uv2) * blur, hy = dFdy(uv2) * blur;
   float kB = smoothstep(0.38, 0.62, lf.b);
   if (kB > 0.001) {
-    vec3 c2 = vec3(textureGrad(uCaustics, uv2 + d, hx, hy).r, textureGrad(uCaustics, uv2, hx, hy).r,
-                   textureGrad(uCaustics, uv2 - d, hx, hy).r);
+    vec3 c2 = vec3(dot(textureGrad(uCaustics, uv2 + d, hx, hy).rg, sel), dot(textureGrad(uCaustics, uv2, hx, hy).rg, sel),
+                   dot(textureGrad(uCaustics, uv2 - d, hx, hy).rg, sel));
     c = mix(c, c2, kB);
   }
 #endif
-  float m = texture2D(uCaustics, p / 21.333333 + vec2(0.37, 0.61), 2.0).r;
-  return c * (0.25 + 1.2 * m) * (0.8 + 0.4 * lf.a);
+  c *= 0.4 + 0.5 * c;   // crisper filaments: bright cores, darker cells
+  // under cloud the sky light is diffuse and the network washes out; in crystal water it is at its sharpest
+  c = mix(vec3(0.5), c, clamp(1.2 - 0.85 * uCloud, 0.3, 1.15));
+  float m = texture2D(uCaustics, p / 21.333333 + vec2(0.37, 0.61), 2.0).b;
+  return c * (0.25 + 0.75 * m) * (0.8 + 0.4 * lf.a);
 }
 
 // Phone GPUs (mediump maths, half-float targets) can turn a lighting term into NaN or Inf; one such pixel showed
@@ -205,7 +213,7 @@ const LIGHT_PATCH = /* glsl */`
   float sky = skyVis(vWPos);
   vec3 Tl = exp(-uLightSigma * dB) * sky;
   vec3 ca = vec3(0.0);
-  if (uCausticStr > 0.001) ca = causticRGB(vWPos) * uCausticStr * smoothstep(-0.25, 0.7, wN.y) * exp(-dB * 0.035);
+  if (uCausticStr > 0.001) ca = causticRGB(vWPos) * uCausticStr * smoothstep(-0.1, 0.8, wN.y) * exp(-dB * 0.035);
   reflectedLight.directDiffuse *= Tl * (0.45 + 2.0 * ca);
   reflectedLight.directSpecular *= Tl * (0.6 + 1.5 * ca);
   reflectedLight.indirectDiffuse *= mix(Tl, vec3(1.0), 0.45) * uAmbientScale * mix(0.4, 1.0, sky);
@@ -300,26 +308,34 @@ export class Caustics {
       fragmentShader: /* glsl */`
         varying vec2 vUv; uniform float t;
         vec2 h2(vec2 p){ p = vec2(dot(p, vec2(127.1, 311.7)), dot(p, vec2(269.5, 183.3))); return fract(sin(p) * 43758.5453); }
-        float edge(vec2 uv, float N, float tt){
+        float edge(vec2 uv, float N, float tt, float jit){
           vec2 p = uv * N, ip = floor(p), fp = fract(p);
           float f1 = 8.0, f2 = 8.0;
           for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
             vec2 g = vec2(float(i), float(j));
             vec2 o = h2(mod(ip + g, N) + N * 13.0);
-            o = 0.5 + 0.42 * sin(tt * (0.5 + o.yx * 0.6) + 6.2831 * o);
+            o = 0.5 + jit * sin(tt * (0.5 + o.yx * 0.6) + 6.2831 * o);
             vec2 r = g + o - fp; float d = dot(r, r);
             if (d < f1) { f2 = f1; f1 = d; } else if (d < f2) { f2 = d; }
           }
           return sqrt(f2) - sqrt(f1);
         }
+        // R: fine, fast filaments (9 cells per tile) brightened along the coarse network: shallow caustics.
+        // G: the coarse network alone (4 cells, slower): deeper water, where the focus spreads out.
+        // B: the coarse network blurred into broad bands: the light-shaft mask.
+        // Lines fall off as 1/distance (a caustic fold): crisp cores with a soft skirt.
         void main(){
           vec2 uv = vUv;
           vec2 w = vec2(sin(6.2831853 * 2.0 * uv.y + t * 0.5), sin(6.2831853 * 2.0 * uv.x + t * 0.43)) * 0.06
             + vec2(sin(6.2831853 * 5.0 * uv.y - t * 0.7), sin(6.2831853 * 4.0 * uv.x + t * 0.6)) * 0.015;
-          float e1 = edge(uv + w, 5.0, t * 0.9);
-          float e2 = edge(uv - w * 0.8 + 0.5, 8.0, t * 1.2);
-          float c = pow(1.0 - smoothstep(0.0, 0.3, e1), 3.5) * 0.85 + pow(1.0 - smoothstep(0.0, 0.26, e2), 3.0) * 0.45;
-          gl_FragColor = vec4(vec3(c), 1.0);
+          float e2 = edge(uv - w * 0.8 + 0.5, 4.0, t * 0.6, 0.34);
+          float e1 = edge(uv + w * 0.7, 9.0, t * 1.5, 0.4);
+          float f = 0.07 / (e1 + 0.07); f *= f;
+          float b = 0.05 / (e2 + 0.05);
+          float R = f * (0.25 + 0.12 / (e2 + 0.12)) + 0.25 * b * b;
+          float G = pow(0.06 / (e2 + 0.06), 1.6);
+          float B = 1.0 - smoothstep(0.0, 0.55, e2); B *= B;
+          gl_FragColor = vec4(R, G, B, 1.0);
         }`,
       depthTest: false, depthWrite: false,
     });

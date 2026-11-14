@@ -61,12 +61,19 @@ export class Post {
           vp.xyz /= vp.w;
           vec3 dir = normalize((uCamWorld * vec4(vp.xyz, 0.0)).xyz);
           float dist = z >= 0.99999 ? 75.0 : min(length(vp.xyz), 110.0);
+          // march only the near 40 m, where single beams can still be told apart (finer steps: 2.5 m on low),
+          // and add the farther stretch as an even glow (the beams' mean)
+          float far = max(dist - 40.0, 0.0);
+          dist -= far;
           float stepL = dist / float(uSteps);
           float j = hash(vec3(gl_FragCoord.xy, uFrame));
           vec3 acc = vec3(0.0);
           float cosT = dot(dir, uSunDir);
           float g = 0.55;
           float phase = (1.0 - g * g) / pow(1.0 + g * g - 2.0 * g * cosT, 1.5) * 0.3 + 0.04;
+          // beam contrast: crisp under a clear sky, gone under overcast (diffuse light casts no beams), and
+          // stronger when a low sun (dawn, dusk) slants them across the view
+          float beamK = 6.0 * clamp(1.2 - 0.95 * uCloud, 0.15, 1.15) * (1.0 + 1.2 * (1.0 - uSunDir.y));
           for (int i = 0; i < MAX_STEPS; i++) {
             if (i >= uSteps) break;
             float t = (float(i) + j) * stepL;
@@ -74,13 +81,27 @@ export class Post {
             float dB = uSurfaceY - p.y;
             if (dB < 0.0) break;
             vec2 q = p.xz - uSunDir.xz / max(uSunDir.y, 0.35) * (p.y - uSurfaceY);
-            float c = texture2D(uCaustics, q / 16.0, 3.0).r;
-            float c2 = texture2D(uCaustics, q / 42.666667 + vec2(0.37, 0.61), 4.0).r;
-            float sh = pow(c * (0.4 + c2) * 2.0, 3.0) + 0.008;
+            // beams: the caustics' broad focusing bands (B, 16 m tile), distinct just under the surface and
+            // spreading into an even glow with depth (0.27 is the mean of B cubed)
+            // explicit LOD: the jittered march makes screen derivatives meaningless (they picked the 1x1 mip)
+            float b = textureLod(uCaustics, q / 16.0, 1.5).b;
+#if WQ > 0
+            b *= 0.55 + 0.9 * textureLod(uCaustics, q / 42.666667 + vec2(0.37, 0.61), 3.0).b;
+#endif
+            // A ray crossing many beams averages them out, so their contrast is weighted toward the near
+            // metres, where single beams are large on screen; the far water keeps the mean (in-scatter glow).
+            float sh = max(1.0 + (b * b * b * 3.7 - 1.0) * exp(-dB * 0.045) * beamK * exp(-t * 0.1), 0.0) * 0.03 + 0.005;
             vec3 Tl = exp(-uLightSigma * dB);
             acc += sh * Tl * exp(-uSigma * t) * skyVis(p) * stepL;
           }
-          vec3 cur = acc * uSunColor * phase * uStrength * 0.13;
+          if (far > 0.0) {
+            vec3 p = uCamR + dir * (dist + 0.5 * far);
+            float dB = uSurfaceY - p.y;
+            if (dB > 0.0) acc += 0.035 * exp(-uLightSigma * dB) * skyVis(p)
+              * (exp(-uSigma * dist) - exp(-uSigma * (dist + far))) / max(uSigma, vec3(1e-4));
+          }
+          // clear water carries distinct beams; in murk they melt into the haze (and the in-scatter already glows)
+          vec3 cur = acc * uSunColor * phase * uStrength * (0.17 + 0.12 * (1.0 - smoothstep(0.03, 0.08, uSigma.y)));
           if (uLamp > 0.001) {
             // forward-scattered lamp beams (camera-space cone around the view axis)
             vec3 fwd = normalize((uCamWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz);
@@ -372,8 +393,9 @@ export class Post {
           col *= Lc / L;
           // night: mesopic vision, dim parts lose colour and shift blue; lamp-lit subjects keep theirs
           col = mix(col, vec3(Lc) * vec3(0.7, 0.92, 1.28), uNight * (1.0 - smoothstep(0.012, 0.16, Lc)) * 0.65);
-          // vignette (a soft port vignette, a touch stronger at night)
-          col *= mix(1.0, smoothstep(1.05, 0.15, r2 * 1.6), 0.7 + 0.15 * uNight);
+          // vignette (a soft port vignette, a touch stronger at night). The edges keep half the light: a 30% floor
+          // reached at a tenth of the width from the sides closed murky zones into a black tunnel.
+          col *= 1.0 - (0.5 + 0.12 * uNight) * smoothstep(0.2, 1.2, r2 * 1.6);
           col = tonemap(col * 1.05);
           col = mix(col, col * col * (3.0 - 2.0 * col), 0.14);   // gentle filmic S-curve: shafts and highlights pop
           // ---- grade (display-referred) ----
