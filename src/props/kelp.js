@@ -224,9 +224,11 @@ export function layoutKelp(ctx) {
   if (rng() < 0.15) more.push(...placeLedge(ctx, fs, st, rng, T.ledge)); // rarer here: kelp grips open rock
   const plants = [];
   const nextP = clusterer(ctx, rng, 0, 42, 1.55); // densest near the path (the camera flies through the forest)
-  for (let k = 0; k < 360 * comm.plants * tk; k++) {
+  // the low tier thins the forest away from the path only: thinned near it too, the camera crossed 20-30 m of bare
+  // sand between groves, where murky kelp water hid the next one
+  for (let k = 0; k < 360 * comm.plants; k++) {
     const p = nextP();
-    if (!p) continue;
+    if (!p || (tk < 1 && p.d > 10 && rng() > tk * 0.75)) continue;
     const grove = 0.5 + 0.5 * noise2(p.x / 26, p.s / 26, 301);
     if (rng() > ctx.weightOf(p.s, 'kelp') * (0.55 + 0.65 * grove)) continue;
     if (clears.some((c) => (p.x - c.x) ** 2 + (p.s - c.s) ** 2 < c.r * c.r)) continue;

@@ -161,8 +161,9 @@ function segmentPlan(ctx, seg) {
   let x = rng() * tw, theme = THEMES[THEMES.length - 1];
   for (const t of THEMES) { x -= t.w; if (x <= 0) { theme = t; break; } }
   // the zone begins at seg.start (half way through the cross-fade); a dive that starts in this zone (the
-  // sequence's first segment, see BiomeSequence._push) starts 200 m into it
-  const z0 = seg.id === 0 ? seg.start + 200 : seg.start, zEnd = seg.end - 15;
+  // sequence's first segment, see BiomeSequence._push) starts 200 m into it. camStart, not id 0: after a zone
+  // jump the first segment has a later id, and its set pieces landed behind the camera.
+  const z0 = seg.camStart !== undefined ? seg.camStart : seg.start, zEnd = seg.end - 15;
   const slots = [], lo = Math.max(seg.start + 140, z0 + 60), hi = seg.end - 140;
   if (hi > lo) {
     const n = 2 + (rng() < 0.55 ? 1 : 0), big = avail(theme.big).length ? avail(theme.big) : bigKinds(), small = avail(theme.small).length ? avail(theme.small) : smallKinds();

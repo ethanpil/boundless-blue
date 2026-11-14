@@ -24,9 +24,11 @@ import { Hud } from './hud.js';
 import { WorkerPool } from './worker/pool.js';
 
 const qs = new URLSearchParams(location.search);
-const SEED = qs.has('seed') ? parseInt(qs.get('seed'), 10) : (Math.random() * 1e9) | 0;
-let speed = qs.has('speed') ? parseFloat(qs.get('speed')) : 3.2;
-const QUALITY = qs.get('quality') || 'auto'; // auto | low | medium | high | ultra
+// garbage in the URL (seed=abc, speed=abc, start=abc) fell through as NaN and blanked the world: use the defaults
+const num = (k, f = parseFloat) => { const v = qs.has(k) ? f(qs.get(k), 10) : NaN; return Number.isFinite(v) ? v : null; };
+const SEED = num('seed', parseInt) ?? (Math.random() * 1e9) | 0;
+let speed = Math.min(40, Math.max(0.5, num('speed') ?? 3.2)); // the same range as app.setSpeed (0 could never speed up again)
+const QUALITY = PRESETS[qs.get('quality')] ? qs.get('quality') : 'auto'; // auto | low | medium | high | ultra
 const FPS_CAP = qs.has('fps') ? Math.max(0, parseFloat(qs.get('fps'))) : 60; // 0 = uncapped
 // world-building workers (terrain chunks, sky map, noise texture); ?worker=0 builds everything on this thread
 const workers = qs.get('worker') === '0' ? null : WorkerPool.create();
@@ -73,7 +75,7 @@ if (SHADOWS) {
 // Every load starts somewhere new: a seed-derived zone and a point far along the endless path
 // (path/terrain noise is a function of distance, so this randomises their shape too).
 const startRng = mulberry32(SEED ^ 0x51ed270b);
-const START_KEY = qs.get('biome') || BIOME_KEYS[Math.floor(startRng() * BIOME_KEYS.length)];
+const START_KEY = BIOMES[qs.get('biome')] ? qs.get('biome') : BIOME_KEYS[Math.floor(startRng() * BIOME_KEYS.length)];
 const START_S = Math.floor(startRng() * 1e6);
 const seq = new BiomeSequence(SEED, START_KEY, START_S);
 const shape = new WorldShape(seq);
@@ -137,7 +139,7 @@ function rebase(globalZ) {
 }
 
 // ---------- camera ----------
-let s = START_S + (qs.has('start') ? parseFloat(qs.get('start')) : 0);
+let s = START_S + (num('start') ?? 0);
 let jumpDist = 0;   // travel offset added by in-place zone jumps (s restarts elsewhere), for the trip distance
 let lastV = 0; // actual travel speed (m/s) this frame
 const camState = { s: 0, x: 0, y: 0, z: 0, forward: new THREE.Vector3(), camera, Oz: 0 };
@@ -332,7 +334,7 @@ const app = {
   shareUrl() {
     const u = new URL(location.origin + location.pathname);
     u.searchParams.set('seed', SEED); u.searchParams.set('biome', START_KEY);
-    if (qs.has('start')) u.searchParams.set('start', qs.get('start'));
+    if (num('start') !== null) u.searchParams.set('start', qs.get('start'));
     return u.toString();
   },
   // Live readings for the control deck. Values are approximate where real instruments would be (compass, current).
@@ -428,6 +430,12 @@ addEventListener('keydown', (e) => {
   else if (k === 'a') app.setSound(!soundOn);
 });
 addEventListener('mousemove', () => { helpTimer = 3; document.body.style.cursor = 'default'; });
+// WebGL context loss (phones drop it in the background): props free their vertex arrays once uploaded
+// (core.js releaseAfterUpload), so a restored context cannot be refilled and every frame threw. Pause while
+// lost; once restored, reload into the same seed and zone.
+let glLost = false;
+renderer.domElement.addEventListener('webglcontextlost', (e) => { e.preventDefault(); glLost = true; });
+renderer.domElement.addEventListener('webglcontextrestored', () => reloadWith({ seed: SEED, biome: seq.segs[seq.segAt(s)].key, start: null }));
 addEventListener('resize', () => {
   camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
   renderer.setSize(innerWidth, innerHeight); post.setSize();
@@ -666,7 +674,9 @@ async function boot() {
   // shader compiles report no progress: the bar eases most of the way meanwhile
   bootProgress(0.98, 'warming up the lights', 2500); await paint();
   if (noiseJob) {
-    await noiseJob.promise;
+    // workers that never answer held the title card here forever: fall back after the same 2 s as chunk builds
+    while (!noiseJob.done && !workers.stalled(2000)) await within(noiseJob.promise, 250);
+    workers.cancel(noiseJob);
     U.uNoiseTex.value.image.data.set(noiseJob.result || noiseTextureData(256));
     U.uNoiseTex.value.needsUpdate = true;
   }
@@ -681,6 +691,7 @@ async function boot() {
 
 function frame(now) {
   requestAnimationFrame(frame);
+  if (glLost) return;
   // frame cap: a calm 60 fps is plenty for a slow glide and halves the work on 120/144 Hz screens
   if (FPS_CAP > 0 && now - lastFrame < 1000 / FPS_CAP - 1.5) return;
   lastFrame = now;
@@ -757,3 +768,5 @@ function tick(dt, draw) {
   }
 }
 window.__ocean.ready = boot();
+// a failed boot left the title card at its last step forever: say so (the load guard only sees load errors)
+window.__ocean.ready.catch((e) => { console.error(e); if (ldTxt) ldTxt.textContent = 'could not start: ' + ((e && e.message) || e) + ' — please reload'; });
