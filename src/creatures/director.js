@@ -666,31 +666,65 @@ export class Director {
   // Next species likely to be spawned soon whose geometry is not cached yet (or null).
   nextPrewarm(c) {
     const sys = this.sys;
+    // (called from every idle callback: no per-call arrays or strings; the procedural keys of a region are made once)
     if (!this._pw || this.clock - this._pwT > 20) { this._pw = new Set(); this._pwT = this.clock; }
-    for (const ds of [sys.fogD, sys.fogD + 300]) {
-      const s = c.s + ds, region = this.region(s);
+    const pk = this._pwKeys || (this._pwKeys = new Map());
+    const night = !!(sys.U && sys.U.uNight.value > 0.3);
+    for (let w = 0; w < 2; w++) {
+      const s = c.s + sys.fogD + w * 300, region = this.region(s);
       for (const e of sys.seq.weights(s)) {
         const T = TABLES[e.key]; if (!T) continue;
-        const L = T.night && sys.U && sys.U.uNight.value > 0.3 ? T.list.concat(T.night) : T.list;
-        for (const [key] of L) {
-          const keys = key.startsWith('proc:') ? [0, 1, 2].map((k) => `${key}:${(region % 100000) * 16 + k}`) : [key];
-          for (const k of keys) {
+        for (let li = 0; li < 2; li++) {
+          const L = li === 0 ? T.list : night ? T.night : null;
+          if (!L) continue;
+          for (let j = 0; j < L.length; j++) {
+            const key = L[j][0];
+            let keys = null;
+            if (key.startsWith('proc:')) {
+              const rk = (region % 100000) * 16;
+              let q = pk.get(key);
+              if (!q || q.rk !== rk) { q = { rk, keys: [0, 1, 2].map((k) => `${key}:${rk + k}`) }; pk.set(key, q); }
+              keys = q.keys;
+            }
+            for (let m = 0, nk = keys ? 3 : 1; m < nk; m++) {
+              const k = keys ? keys[m] : key;
+              if (this._pw.has(k)) continue;
+              this._pw.add(k);
+              const sp = this.species(k);
+              if (sp && !sys.cache.map.has(sp.key)) return sp;
+            }
+          }
+        }
+      }
+    }
+    // hitchhikers, hunters for bait balls, and the cast of set pieces coming up
+    const X = this._pwX || (this._pwX = ['remora', 'seaOtterPup', 'goldenTrevally', 'cobia', 'narwhalF']);
+    const lists = this._pwL || (this._pwL = [X, null, null]);
+    lists[1] = HUNTERS[sys.seq.weights(c.s + 60)[0].key] || null; lists[2] = eventPrewarm(this);
+    for (let li = 0; li < 4; li++) {
+      if (li === 3) { // POI casts
+        if (!(sys.env && sys.env.pois)) break;
+        const ps = sys.env.pois.query(c.s + 20, c.s + 220, this._ppw || (this._ppw = []));
+        for (let j = 0; j < ps.length; j++) {
+          const L = POI_SPECIES[ps[j].type]; if (!L) continue;
+          for (let m = 0; m < L.length; m++) {
+            const k = L[m];
             if (this._pw.has(k)) continue;
             this._pw.add(k);
             const sp = this.species(k);
             if (sp && !sys.cache.map.has(sp.key)) return sp;
           }
         }
+        break;
       }
-    }
-    // hitchhikers, hunters for bait balls, and the cast of set pieces coming up
-    const extra = ['remora', 'seaOtterPup', 'goldenTrevally', 'cobia', 'narwhalF', ...(HUNTERS[sys.seq.weights(c.s + 60)[0].key] || []), ...eventPrewarm(this)];
-    if (sys.env && sys.env.pois) for (const p of sys.env.pois.query(c.s + 20, c.s + 220, this._ppw || (this._ppw = []))) extra.push(...(POI_SPECIES[p.type] || []));
-    for (const k of extra) {
-      if (this._pw.has(k)) continue;
-      this._pw.add(k);
-      const sp = this.species(k);
-      if (sp && !sys.cache.map.has(sp.key)) return sp;
+      const L = lists[li]; if (!L) continue;
+      for (let m = 0; m < L.length; m++) {
+        const k = L[m];
+        if (this._pw.has(k)) continue;
+        this._pw.add(k);
+        const sp = this.species(k);
+        if (sp && !sys.cache.map.has(sp.key)) return sp;
+      }
     }
     return null;
   }

@@ -319,8 +319,11 @@ const DET = [
   { nL: 34, nA: 18, fu: 8, fw: 3, cu: 10, eLat: 7, eLon: 12 },
   { nL: 46, nA: 26, fu: 10, fw: 3, cu: 12, eLat: 10, eLon: 18 },
 ];
-const levelOf = (sp, lod = 0) => Math.max(0, Math.min(4, (sp.det ?? 1) + 1 + lod));
-const detOf = (sp, lod = 0) => DET[levelOf(sp, lod)];
+// Speck (LOD -3, low / medium tiers, fish-like plans only): animals a few pixels long on screen. A coarse body,
+// minimal fins and no eyes keep the silhouette and tail beat at a fraction of level 0's triangles.
+const SPECK = { nL: 6, nA: 4, fu: 1, fw: 1, cu: 2, eLat: 2, eLon: 4, speck: true };
+export const levelOf = (sp, lod = 0) => Math.max(0, Math.min(4, (sp.det ?? 1) + 1 + lod));
+const detOf = (sp, lod = 0) => (lod <= -3 ? SPECK : DET[levelOf(sp, lod)]);
 
 // ---------- fish-like plan (fish, sharks, eels, rays, cetaceans, seals, penguins, turtles) ----------
 export function buildFish(sp, lod = 0) {
@@ -338,7 +341,7 @@ export function buildFish(sp, lod = 0) {
     for (const f of F[kind] || []) {
       const up = kind === 'dorsal' ? 1 : -1;
       const shp = shapeOf(f.shape);
-      const nU = Math.max(det.fu, f.spikes ? Math.min(f.spikes * 2, 26) : 0, f.t1 - f.t0 > 0.35 ? det.fu * 2 : 0);
+      const nU = det.speck ? (f.t1 - f.t0 > 0.35 ? 3 : 2) : Math.max(det.fu, f.spikes ? Math.min(f.spikes * 2, 26) : 0, f.t1 - f.t0 > 0.35 ? det.fu * 2 : 0);
       const dl = Math.hypot(1, f.sweep ?? 0.4);
       fin(gb, {
         nU, nW: det.fw, pn: [1, 0, 0], part: PART.MEDIAN, vN: up, thick: f.thick ?? 0.025,
@@ -357,7 +360,7 @@ export function buildFish(sp, lod = 0) {
   }
   // paired fins / flippers
   for (const kind of ['pect', 'pelv', 'flip', 'flip2', 'ceph']) {
-    const f = F[kind]; if (!f) continue;
+    const f = F[kind]; if (!f || (det.speck && kind === 'pelv')) continue;
     const shp = shapeOf(f.shape || 'pect');
     for (const side of [1, -1]) {
       const dip = f.dip ?? 0.5, sw = f.sweep ?? 0.8, fwd = f.fwd ?? 0;
@@ -370,7 +373,7 @@ export function buildFish(sp, lod = 0) {
       let px = ry * dz - rz * dy, py = rz * dx - rx * dz, pz = rx * dy - ry * dx;
       const pl = Math.hypot(px, py, pz) || 1; px /= pl; py /= pl; pz /= pl;
       fin(gb, {
-        nU: f.spikes ? Math.min(f.spikes * 2, 24) : Math.max(3, det.fu - 1), nW: det.fw + (f.thick > 0.08 ? 1 : 0), pn: [px, py, pz],
+        nU: f.spikes ? Math.min(f.spikes * 2, det.speck ? 8 : 24) : Math.max(det.speck ? 2 : 3, det.fu - 1), nW: det.fw + (f.thick > 0.08 && !det.speck ? 1 : 0), pn: [px, py, pz],
         part: f.part ?? (kind === 'flip' ? PART.FLIPPER : kind === 'ceph' ? PART.PAIRED : PART.PAIRED),
         vN: f.vN ?? -0.2, thick: f.thick ?? 0.03, cup: f.cup ?? 0,
         root: rootAt,
@@ -402,7 +405,7 @@ export function buildFish(sp, lod = 0) {
   }
   // eyes
   const E = sp.eye;
-  if (E) {
+  if (E && !det.speck) {
     prof(E.t, o);
     const n = E.v >= 0 ? o.n : o.nb;
     const hy = E.v >= 0 ? o.top : o.bot;
@@ -890,7 +893,11 @@ export function buildCassiopea(sp, lod = 0) {
   return gb.finish();
 }
 
+// plans built by buildFish have LOD -2 and the speck (-3); the others clamp both to -1
+const NOT_FISH = new Set(['jelly', 'siphon', 'squid', 'octopus', 'seahorse', 'crab', 'lobster', 'isopod', 'seapig', 'dumbo', 'cassiopea']);
+export const hasSpeck = (sp) => !NOT_FISH.has(sp.plan);
 export function buildSpecies(sp, lod = 0) {
+  if (lod < -1 && !hasSpeck(sp)) lod = -1;
   switch (sp.plan) {
     case 'jelly': return buildJelly(sp, lod);
     case 'siphon': return buildSiphonophore(sp);

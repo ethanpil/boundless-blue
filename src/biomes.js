@@ -922,7 +922,11 @@ export class WorldShape {
     for (const e of ws) { const b = BIOMES[e.key]; t += (b.canopy ? b.canopy(x, s, ad, e.g, dx) : 1) * e.w; }
     return t;
   }
-  hasCeiling(s) { return this.seq.weights(s).some((e) => BIOMES[e.key].ceil); }
+  hasCeiling(s) { // (a loop, not .some(closure): called per creature group several times a frame)
+    const ws = this.seq.weights(s);
+    for (let i = 0; i < ws.length; i++) if (BIOMES[ws[i].key].ceil) return true;
+    return false;
+  }
   floorNormal(x, s) {
     const e = 0.75;
     const hx = this.floorAt(x + e, s) - this.floorAt(x - e, s);

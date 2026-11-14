@@ -11,7 +11,10 @@ export class Obstacles {
   add(o) {
     const i0 = Math.floor((Math.min(o.ax, o.bx) - o.r) / CELL), i1 = Math.floor((Math.max(o.ax, o.bx) + o.r) / CELL);
     const j0 = Math.floor((Math.min(o.as, o.bs) - o.r) / CELL), j1 = Math.floor((Math.max(o.as, o.bs) + o.r) / CELL);
-    o._cells = [];
+    // every bookkeeping field is created here, in a fixed order, so all obstacles share one hidden class before the
+    // hot loops see them (query's dedup stamp and the creatures' cached box used to be added later); a re-added
+    // (moved) obstacle drops its cached box
+    o._cells = []; o._q = 0; o._bb = null;
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
       const k = key(i, j);
       let a = this.map.get(k);
@@ -38,15 +41,18 @@ export class Obstacles {
   // Push every obstacle whose bounds overlap the box around (x, s) with half-size `rad` into `out`
   // (deduplicated). Returns out.
   query(x, s, rad, out) {
-    out.length = 0;
+    // (written in place and truncated at the end: `out.length = 0` dropped the array's storage on every query, so
+    // each refill allocated a new one)
+    let n = 0;
     const i0 = Math.floor((x - rad) / CELL), i1 = Math.floor((x + rad) / CELL);
     const j0 = Math.floor((s - rad) / CELL), j1 = Math.floor((s + rad) / CELL);
     const stamp = (this._stamp = (this._stamp + 1) | 0);
     for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
       const a = this.map.get(key(i, j));
       if (!a) continue;
-      for (const o of a) if (o._q !== stamp) { o._q = stamp; out.push(o); }
+      for (let k = 0; k < a.length; k++) { const o = a[k]; if (o._q !== stamp) { o._q = stamp; if (n < out.length) out[n] = o; else out.push(o); n++; } }
     }
+    out.length = n;
     return out;
   }
 

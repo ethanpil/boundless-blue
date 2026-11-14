@@ -3,7 +3,7 @@
 // stay precise no matter how far the journey has gone.
 import * as THREE from 'three';
 import { mulberry32 } from '../noise.js';
-import { buildSpecies } from './build.js';
+import { buildSpecies, hasSpeck, levelOf } from './build.js';
 import { interestOf } from './species.js';
 import { Obstacles } from '../obstacles.js';
 import { bodyShape, JELLY_PAD, segSegDist } from './sep.js';
@@ -17,6 +17,9 @@ const _B = new Float64Array(9); // body basis scratch (X, Y, Z columns)
 const _TP = new Float64Array(16 * 5); // terrain-check samples (x, y, z, floor, roof) of up to 16 support points (sep.js SUP_MAX)
 
 const _n = { x: 0, y: 0, s: 0 };
+// arguments / results of big per-agent methods (_orient, _clear, _obsTop, _slotTarget): small wrappers that the callers
+// inline pass them through here, so no double is boxed for the call
+const _OV = new Float64Array(16);
 const _hit = { nx: 0, ny: 1, nz: 0 };   // outward normal of the closest obstacle (render-relative x, y, z)
 const _push = { x: 0, y: 0, z: 0 };     // accumulated de-penetration vector
 const DIRS = (() => { // 26 unit directions (cube faces, edges, corners), upward ones first
@@ -142,6 +145,7 @@ export class Encounter {
     this.fsq = 1; // pods / pairs bunch up (formation scale < 1) to pass rocks and walls
     this.threats = null; this.threatsNext = null; this.nThreat = 0; this.nThreatNext = 0;
     this.nearMesh = null; this.nearEntry = null; this.nearGeo = null; this.nearIdx = null; this.nearCount = 0; this.nearMark = null; this.nearCopy = null; this.nearAttrs = null;
+    this.lodD = 0; // distance that picks the main mesh's level (_nearTick)
     this.walk = null; this.herdX = 0; this.herdZ = 0; this.alarmR = 0; this.wf = 0; this.den = false; this.perched = null; this.perchY = null;
     this.host = null; this.HI = null; this.LOC = null; this._cx = 0; this._cy = 0; this._cz = 0; this._label = null;
     this.recheck = false; this.recheckT = 0; this.unseen = 0; this.swirling = false; this.lFloor = 0; this.lCeil = 0; this.openWater = false;
@@ -173,7 +177,7 @@ export class Encounter {
     const aCol = mk('aCol'), aCol2 = mk('aCol2'), aPat = mk('aPat'), aPat2 = mk('aPat2'), aMot = mk('aMot');
     const aVar = mk('aVar'), aVar2 = mk('aVar2');
     this.aAnim = mk('aAnim'); this.aAnim.setUsage(THREE.DynamicDrawUsage);
-    this.geo = geo; this.lod = 0; this.lodGeo = [null, geo, null]; this.lodEntry = [null, this.entry, null];
+    this.geo = geo; this.lod = 0; this.lodGeo = [null, null, null, geo]; this.lodEntry = [null, null, null, this.entry]; // LOD -3..0
     this.instAttrs = [aCol, aCol2, aPat, aPat2, aMot, aVar, aVar2];
     this.tris = this.entry.tris * n;
     const mat = sp.translucent ? sys.mats.jelly : sys.mats.opaque;
@@ -741,7 +745,9 @@ export class Encounter {
   // Is the water column clear of the floor (below yLo) and of any roof / ice (above yHi) at (x, s) and on a ring of
   // radius r around it? Beside a blue hole's wall or a drop-off the floor right below can be 100 m down while the
   // wall is a few metres to the side, so the ring (8 points) is what catches it.
-  _columnClear(x, s, r, yLo, yHi) {
+  _columnClear(x, s, r, yLo, yHi) { const a = _OV; a[0] = x; a[1] = s; a[2] = r; a[3] = yLo; a[4] = yHi; return this._columnClearV(); } // (see _clear)
+  _columnClearV() {
+    const a = _OV, x = a[0], s = a[1], r = a[2], yLo = a[3], yHi = a[4];
     const sh = this.sys.shape, ceil = sh.hasCeiling(s);
     for (let k = 0; k < 9; k++) {
       const a = k * (TAU / 8), qx = k === 8 ? x : x + Math.cos(a) * r, qs = k === 8 ? s : s + Math.sin(a) * r;
@@ -763,18 +769,21 @@ export class Encounter {
     reg.query(b.x, bs, R, this.obs);
     this.obsValid = true;
     // bucket the short list into a small grid over the group so each instance only tests nearby obstacles
-    const obs = this.obs, G = this.obsGrid || (this.obsGrid = { cells: [], n: 0, x0: 0, s0: 0, cs: 4 });
+    const obs = this.obs, G = this.obsGrid || (this.obsGrid = { cells: [], n: 0, x0: 0, s0: 0, cs: 4, cnt: new Int32Array(256) });
     if (obs.length <= 10 || obs.length * this.n < 600) { G.n = 0; return; } // a grid only pays off for big groups
     const cs = 4, nn = Math.min(16, Math.ceil((2 * R) / cs));
     G.n = nn; G.cs = (2 * R) / nn; G.x0 = b.x - R; G.s0 = bs - R;
-    for (let k = 0; k < nn * nn; k++) { if (G.cells[k]) G.cells[k].length = 0; else G.cells[k] = []; }
+    // cells are refilled in place and truncated (emptying them with length = 0 dropped their storage each refresh)
+    const cnt = G.cnt; cnt.fill(0, 0, nn * nn);
+    for (let k = 0; k < nn * nn; k++) if (!G.cells[k]) G.cells[k] = [];
     const m = 2.2 + this.rbU * this.baseSize * 1.5 + (this.elong ? this.baseSize * 0.5 : 0); // whole body (big adults, head and tail) + the 1.8 m test horizon
-    for (const o of obs) {
-      const bb = obsBox(o);
+    for (let q = 0; q < obs.length; q++) {
+      const o = obs[q], bb = obsBox(o);
       const i0 = Math.max(0, Math.floor((bb[0] - m - G.x0) / G.cs)), i1 = Math.min(nn - 1, Math.floor((bb[1] + m - G.x0) / G.cs));
       const j0 = Math.max(0, Math.floor((bb[4] - m - G.s0) / G.cs)), j1 = Math.min(nn - 1, Math.floor((bb[5] + m - G.s0) / G.cs));
-      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) G.cells[j * nn + i].push(o);
+      for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) { const k = j * nn + i, a = G.cells[k], p = cnt[k]++; if (p < a.length) a[p] = o; else a.push(o); }
     }
+    for (let k = 0; k < nn * nn; k++) G.cells[k].length = cnt[k];
   }
   _obsList(x, z) {
     const G = this.obsGrid;
@@ -785,8 +794,11 @@ export class Encounter {
   }
   // Signed clearance of instance i's body (1 or 3 spheres along the heading) at (px,py,pz), relative
   // coordinates. Writes the closest obstacle's outward normal into _hit. Large value when clear.
-  _clear(i, px, py, pz, pts = 3, list = this.obs) {
-    if (!list.length) return 1e9;
+  // (a small wrapper the callers inline: position and result go through the scratch array, nothing is boxed)
+  _clear(i, px, py, pz, pts = 3, list = this.obs) { const a = _OV; a[5] = px; a[6] = py; a[7] = pz; this._clearV(i, pts, list); return a[5]; }
+  _clearV(i, pts, list) {
+    const a = _OV, px = a[5], py = a[6], pz = a[7];
+    if (!list.length) { a[5] = 1e9; return; }
     const sz = this.SZ[i], rb = this.rbU * sz + 0.05 + 0.03 * sz, F = this.F, i3 = i * 3;
     const half = sz * 0.42, el = this.elong && pts > 1 && half > rb * 1.5, yo = this.kind === 'walk' ? rb : 0;
     let best = 1e9;
@@ -808,7 +820,7 @@ export class Encounter {
         if (d < best) { best = d; _hit.nx = dx / dl; _hit.ny = dy / dl; _hit.nz = -ds / dl; }
       }
     }
-    return best;
+    a[5] = best;
   }
   // Last-resort correction (steering looks ahead, so this is rare): move out by the sum of all
   // penetration vectors of the body spheres (resolves bodies wedged between several rocks at once).
@@ -1064,7 +1076,9 @@ export class Encounter {
     if (place) { this.FLO[i] = lo; this.CEI[i] = hi; }
   }
 
-  _zoneY(x, s, fl, ce, wh) {
+  _zoneY(x, s, fl, ce, wh) { const a = _OV; a[0] = x; a[1] = s; a[2] = fl; a[3] = ce; a[4] = wh; this._zoneYV(); return a[0]; } // (see _clear)
+  _zoneYV() {
+    const a = _OV, s = a[1], fl = a[2], ce = a[3], wh = a[4];
     const zone = this.zone, sh = this.sys.shape;
     let y;
     if (zone === 'floor') y = fl + this.alt + wh;
@@ -1072,14 +1086,15 @@ export class Encounter {
     else if (zone === 'ceiling') y = ce - this.alt + wh;
     else y = sh.pathY(s) + this.lh + wh;
     const lo = fl + this.mFloor + this.R0(), hi = Math.min(ce - this.mCeil, this.surfY) - this.R0() * 0.5;
-    return hi > lo ? clamp(y, lo, hi) : (lo + hi) * 0.5;
+    a[0] = hi > lo ? clamp(y, lo, hi) : (lo + hi) * 0.5;
   }
   R0() { return this.R ? Math.min(this.R * 0.4, 3) : 0; }
   // vertical room for the group centre at (x, s) between the limits _zoneY clamps to (negative: no water column for it)
   _room(x, s, fl, ce) { return Math.min(ce - this.mCeil, this.surfY) - this.R0() * 1.5 - fl - this.mFloor; }
 
-  _slotTarget(i, dt) {
-    const o = i * 4, SL = this.SL, out = _t;
+  _slotTarget(i, dt) { _OV[8] = dt; return this._slotTargetV(i); } // (see _clear)
+  _slotTargetV(i) {
+    const dt = _OV[8], o = i * 4, SL = this.SL, out = _t;
     const k = this.kind;
     if (k === 'bait' || k === 'mill') {
       SL[o + 1] += SL[o + 3] * dt;
@@ -1139,7 +1154,9 @@ export class Encounter {
   // surface point of any obstacle whose footprint it is over, unless that obstacle is overhead (the body is below
   // its underside: an arch, an overhang) or more than 3 m + a body length above it (taller structure is swum
   // around, not over). -1e9 when none.
-  _obsTop(x, y, z, rad, list) {
+  _obsTop(x, y, z, rad, list) { const a = _OV; a[9] = x; a[10] = y; a[11] = z; a[12] = rad; this._obsTopV(list); return a[9]; } // (see _clear)
+  _obsTopV(list) {
+    const a = _OV, x = a[9], y = a[10], z = a[11], rad = a[12];
     const s = -(z + this.anchorZ), climb = 3 + this.baseSize;
     let top = -1e9;
     for (let j = 0; j < list.length; j++) {
@@ -1156,7 +1173,7 @@ export class Encounter {
         if (cy + w > top) top = cy + w;
       }
     }
-    return top;
+    a[9] = top;
   }
 
   // ======================================================================
@@ -1787,7 +1804,11 @@ export class Encounter {
   }
 
   // heading, bank, body bend and tail-beat phase from velocity
-  _orient(i, dt, vx, vy, vz, dtPh = dt) {
+  // (a small wrapper the callers inline: the doubles go through a scratch array, so the call boxes none of them)
+  _orient(i, dt, vx, vy, vz, dtPh = dt) { const a = _OV; a[0] = dt; a[1] = vx; a[2] = vy; a[3] = vz; a[4] = dtPh; this._orientV(i); }
+  _orientV(i) {
+    const a = _OV, dt = a[0], dtPh = a[4];
+    let vx = a[1], vy = a[2], vz = a[3];
     const F = this.F, i3 = i * 3;
     let spd = h3(vx, vy, vz);
     if (this.lookCam > 0 && spd > 0.04) { // turn toward the camera (a curious look)
@@ -2620,12 +2641,27 @@ export class Encounter {
   _lodTick(c) {
     const sp = this.sp, cache = this.sys.cache;
     if (sp.plan === 'siphon') return;
-    // low tier: by apparent size, so a fish switches when it looks as small as a 3 m animal does at 48 m (~1/16 rad
-    // long); never nearer than 24 m, and 3 m+ animals keep 48 m
-    const far = this.sys.tierScale < 0.7 ? Math.min(48, Math.max(24, this.baseSize * 16)) : 48;
-    const d = this.dist, want = d > far ? -1 : d < far - 8 ? 0 : this.lod;
+    // Low tier: by apparent size (length / distance of the group's nearest point): LOD -1 below 1/10 rad (31 px long at
+    // 360p; 1/6 rad for detail-2 species, whose level -1 is still ~1k triangles; at most 48 m), -2 (fish-like plans with
+    // a coarser level) below 1/24 rad. Low and medium: the speck mesh (LOD -3, fish-like plans) below 1/48 rad (low) or
+    // 1/80 rad (medium), a few pixels long. Finer levels come back at 0.85 of their distance (medium keeps the 8 m band
+    // of level 0). High and ultra: level 0 within 48 m, as before.
+    const ts = this.sys.tierScale, L = this.baseSize, cur = this.lod;
+    let want, d = this.dist, twin0 = 0;
+    if (ts >= 1) want = d > 48 ? -1 : d < 40 ? 0 : cur;
+    else {
+      const low = ts < 0.7, fish = hasSpeck(sp);
+      const t0 = low ? Math.min(48, L * ((sp.det ?? 1) >= 2 ? 6 : 10)) : 48, t1 = low && fish && levelOf(sp, -2) < levelOf(sp, -1) ? L * 24 : 1e9;
+      // low tier, groups (hammerhead schools spread over 50 m, bait balls and jelly swarms around the camera): the few
+      // members in view that want level 0 are drawn at level 0 by the twin mesh, and the rest of the group takes its
+      // level from its nearest other member in view (the group's nearest point kept 300 sardines at level 0)
+      if (low && this.n >= 3) { twin0 = t0; this._nearTick(c, t0); d = this.lodD; }
+      const t2 = fish ? L * (low ? 48 : 80) : 1e9;
+      const lv = d > t2 ? -3 : d > t1 ? -2 : d > t0 ? -1 : 0;
+      want = lv <= cur ? lv : d < (cur === -3 ? t2 * 0.85 : cur === -2 ? t1 * 0.85 : low ? t0 * 0.85 : t0 - 8) ? lv : cur;
+    }
     if (want !== this.lod) {
-      const k = want + 1;
+      const k = want + 3;
       if (!this.lodGeo[k] && cache.has(sp, want)) { this.lodEntry[k] = cache.acquire(sp, want); this.lodGeo[k] = this._makeGeo(this.lodEntry[k]); }
       if (this.lodGeo[k]) {
         this.mesh.geometry = this.lodGeo[k];
@@ -2633,16 +2669,26 @@ export class Encounter {
         this.lod = want;
       } else this.sys.wantLod(sp, want);
     }
-    this._nearTick(c);
+    if (!twin0) this._nearTick(c, 0);
   }
-  _nearTick(c) {
-    const NMAX = 12, sys = this.sys;
-    const ok = this.visible && d0ok(this) && this.dist < 11;
-    if (!ok) { if (this.nearCount) this._nearSet(0); return; }
+  // t0 = 0: the high-detail twin (LOD +1) for agents within ~9 m. t0 > 0 (low tier, groups of 3+, see _lodTick): a
+  // level-0 twin for the agents in view within t0; sets lodD, the distance of the nearest agent in view it does not take.
+  _nearTick(c, t0) {
+    const NMAX = t0 ? 32 : 12, sys = this.sys; // (a hammerhead school around the camera has 15-25 members within t0)
+    // low tier, singles and pairs: no LOD +1 twin for detail-2 species (their own near level is already level 3, ~2.3k
+    // triangles), and only agents in the frustum that look big (longer than ~1/8 of their distance) get one
+    const low = sys.tierScale < 0.7;
+    this.lodD = this.dist;
+    const ok = this.visible && d0ok(this) && (t0 ? this.dist < t0 : this.dist < 11 && !(low && (this.sp.det ?? 1) >= 2));
+    // (no twin: a spread-out group still takes its level from its nearest member in view, not its bounding sphere)
+    // (only while that can pick a coarser level: beyond 48 lengths the group is all specks anyway, and plans without a
+    // speck have nothing coarser than level -1)
+    if (!ok) { if (this.nearCount) this._nearSet(0); if (t0 && this.visible && this.dist < this.baseSize * 48 && hasSpeck(this.sp)) this.lodD = this._nearestInView(c); return; }
     if (!this.nearMesh) {
-      if (!sys.cache.has(this.sp, 1)) { sys.wantLod(this.sp, 1); return; }
-      if (sys.nearActive >= sys.maxNear) return; // draw-call budget
-      const entry = sys.cache.acquire(this.sp, 1), g = new THREE.BufferGeometry();
+      const lv = t0 ? 0 : 1;
+      if (!sys.cache.has(this.sp, lv)) { sys.wantLod(this.sp, lv); return; }
+      if (sys.nearActive >= sys.maxNear) { if (t0) this.lodD = this._nearestInView(c); return; } // draw-call budget
+      const entry = sys.cache.acquire(this.sp, lv), g = new THREE.BufferGeometry();
       g.setIndex(entry.index); g.setAttribute('position', entry.pos); g.setAttribute('normal', entry.nor); g.setAttribute('aG', entry.g);
       this.nearAttrs = [];
       for (let k = 0; k < 8; k++) { const a = new THREE.InstancedBufferAttribute(new Float32Array(NMAX * 4), 4); if (k === 7) a.setUsage(THREE.DynamicDrawUsage); g.setAttribute(k < 7 ? INST_NAMES[k] : 'aAnim', a); this.nearAttrs.push(a); }
@@ -2654,19 +2700,32 @@ export class Encounter {
       this.nearMesh = m; this.nearEntry = entry; this.nearGeo = g; this.nearIdx = new Int16Array(NMAX).fill(-1); this.nearCount = 0;
       this.nearMark = new Uint8Array(this.n); this.nearCopy = new Float32Array(NMAX * 16);
     }
-    if (!this.nearCount && sys.nearActive >= sys.maxNear) return; // draw-call budget: a few twins at a time
+    if (!this.nearCount && sys.nearActive >= sys.maxNear) { if (t0) this.lodD = this._nearestInView(c); return; } // draw-call budget: a few twins at a time
     const P = this.P, n = this.n, cx = c.x, cy = c.y, cz = c.z - this.anchorZ, mark = this.nearMark, idx = this.nearIdx;
     // keep agents still within 8 m, add new ones within 7 m (nearest first is not needed: few agents qualify)
     let cnt = 0, changed = false;
+    const SZ = this.SZ, keep2 = t0 ? t0 * t0 * 1.21 : 100, add2 = t0 ? t0 * t0 : 81, pad = t0 ? 2 : 0;
+    if (t0) { // agents in (or about to enter) the view that want level 0, and the nearest one beyond them
+      let cand = 0, m2 = 1e18, a2 = 1e18;
+      for (let i = 0; i < n; i++) {
+        if (!this._inFrustum(c, i, pad)) continue;
+        const dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz, d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < a2) a2 = d2;
+        if (d2 < (mark[i] ? keep2 : add2)) cand++; else if (d2 < m2) m2 = d2;
+      }
+      // more than the twin holds: the whole group stays at level 0 (a twin would only draw them twice)
+      if (cand > NMAX) { this.lodD = Math.sqrt(a2); if (this.nearCount) this._nearSet(0); return; }
+      this.lodD = Math.sqrt(m2);
+    }
     for (let k = 0; k < this.nearCount; k++) {
-      const i = idx[k], dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz;
-      if (dx * dx + dy * dy + dz * dz < 100) { if (k !== cnt) { idx[cnt] = i; this.nearCopy.copyWithin(cnt * 16, k * 16, k * 16 + 16); changed = true; } cnt++; }
+      const i = idx[k], dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz, d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < keep2 && (!low || ((t0 || d2 < 81 * SZ[i] * SZ[i]) && this._inFrustum(c, i, pad)))) { if (k !== cnt) { idx[cnt] = i; this.nearCopy.copyWithin(cnt * 16, k * 16, k * 16 + 16); changed = true; } cnt++; }
       else { mark[i] = 0; changed = true; if (STATIC_KINDS.has(this.kind)) this.matrixDirty = true; }
     }
     for (let i = 0; i < n && cnt < NMAX; i++) {
       if (mark[i]) continue;
-      const dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz;
-      if (dx * dx + dy * dy + dz * dz < 81) { mark[i] = 1; idx[cnt] = i; cnt++; changed = true; this.nearCopy.fill(0, (cnt - 1) * 16, cnt * 16); }
+      const dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz, d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < add2 && (!low || ((t0 || d2 < 64 * SZ[i] * SZ[i]) && this._inFrustum(c, i, pad)))) { mark[i] = 1; idx[cnt] = i; cnt++; changed = true; this.nearCopy.fill(0, (cnt - 1) * 16, cnt * 16); }
     }
     if (changed) { // static per-instance attributes follow the selection
       for (let k = 0; k < 7; k++) {
@@ -2676,6 +2735,21 @@ export class Encounter {
       }
     }
     this._nearSet(cnt);
+  }
+  // distance to the nearest agent in (or within 2 m of) the view; far away when none
+  _nearestInView(c) {
+    const P = this.P, cx = c.x, cy = c.y, cz = c.z - this.anchorZ;
+    let m2 = 1e18;
+    for (let i = 0; i < this.n; i++) {
+      const dx = P[i * 3] - cx, dy = P[i * 3 + 1] - cy, dz = P[i * 3 + 2] - cz, d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 < m2 && this._inFrustum(c, i, 2)) m2 = d2;
+    }
+    return Math.sqrt(m2);
+  }
+  // agent i's body (a sphere of its length, plus a margin in metres) touches the view frustum
+  _inFrustum(c, i, pad) {
+    _sphere.center.set(this.P[i * 3], this.P[i * 3 + 1], this.anchorZ + this.P[i * 3 + 2] - c.Oz); _sphere.radius = this.SZ[i] * 0.6 + pad;
+    return c.frustum.intersectsSphere(_sphere);
   }
   // copy the selected agents' matrices / animation into the twin and hide them in the main mesh
   _nearSet(cnt) {
@@ -2961,7 +3035,7 @@ export class Encounter {
   dispose() {
     const sys = this.sys;
     sys.world.remove(this.mesh);
-    for (let k = 0; k < 3; k++) if (this.lodGeo[k]) sys.cache.release(this.lodEntry[k], this.lodGeo[k]);
+    for (let k = 0; k < 4; k++) if (this.lodGeo[k]) sys.cache.release(this.lodEntry[k], this.lodGeo[k]);
     this.mesh.dispose();
     if (this.nearMesh) {
       if (this.nearCount) sys.nearActive--;

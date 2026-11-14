@@ -238,7 +238,7 @@ export class Separation {
     const fr = ++this.frame;
     this.stats.pairs = 0;
     const act = this._act || (this._act = []);
-    act.length = 0;
+    let na = 0; // (refilled in place: `length = 0` dropped the array's storage every frame)
     for (const e of list) if (e.nBlk) { e.SB.fill(0); e.nBlk = 0; } // wedge flags last one frame
     for (const e of list) {
       if (e.done || e.kind === 'attach' || !e.SC) continue;
@@ -249,8 +249,10 @@ export class Separation {
       const k = every(e);
       e.sepDue = e.stepped && !STATIC.has(e.kind) && e.age - e.sepT >= periodOf(k) - 1e-6;
       e.sepMg = marginFor(e, k, dt);
-      act.push(e);
+      if (na < act.length) act[na] = e; else act.push(e);
+      na++;
     }
+    act.length = na;
     for (const e of act) {
       if (!e.sepDue) continue;
       this.margin = e.sepMg;
@@ -274,8 +276,9 @@ export class Separation {
     // between pairs of them: mixed-species companions share one formation, and the hard constraints re-applied after
     // a push (terrain, rocks, camera) moved members back into the other group's fish with no cross-group re-check
     const again = this._again || (this._again = []);
-    again.length = 0;
-    for (const e of act) if (e.SV.hit && !STATIC.has(e.kind)) { this._fill(e); e.sepMoved = false; again.push(e); } // pushed by a neighbour group too
+    let ng = 0;
+    for (const e of act) if (e.SV.hit && !STATIC.has(e.kind)) { this._fill(e); e.sepMoved = false; if (ng < again.length) again[ng] = e; else again.push(e); ng++; } // pushed by a neighbour group too
+    again.length = ng;
     // (three rounds: an animal found wedged after one round holds still in the next, see Encounter._applySep)
     for (let round = 0; round < 3 && again.length; round++) {
       for (const e of again) { this.margin = e.sepMg; this._withinSome(e, e.SMV, e.nMoved); }

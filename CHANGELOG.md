@@ -20,6 +20,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 - Sunken Wrecks: clear blue water and pale sand, wrecks every ~60 m with growth-covered wreckage trails between them, fans and soft corals on hulls, varied resting states, and a camera that lingers on the big ships. Stretches with little in view went from over half of a flight to almost none.
 - Water and light: finer caustics in the shallows that soften with depth; distinct sun shafts that slant at dusk and fade under cloud; a rippling surface and blue Snell's window seen from below; soft out-of-focus motes near the lens; no dark tunnel at the frame edges.
 - Lighter on low-end GPUs: 17-30% fewer triangles per frame in the wall, soft-coral, mangrove and seamount zones with no visible change; better GPU detection (Snapdragon X, old Iris and AMD APUs, Intel Macs); resolution follows the window between screens and no longer oscillates.
+- Low-tier animals draw about half the triangles (49-73% fewer in the reef, wall, seamount, soft-coral and open-ocean zones) with the same or more animals on screen: schools pick their detail from the nearest visible member, and fish only a few pixels long become simple specks. Creature code allocates about 40% less memory per frame.
 - The share link carries the zone you are in after a zone jump.
 
 ### Fixed

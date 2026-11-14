@@ -27,7 +27,9 @@ export class Creatures {
     this.cache = new GeoCache(96);
     this.enc = [];
     // per-tier budgets: groups (= draw calls), instances, triangles, high-detail close-up twins (extra draw calls)
-    const T = { low: [0.6, 26, 1800, 260000, 3], medium: [0.85, 30, 2500, 360000, 4], high: [1, 34, 3000, 460000, 5], ultra: [1.15, 40, 3600, 600000, 8] }[env.tier] || [1, 34, 3000, 460000, 5];
+    // (low: 170k since level-0 twins and the speck level (Encounter._lodTick) cut its triangles per animal by ~half:
+    // the headroom left for new groups is about what 260k left before)
+    const T = { low: [0.6, 26, 1800, 170000, 3], medium: [0.85, 30, 2500, 360000, 4], high: [1, 34, 3000, 460000, 5], ultra: [1.15, 40, 3600, 600000, 8] }[env.tier] || [1, 34, 3000, 460000, 5];
     this.tierScale = T[0];
     this.maxEnc = T[1]; this.maxInstances = T[2]; this.maxTris = T[3]; this.maxNear = T[4];
     this.instances = 0; this.trisTotal = 0;
