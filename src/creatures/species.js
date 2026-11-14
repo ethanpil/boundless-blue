@@ -1437,6 +1437,37 @@ Object.assign(SPECIES, {
     beh: { ...HOVER, n: [1, 2], zone: 'floor', alt: [0.1, 0.8], speed: [0.05, 0.2], spread: 6, loose: true }, size: [0.3, 0.55], interest: 0.6,
   }),
 });
+// --- coldcoral --- fish of the Lophelia reefs
+Object.assign(SPECIES, {
+  // Norway redfish (Sebastes viviparus): orange-red, big-eyed, hanging in loose groups just over the coral
+  redfish: merge(SPECIES.kelpRockfish, {
+    col: C(0xc4442a, 0xeea080, 0x8a2414, 0xd2563a, 0xb03a22, 0x501008), pat: [6, 5, 0.35], pat2: [0, 1, 0], cs: [-0.25, 0.15], sheen: 0.25,
+    eye: { r: 0.056 },
+    beh: { ...HOVER, n: [3, 8], zone: 'floor', alt: [0.8, 3.2], speed: [0.03, 0.14], spread: 5, loose: true }, size: [0.22, 0.36], interest: 0.55,
+  }),
+  // ling (Molva molva): long, cod-like, mottled brown, lurking low among the branches
+  ling: fish({
+    det: 1,
+    body: { depth: 0.13, width: 0.8, tm: 0.24, nose: 0.6, tail: 1.0, ped: 0.06, tEnd: 0.95, snout: 0.05 },
+    fins: { dorsal: [{ t0: 0.22, t1: 0.33, h: 0.05, shape: 'round' }, { t0: 0.36, t1: 0.95, h: 0.04, shape: 'long', sweep: 0.3 }],
+      anal: [{ t0: 0.46, t1: 0.95, h: 0.035, shape: 'long', sweep: 0.3 }], pect: { h: 0.07, shape: 'round' }, caudal: { shape: 'rounded', size: 0.07 } },
+    eye: { r: 0.022 },
+    col: C(0x5a4a34, 0xc0b498, 0x342818, 0x50422e, 0x2a2016, 0x202020), pat: [6, 7, 0.55], cs: [-0.25, 0.2], sheen: 0.2, rough: 0.5,
+    mot: { amp: 0.06, waves: 1.0, c0: 0.2, beat: 0.9, idle: 0.4 },
+    beh: { ...HOVER, n: [1, 1], zone: 'floor', alt: [1.3, 2.0], speed: [0.04, 0.18], spread: 6, loose: true }, size: [0.9, 1.4], interest: 0.6,
+  }),
+  // tusk (Brosme brosme): one long dorsal fin, brown with dark fins edged pale
+  tusk: fish({
+    det: 1,
+    body: { depth: 0.17, width: 0.75, tm: 0.28, nose: 0.6, tail: 1.1, ped: 0.07, tEnd: 0.93, snout: 0.05 },
+    fins: { dorsal: [{ t0: 0.24, t1: 0.95, h: 0.05, shape: 'long', sweep: 0.3 }], anal: [{ t0: 0.46, t1: 0.95, h: 0.045, shape: 'long', sweep: 0.3 }],
+      pect: { h: 0.08, shape: 'round' }, caudal: { shape: 'rounded', size: 0.08 } },
+    eye: { r: 0.024 },
+    col: C(0x6e4a2c, 0xc8aa80, 0x4a3018, 0x3a281a, 0x5a3a20, 0xd8c8b0), pat: [6, 6, 0.4], finEdge: 0.8, cs: [-0.2, 0.2], sheen: 0.2, rough: 0.5,
+    mot: { amp: 0.06, waves: 1.0, c0: 0.2, beat: 0.9, idle: 0.45 },
+    beh: { ...HOVER, n: [1, 2], zone: 'floor', alt: [1.3, 2.2], speed: [0.04, 0.2], spread: 6, loose: true }, size: [0.5, 0.85], interest: 0.55,
+  }),
+});
 S.narwhal.extra.bill.spiral = true;
 for (const k of ['seaOtter', 'seaOtterUrchin', 'seaOtterMom', 'seaOtterPup', 'ringedSeal', 'harpSeal', 'amphipod', 'seaAngel']) S[k].gill = false;
 
@@ -1848,6 +1879,12 @@ Object.assign(FACTS, {
   wreckfish: 'Big animals are rare here: most residents are under 1 cm, though ~1 m wreckfish are common.',
   cutthroatEel: 'Wreckfish, cut-throat eels and geryonid crabs are the larger animals seen moving about Lost City.',
   lcCrab: 'Rare larger animals here include crabs, shrimp, sea urchins, eels and a diverse array of corals.',
+});
+// --- coldcoral ---
+Object.assign(NAMES, { redfish: 'Norway redfish', ling: 'Ling', tusk: 'Tusk' });
+Object.assign(FACTS, {
+  redfish: 'In Norway, redfish and tusk tend to concentrate in coral reef habitat.',
+  tusk: 'In Norway, redfish and tusk tend to concentrate in coral reef habitat.',
 });
 
 export function commonName(sp) {

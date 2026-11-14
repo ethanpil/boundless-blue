@@ -11,6 +11,7 @@ const { registerNewBiomeProps2 } = await import(SRC + 'props/newbiomes2.js');
 const { registerNewBiomeProps3 } = await import(SRC + 'props/newbiomes3.js');
 const { registerNewBiomeProps4 } = await import(SRC + 'props/newbiomes4.js');
 const { registerNewBiomeProps5 } = await import(SRC + 'props/newbiomes5.js');
+const { registerNewBiomeProps6 } = await import(SRC + 'props/newbiomes6.js'); // coldcoral
 const NB = await import(SRC + 'props/nb_common.js');
 const { mulberry32 } = await import(SRC + 'noise.js');
 
@@ -34,6 +35,7 @@ registerNewBiomeProps2(term, env);
 registerNewBiomeProps3(term, env);
 registerNewBiomeProps4(term, env);
 registerNewBiomeProps5(term, env);
+registerNewBiomeProps6(term, env); // coldcoral
 console.log(`init: old props ${tOld.toFixed(0)} ms, new biomes ${(performance.now() - t0).toFixed(0)} ms; populators ${nOld} old + ${term.populators.length - nOld} new`);
 const popNames = Object.keys(NB.NBSTATS.pops || {});
 
@@ -137,7 +139,7 @@ for (const key of biomes) {
         const r = pop(ctx);
         const dt = performance.now() - ta; if (dt > tmax) tmax = dt;
         if (n >= 2) (STG[pi] || (STG[pi] = [])).push(dt);
-        if (r) { r.object.traverse((o) => { if (o.isMesh) { calls++; tris += o.geometry.index.count / 3; } }); r.dispose(); }
+        if (r) { r.object.traverse((o) => { if (o.isMesh) { calls++; tris += o.geometry.index.count / 3 * (o.isInstancedMesh ? o.count : 1); } }); r.dispose(); }
       }
       for (const p of ctx._pois) R.pois[p[0]] = (R.pois[p[0]] || 0) + 1;
       R.labels += ctx._labels.length;

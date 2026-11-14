@@ -210,6 +210,11 @@ const POI_SPECIES = { 'cleaning-station': ['manta', 'cleanerWrasse'], 'whale-fal
   anemone: ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown', 'cleanerShrimp', 'dominoDamsel'] };
 Object.assign(POI_SPECIES, EVENT_POI_SPECIES); // events 2026-11 (events.js)
 Object.assign(POI_SPECIES, { 'lc-tower': ['wreckfish'], 'lc-flange': ['lcCrab'] }); // Lost City
+// --- coldcoral --- lamp-lit Lophelia reef ~300 m down: redfish hovering in loose groups over the coral, ling and
+// tusk low among the branches; sparse, as the reef fish are (no shallow-water fish once it dominates the blend)
+TABLES.coldcoral = { cover: 2.2, target: 7, lat: 22, list: [['redfish', 5, 25], ['tusk', 2.5, 60], ['ling', 1.8, 80]] };
+DEEP_ZONES.add('coldcoral');
+Object.assign(POI_SPECIES, { 'coral-summit': ['redfish'], 'trawl-scar': ['tusk'] });
 const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
@@ -328,6 +333,10 @@ export class Director {
     const r = this.rng, sh = this.sys.shape, wb = this.sys.seq.weights(p.s)[0].key;
     const rr = (a, b) => a + (b - a) * r();
     switch (p.type) {
+      case 'coral-summit': // --- coldcoral --- redfish hanging over the richest thicket, a tusk low in the coral
+        this.spawnAt('redfish', p, { kind: 'hover', homeY: p.y + 0.6, n: 4 + Math.floor(r() * 5) });
+        if (r() < 0.5) this.spawnAt('tusk', p, { kind: 'hover', homeY: p.y - 0.6, n: 1 });
+        return true;
       case 'cleaning-station': { // mantas circling slowly overhead while cleaner wrasse work the coral head
         const nM = r() < 0.6 ? 1 : 2;
         for (let k = 0; k < nM; k++) {

@@ -98,7 +98,24 @@ Nothing on screen states how curious wreckfish are, or where sediment lies: the 
 
 ### Cold-Water Coral Reef (`coldcoral`)
 
-(to be filled in)
+| Where it appears | Fact text | Source | URL |
+|---|---|---|---|
+| Lophelia coral (white) | Lophelia grows orange and white side by side; it has no algal partners and catches zooplankton. | Larsson et al. / Lophelia colour morphs and feeding (PMC3397448) | https://pmc.ncbi.nlm.nih.gov/articles/PMC3397448 |
+| Lophelia coral (orange) | A 1.5 m coral colony may be about 250 years old, if it grows about 6 mm a year. | OSPAR Commission, Lophelia pertusa reefs case report | https://www.ospar.org/site/assets/files/1892/lophelia_pertusa_reefs.pdf |
+| Dead coral framework | Mingulay reef growth reached up to 12 mm a year, averaging 3-4 mm. | Douarin et al. 2013, growth of north-east Atlantic cold-water coral reefs and mounds (Heriot-Watt research portal) | https://researchportal.hw.ac.uk/en/publications/growth-of-north-east-atlantic-cold-water-coral-reefs-and-mounds-d/ |
+| Coral rubble; Squat lobster (Munida) | A Lophelia reef community can hold up to three times the diversity of the surrounding soft seabed. | OSPAR Commission, Lophelia pertusa reefs case report | https://www.ospar.org/site/assets/files/1892/lophelia_pertusa_reefs.pdf |
+| Reef mound | Lophelia reefs live from about 200 m to over 2,000 m deep, in water typically 4-8 °C. | OSPAR Commission, Lophelia pertusa reefs case report | https://www.ospar.org/site/assets/files/1892/lophelia_pertusa_reefs.pdf |
+| Reef mound (variant) | Scotland's Mingulay reefs include live coral at 120-190 m; first mapped in 2003. | Roberts et al. 2009, Marine Ecology Progress Series (NERC open archive) | https://nora.nerc.ac.uk/id/eprint/9862/1/Roberts_et_al_2009_MEPS.pdf |
+| Reef mound (Darwin-style segments) | The Darwin Mounds were found in 1998 and lie at 710-1,129 m; mounds are up to 75 m wide and 5 m high. | JNCC, Darwin Mounds MPA | https://hub.jncc.gov.uk/our-work/darwin-mounds-mpa |
+| Reef summit | Measured growth of Lophelia ranges from about 2 to 35 mm a year, depending on the method. | Büscher et al. 2019, Lophelia growth (PMC6764366) | https://pmc.ncbi.nlm.nih.gov/articles/PMC6764366 |
+| Trawl scar | Røst Reef, off Lofoten, is about 43 km long and up to 6.9 km wide, and is closed to bottom trawling. | Institute of Marine Research (Norway) 2015, assessment of Norwegian coral reefs | https://www.hi.no/resources/publikasjoner/rapport-fra-havforskningen/2015/vurdering_av_norske_korallrev.pdf |
+| Trawl scar (Darwin-style segments) | The Darwin Mounds were found in 1998 and closed to bottom trawling in 2004. | JNCC, Darwin Mounds MPA | https://hub.jncc.gov.uk/our-work/darwin-mounds-mpa |
+| Norway redfish; Tusk | In Norway, redfish and tusk tend to concentrate in coral reef habitat. | Institute of Marine Research (Norway) 2015, assessment of Norwegian coral reefs | https://www.hi.no/resources/publikasjoner/rapport-fra-havforskningen/2015/vurdering_av_norske_korallrev.pdf |
+
+Ling, brittle stars, pencil urchins, anemones and xenophyophores are named without a fact: none we could confirm.
+Left out because no source we read confirmed them as reef associates: bubblegum coral (Paragorgia), basket stars,
+Geodia sponge grounds and Primnoa sea fans. No trawl-damage percentage is shown. Colony and fish sizes are picture
+choices and are not stated on screen.
 
 ## New events
 

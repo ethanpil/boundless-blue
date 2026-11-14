@@ -36,6 +36,7 @@ const PROFILE = {
   iceedge: { ice: 0.8, song: 0.6, seal: 1 }, hadal: { hum: 1 },
   lostcity: { hum: 0.8, vent: 0.15 }, // Lost City: the deep hum; its vents only weep, so barely a hiss
 };
+PROFILE.coldcoral = { hum: 0.55, shrimp: 0.15 }; // --- coldcoral --- (deep hum, a faint crackle from the reef)
 for (const k in PROFILE) PROFILE[k] = { ...Z0, ...PROFILE[k] };
 // species key -> call voice
 const CALLS = {

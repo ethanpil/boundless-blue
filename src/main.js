@@ -12,6 +12,7 @@ import { registerNewBiomeProps2 } from './props/newbiomes2.js';
 import { registerNewBiomeProps3 } from './props/newbiomes3.js';
 import { registerNewBiomeProps4 } from './props/newbiomes4.js';
 import { registerNewBiomeProps5 } from './props/newbiomes5.js'; // Lost City
+import { registerNewBiomeProps6 } from './props/newbiomes6.js'; // coldcoral
 import { Ambience } from './audio/index.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
@@ -277,7 +278,7 @@ const app = {
   weathers: WEATHER_KEYS, times: TIME_KEYS,
   // Instrument depth: the deep zones are rendered ~40-55 m down but depict the deep sea, so the deck's
   // depth gauge adds a nominal offset (blended across zone cross-fades) to read like the real thing.
-  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736 }, // (Lost City: ~800 m)
+  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736, coldcoral: 260 }, // (Lost City: ~800 m; cold-water coral: ~300 m)
   _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
@@ -664,6 +665,7 @@ async function boot() {
   await bootStep(0.47, 150, () => registerNewBiomeProps3(terrain, env));
   await bootStep(0.57, 750, () => registerNewBiomeProps4(terrain, env));
   await bootStep(0.58, 150, () => registerNewBiomeProps5(terrain, env)); // Lost City
+  await bootStep(0.57, 120, () => registerNewBiomeProps6(terrain, env)); // coldcoral
   bootProgress(0.57, 'waking the sea life');
   await bootStep(0.6, 300, () => {
     creatures = new Creatures(world, env);

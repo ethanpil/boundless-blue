@@ -21,7 +21,8 @@ const LIFE = {
   hadal: [0.08, 0.9],
 };
 LIFE.lostcity = [0.06, 0.85]; // Lost City: bare serpentinite, a trace of pale microbial film
-const TINT = new Float32Array(6);
+LIFE.coldcoral = [0.25, 0.75]; // --- coldcoral --- (sparse temperate/bacterial film on silt and rubble)
+const TINT = new Float32Array(8); // sand rgb, rock rgb, ripple multiplier, rockiness added (see floorTint)
 
 // Travel distance of row j (-1 .. NZ) of chunk idx: the rows a chunk build samples.
 export const rowS = (idx, j) => idx * CHUNK + (j * CHUNK) / (NZ - 1);
@@ -104,7 +105,7 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
       const slope = 1 - Math.abs(ny);
       const nn = noise2(x / 7, r.s / 7, 5);
       const rocky = smoothstep(0.2, 0.5, slope + nn * 0.12);
-      let cr = 0, cg = 0, cb = 0, ice = 0, rip = 0, life = 0, hue = 0;
+      let cr = 0, cg = 0, cb = 0, ice = 0, rip = 0, life = 0, hue = 0, rk = 0;
       for (const e of r.ws) {
         const b = BIOMES[e.key];
         if (isCeil) {
@@ -114,12 +115,13 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
         }
         // biome seabed colours plus its optional tint (see floorTint in biomes.js)
         const T = TINT;
-        T[0] = b.sand[0]; T[1] = b.sand[1]; T[2] = b.sand[2]; T[3] = b.rock[0]; T[4] = b.rock[1]; T[5] = b.rock[2];
-        if (b.floorTint) b.floorTint(x, r.s, nn, T);
-        cr += (T[0] + (T[3] - T[0]) * rocky) * e.w;
-        cg += (T[1] + (T[4] - T[1]) * rocky) * e.w;
-        cb += (T[2] + (T[5] - T[2]) * rocky) * e.w;
-        rip += (b.ripple ?? 1) * e.w;
+        T[0] = b.sand[0]; T[1] = b.sand[1]; T[2] = b.sand[2]; T[3] = b.rock[0]; T[4] = b.rock[1]; T[5] = b.rock[2]; T[6] = 1; T[7] = 0;
+        if (b.floorTint) b.floorTint(x, r.s, nn, T, e.g);
+        const ro = Math.min(1, rocky + T[7]);
+        cr += (T[0] + (T[3] - T[0]) * ro) * e.w;
+        cg += (T[1] + (T[4] - T[1]) * ro) * e.w;
+        cb += (T[2] + (T[5] - T[2]) * ro) * e.w;
+        rip += (b.ripple ?? 1) * T[6] * e.w; rk += ro * e.w;
         const L = LIFE[e.key];
         if (L) { life += L[0] * (0.65 + 0.7 * sv(e.g, 21)) * e.w; hue += L[1] * e.w; }
       }
@@ -127,7 +129,7 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
       col[k * 3] = cr * ao * v; col[k * 3 + 1] = cg * ao * v; col[k * 3 + 2] = cb * ao * v;
       if (isCeil) det[k] = ice;
       else {
-        det[k * 4] = rip * (1 - rocky) * smoothstep(0.08, 0.0, slope - 0.05); det[k * 4 + 1] = rocky;
+        det[k * 4] = rip * (1 - rk) * smoothstep(0.08, 0.0, slope - 0.05); det[k * 4 + 1] = rk;
         det[k * 4 + 2] = Math.min(1, life); det[k * 4 + 3] = hue;
       }
     }

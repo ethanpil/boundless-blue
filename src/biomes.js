@@ -550,6 +550,36 @@ BIOMES.lostcity.floorTint = (x, s, nn, T) => {
   T[0] += 0.2 * p; T[1] += 0.2 * p; T[2] += 0.18 * p; T[3] -= 0.01 * q; T[4] += 0.01 * q;
 };
 
+// --- coldcoral ---
+// Cold-water coral reef: a current-swept bank ~300 m down with mounds and ridges of Lophelia (Desmophyllum
+// pertusum) framework, living thickets on their crowns (props: nb6_coldcoral.js), silty seabed between them.
+// Twilight-zone water: a faint blue-violet residue of daylight, the ROV lamps carry the colour.
+Object.assign(BIOMES, {
+  coldcoral: {
+    label: 'Cold-Water Coral Reef', camY: -40, clearance: 5.6, len: [600, 950], weight: 0.8,
+    // clearer than the abyssal zones and with a little more blue-violet in-scatter, so a mound's silhouette and its
+    // pale crown read at 25-30 m; the lamps still carry all the colour (sun 0.14 keeps them on: deepDark ~0.84)
+    sigma: [0.08, 0.034, 0.028], lightSigma: [0.05, 0.021, 0.016],
+    deep: C(0x090c2a), up: C(0x18224e), sun: 0.14, caustic: 0, shafts: 0.06, ambient: 0.55, glow: 0.3, snow: 1.5,
+    // pale silt between the mounds; grey-brown rubble and dead framework on their flanks (a paler silt blew out
+    // to white in the lamp pool, as in hadal)
+    sand: [0.46, 0.44, 0.4], rock: [0.34, 0.29, 0.245],
+    floor(x, s, ad, g) { return ccFloor(g, x, s, ad); },
+  },
+});
+Object.assign(META, { coldcoral: { subtitle: 'living coral mounds in cold, dark water', tempC: 6, ripple: 0.08 } });
+Object.assign(BIOMES.coldcoral, META.coldcoral);
+// The mounds are rubble and dead framework all over (not silt), a pale scatter of old coral fragments on it and
+// more where gear crushed the reef; darker silt drifts between the mounds. (g: the segment, from terrain_gen.)
+const _cct = {};
+BIOMES.coldcoral.floorTint = (x, s, nn, T, g) => {
+  const S = ccSample(g, x, s, _cct), k = smoothstep(0.3, 1.6, S.hm) * (1 - 0.4 * S.scar);
+  const p = smoothstep(0.35, 0.75, fbm2(x / 3, s / 3, 2, 621)) * (1 + S.scar), q = smoothstep(0.3, 0.7, fbm2(x / 11, s / 11, 2, 622)) * (1 - k);
+  for (let i = 0; i < 3; i++) { T[3 + i] += (0.1 - 0.01 * i) * p; T[i] -= (0.06 - 0.005 * i) * q; }
+  // rubble on the mounds takes the rock texture and loses the sand grain and ripples (T[6], T[7]: terrain_gen)
+  T[6] = 1 - k; T[7] = 0.9 * k;
+};
+
 // Colours above are authored in sRGB; shaders work in linear light.
 const toLin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 for (const b of Object.values(BIOMES)) for (const k of ['deep', 'up', 'sand', 'rock']) b[k] = b[k].map(toLin);
@@ -592,6 +622,99 @@ function basinDepth(g, x, s) {
 // Basin centres (global x, s) with radius r (m) overlapping [s0, s1] x [x0, x1] for segment g.
 export function brineBasins(g, x0, x1, s0, s1) {
   return basinsOf(g).filter((b) => b.s >= s0 && b.s < s1 && b.x >= x0 && b.x < x1);
+}
+
+// --- coldcoral ---
+// Reef mounds of a coldcoral segment, elongated along the current (u axis = the direction it flows toward):
+// Norwegian-shelf style ridges 4-20 m high, or (one segment in ~3) low, rounder Darwin-Mounds style sand mounds
+// 2-5 m high. Each mound has a rubble skirt and a low tail trailing downcurrent; the face into the current is a
+// little steeper. One trawl scar per segment sits on a crushed mound near the path: flattened, with parallel
+// furrows. Mounds are bucketed by s (32 m) so a floor sample tests only its neighbours.
+const CC_NONE = { mounds: [], scar: null, darwin: false, near: () => [] };
+const ccSmin = (a, b, k) => { const h = Math.max(0, Math.min(1, 0.5 + 0.5 * (b - a) / k)); return b + (a - b) * h - k * h * (1 - h); };
+export function coldCoral(g) {
+  if (!g || g.key !== 'coldcoral') return CC_NONE;
+  if (g._cc) return g._cc;
+  const rng = mulberry32((g.seed ^ 0x1c0a7c0) >>> 0);
+  const darwin = sv(g, 600) < 0.3, th = sv(g, 601) * Math.PI * 2, rich = 0.7 + 0.5 * sv(g, 602);
+  const mounds = [], add = (x, s, H, Lu, Lv, a) => mounds.push({ x, s, H, Lu, Lv, ca: Math.cos(a), sa: Math.sin(a), R: Math.max(Lu * 2.7, Lv * 1.6) + 2 });
+  for (let s = g.start - 60; s < g.end + 60;) {
+    s += darwin ? 13 + rng() * 15 : 10 + rng() * 16;
+    const a = th + (rng() - 0.5) * 0.5;
+    let H, Lu, Lv;
+    if (darwin) { H = 2 + 3 * rng(); Lu = 13 + rng() * 20; Lv = Lu * (0.75 + 0.3 * rng()); }
+    else if (rng() < 0.4) { H = 2 + 2.5 * rng(); Lu = 10 + rng() * 14; Lv = 5 + rng() * 5; } // small patch reefs
+    else { H = 5 + 15 * rng() ** 1.4 * rich; Lu = 16 + H * 2 + rng() * 40; Lv = 7 + H * 0.5 + rng() * 9; }
+    // low mounds may lie under the path (it flies over them); tall ones stand off to a side with their flanks in
+    // reach of the lamps (ccFloor rounds them off below the flight tube)
+    const side = rng() < 0.5 ? -1 : 1, crest = rng() < 0.35; // (the path crests about a third of them)
+    const off = H < 4.5 ? rng() * 16 : crest ? rng() * Lv * 0.4 : Lv * 0.55 + 3 + rng() ** 1.5 * 24;
+    add(pathXAt(s) + side * off, s, H, Lu, Lv, a);
+  }
+  // the trawl scar: a crushed mound beside the path, towed across roughly along the route
+  const ss = g.start + (g.end - g.start) * (0.3 + 0.4 * sv(g, 603)), sx = pathXAt(ss) + (sv(g, 604) < 0.5 ? -1 : 1) * (5 + 9 * sv(g, 605));
+  const ha = (sv(g, 606) - 0.5) * 1.2, fur = [];
+  const W = 18 + 10 * sv(g, 607), nF = 3 + Math.floor(sv(g, 608) * 3);
+  for (let k = 0; k < nF; k++) fur.push((k / (nF - 1) - 0.5) * W * 0.8 + (rng() - 0.5) * 2.5);
+  const scar = { x: sx, s: ss, ca: Math.sin(ha), sa: Math.cos(ha), L: 50 + 30 * sv(g, 609), W, fur };
+  add(sx, ss, darwin ? 4 : 6 + 3 * rng(), 22, 13, th);
+  const B = new Map();
+  mounds.forEach((m, i) => { for (let b = Math.floor((m.s - m.R) / 32); b <= Math.floor((m.s + m.R) / 32); b++) { let l = B.get(b); if (!l) B.set(b, (l = [])); l.push(i); } });
+  const near = (s) => B.get(Math.floor(s / 32)) || [];
+  g._cc = { mounds, scar, darwin, th, near };
+  return g._cc;
+}
+// One mound at (x, s): height, plus its frame (relative height p 0..1 of the dome, along/across u v, radius d).
+// wob: shared outline noise. out (optional) receives the frame.
+function ccMound(m, x, s, wob, out) {
+  const dx = x - m.x, ds = s - m.s;
+  const u = (dx * m.ca + ds * m.sa) / m.Lu, v = (-dx * m.sa + ds * m.ca) / m.Lv;
+  if (v > 1.75 || v < -1.75 || u < -1.5 || u > 2.7) return 0; // (the outline wobble is at most 16 %)
+  const uu = u < 0 ? u * 1.2 : u;
+  const d = Math.sqrt(uu * uu + v * v) * (1 + 0.16 * wob);
+  const p = smoothstep(1, 0.1, d), skirt = (0.4 + 0.05 * m.H) * smoothstep(1.45, 0.9, d);
+  const tail = u > 0.3 ? (0.35 + 0.06 * m.H) * Math.exp(-((v * 1.7) ** 2)) * smoothstep(2.6, 1.0, u) * smoothstep(0.3, 0.9, u) : 0;
+  const h = m.H * p + Math.max(skirt, tail);
+  if (out) { out.p = p; out.u = u; out.v = v; out.d = d; out.tail = tail > skirt ? smoothstep(0.15, 0.6, tail) : 0; }
+  return h;
+}
+// trawl scar mask (0..1) and furrow depth at (x, s)
+function ccScar(sc, x, s) {
+  const dx = x - sc.x, ds = s - sc.s, u = dx * sc.ca + ds * sc.sa, v = -dx * sc.sa + ds * sc.ca;
+  const k = smoothstep(sc.L / 2, sc.L / 2 - 10, Math.abs(u)) * smoothstep(sc.W / 2 + 3, sc.W / 2 - 4, Math.abs(v));
+  if (k <= 0) return [0, 0];
+  // furrow (wide enough for the 1.5 m grid) with low spoil banks pushed up either side
+  let f = 0, bank = 0;
+  for (const c of sc.fur) { const w = (v - c) / 1.4; f += Math.exp(-w * w); bank += Math.exp(-(((Math.abs(v - c) - 2.4) / 0.9) ** 2)); }
+  return [k, (Math.min(1, f) * 0.85 - Math.min(1, bank) * 0.3) * k];
+}
+const _ccm = { p: 0, u: 0, v: 0, d: 9, tail: 0 };
+// Reef state at (x, s) for props: mound height hm, the dominant mound's frame (p, u, v, d, tail), scar mask.
+export function ccSample(g, x, s, out = {}) {
+  const C = coldCoral(g), wob = noise2(x / 9, s / 9, 611);
+  let hm = 0, best = null;
+  out.p = 0; out.u = 0; out.v = 0; out.d = 9; out.tail = 0; out.H = 0;
+  for (const i of C.near(s)) {
+    const m = C.mounds[i], h = ccMound(m, x, s, wob, _ccm);
+    if (h > hm) { hm = h; best = m; out.p = _ccm.p; out.u = _ccm.u; out.v = _ccm.v; out.d = _ccm.d; out.tail = _ccm.tail; out.H = m.H; }
+  }
+  out.scar = C.scar ? ccScar(C.scar, x, s)[0] : 0;
+  out.hm = hm; out.m = best;
+  return out;
+}
+function ccFloor(g, x, s, ad) {
+  const C = coldCoral(g), wob = noise2(x / 9, s / 9, 611);
+  let hm = 0;
+  for (const i of C.near(s)) { const h = ccMound(C.mounds[i], x, s, wob, null); if (h > hm) hm = h; }
+  let fur = 0, sk = 0;
+  if (C.scar) { const r = ccScar(C.scar, x, s); sk = r[0]; hm *= 1 - 0.85 * sk; fur = r[1]; }
+  // knobbly framework relief on the mounds (thickets, collapsed branches), period ~3 m
+  const lump = hm > 0.4 ? fbm2(x / 3.2, s / 3.2, 2, 612) * 0.55 * smoothstep(0.4, 2.5, hm) * (1 - 0.8 * sk) : 0;
+  const h = fbm2(x / 45, s / 45, 3, 613) * 1.3 + fbm2(x / 8, s / 8, 2, 614) * 0.15 + hm - fur;
+  // near the path tall mounds round off ~3.8 m below the tube (room for the thicket on their crowns): low ones
+  // pass under the camera, tall ones flank it
+  // (the knobbly relief goes on after, so a rounded-off crown is not smooth)
+  return ccSmin(h, 1.8 + Math.max(0, ad - 4.5) * 1.15, 1.2) + lump + smoothstep(70, 130, ad) * 6;
 }
 
 // ---------- Endless sequence ----------

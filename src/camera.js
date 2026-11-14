@@ -18,6 +18,7 @@ const POI_INTEREST = {
 Object.assign(POI_INTEREST, { 'octopus-garden': 0.95 });
 // Lost City: the landmark tower (its POI sits ~11 m above the route, so watching it tilts the view up the tower)
 Object.assign(POI_INTEREST, { 'lc-tower': 0.85, 'lc-flange': 0.55 });
+Object.assign(POI_INTEREST, { 'coral-summit': 0.85, 'trawl-scar': 0.6 }); // --- coldcoral ---
 
 // critically damped spring toward target (x, v) -> mutates state object {x, v}
 function spring(st, target, omega, dt) {
