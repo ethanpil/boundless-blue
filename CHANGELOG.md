@@ -13,6 +13,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 
 ### Changed
 - Calmer controls: one tap shows a single labelled bar (zone, what is next, pause, next zone, zones, time, weather, sound, identify, fullscreen, More). The instrument cockpit is optional and remembered. Cockpit labels use plain words, settings are grouped with one-line explanations, and the zone picker is grouped.
+- The coral reef is far more colourful and varied (lavender, gold, pink and blue corals, staghorn thickets with pale tips, table terraces, tower bommies as showpieces, a new local character every 60-110 m), with about 11% fewer triangles than before.
 - Water and light: finer caustics in the shallows that soften with depth; distinct sun shafts that slant at dusk and fade under cloud; a rippling surface and blue Snell's window seen from below; soft out-of-focus motes near the lens; no dark tunnel at the frame edges.
 - Lighter on low-end GPUs: 17-30% fewer triangles per frame in the wall, soft-coral, mangrove and seamount zones with no visible change; better GPU detection (Snapdragon X, old Iris and AMD APUs, Intel Macs); resolution follows the window between screens and no longer oscillates.
 - The share link carries the zone you are in after a zone jump.

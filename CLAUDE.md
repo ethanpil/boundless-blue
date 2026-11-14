@@ -141,6 +141,9 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - `ccSample(g, x, s)` gives props the dominant mound's frame and the scar mask.
   - Reef fabric is `layoutCcC`: a dark framework tangle on a jittered 0.64 m lattice (the step divides 64 m, so chunk borders match) plus instanced bush fields (`nb6_lophelia.bush`, 120 triangles; 520 / 950 / 1600 per chunk for low / medium / high). The detailed `colonyJob` colonies are a hero layer within about 11 m of the path. A painted shell alone read as a flat pale sheet.
   - `floorTint(x, s, nn, T, g)` may set `T[6]` (ripple multiplier) and `T[7]` (added rockiness); other zones get 1 and 0.
+- **Reef look** (`reef.js`, `reef_shapes.js`): palettes are written as the corals look in air, then graded for the water by `RL()` (+35 % red, +15 % saturation), because red dies about four times faster than blue over the light path at 9 m. Do not grade them again elsewhere.
+  - `cullBase(b, yMax)` drops the buried, downward-facing bases of upright supports and compacts vertices; use it only for templates that are never tilted. `canopyNormals` bends thin-branch normals upward so thickets are not lit as dark sticks.
+  - Variety: `patchAt` switches the local character every 60-110 m on top of the segment community (thicket, table terrace, bommie field, fan garden, soft-coral garden). `reefSet().shows` places a showpiece every 120-200 m on the outside of bends (tower bommie, table terrace, fan garden), registered as `giant` POIs.
 - **Merging parallel branches:** two branches that each append a block after the same anchor share its closing `};` / `});` line, so a keep-both conflict resolution drops one closer. After any merge, import the touched modules (`node --import ./audit/register.mjs --input-type=module -e "await import('../src/...')"` from tools/): `node --check` does not catch it.
 
 ## Debugging

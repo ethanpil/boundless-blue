@@ -1,9 +1,10 @@
 // Coral reef: a framework of knolls (low mounds whose surface is a mosaic of encrusting colonies, with raised
 // colonies of many growth forms), pavement between them, coral heads (bommies) and scattered life.
-import { Builder, Batch, T, TAU, fbm3, vn3, sat, sstep, lerp, floorSampler, presence, budgetK, bendSpots, rotX, rotY, rotZ, mul3, tierK, poi, pointsClear, placedPoints } from './core.js';
+import { Builder, Batch, T, TAU, fbm3, vn3, sat, sstep, lerp, floorSampler, presence, budgetK, bendSpots, rotX, rotY, rotZ, mul3, tierK, poi, pointsClear, placedPoints, ENV } from './core.js';
 import { rockInto, branchesInto, seaFan, tubeSponges, softCoral, leatherCoral, anemone, seaWhips, seastar, urchin } from './shapes.js';
 import { putAt, putFloor, pickW, tintFrom, spot, bendX, microDetail, microSteps, steps, clusterer, groundY } from './scatter.js';
 import { MAT } from './materials.js';
+import { acroThicket, cullBase, canopyNormals } from './reef_shapes.js';
 import { mulberry32, noise2 } from '../noise.js';
 
 // ---------- reef-specific templates ----------
@@ -242,7 +243,7 @@ function bushInto(b, rng, x, z, r, h, detail, col, tipC) {
     const up = ny > 0 ? Math.pow(ny, 0.55) : 0;
     o[0] = x + nx * r * k; o[1] = BASE_Y + up * h * k; o[2] = z + nz * r * k;
     const t = sstep(0.25, 1, ny), ao = 0.55 + 0.45 * sstep(0, 0.5, ny);
-    for (let c = 0; c < 3; c++) o[3 + c] = lerp(col[c], tipC[c], t * 0.55) * ao;
+    for (let c = 0; c < 3; c++) o[3 + c] = lerp(col[c], tipC[c], t * 0.3) * ao; // pale tips came out grey under water: the colony colour leads
     o[6] = 0; o[7] = 9 + tipK * 0.4;
   });
 }
@@ -272,6 +273,7 @@ function branchInto(b, rng, x, z, r, h, y0, col, tipC) {
       paint(level, v, X, Y, Z, o) { const t = sat((Y - yb) / h); for (let c = 0; c < 3; c++) o[3 + c] = lerp(col[c], tipC[c], t * 0.6) * (0.55 + 0.5 * t); o[6] = 0; o[7] = 2; },
     }, [x + Math.cos(a) * rr, yb, z + Math.sin(a) * rr], [Math.cos(a) * 0.45, 1, Math.sin(a) * 0.45]);
   }
+  canopyNormals(b, v0);
   floorClamp(b, v0);
   return v0;
 }
@@ -299,25 +301,31 @@ function digitsInto(b, rng, x, z, r, h, col) {
   return v0;
 }
 
-// colony palettes (linear; per colony, so neighbours differ): golden-brown, cream, tan, pinkish and lilac
-// massive corals (no olive: with the polyp texture it reads as moss); green, tan and cream brains;
-// Acropora browns with pale, violet, blue or lime tips
-const PORITES = [[0.78, 0.56, 0.26], [0.86, 0.74, 0.5], [0.66, 0.47, 0.3], [0.8, 0.52, 0.46], [0.62, 0.52, 0.7], [0.9, 0.76, 0.36]];
-const BRAINP = [[0.6, 0.66, 0.3], [0.78, 0.6, 0.36], [0.54, 0.43, 0.3], [0.84, 0.78, 0.6], [0.68, 0.52, 0.6], [0.52, 0.6, 0.62]];
-const ACRO = [[0.62, 0.44, 0.26], [0.84, 0.74, 0.52], [0.62, 0.42, 0.74], [0.5, 0.6, 0.82], [0.66, 0.76, 0.3], [0.86, 0.52, 0.6], [0.86, 0.66, 0.26]];
-const ACRO_TIP = [[1.0, 0.95, 0.85], [0.8, 0.7, 1.05], [0.7, 0.9, 1.1], [0.95, 1.0, 0.6]];
-const MONTI = [[0.58, 0.36, 0.64], [0.82, 0.5, 0.24], [0.5, 0.62, 0.32], [0.6, 0.44, 0.3], [0.8, 0.58, 0.64], [0.42, 0.54, 0.68]];
-const DIGIT = [[0.88, 0.8, 0.56], [0.66, 0.6, 0.8], [0.8, 0.6, 0.35], [0.74, 0.52, 0.56], [0.64, 0.72, 0.42]];
-const TURB = [[0.82, 0.74, 0.42], [0.72, 0.6, 0.4], [0.66, 0.6, 0.66], [0.78, 0.64, 0.5]]; // Turbinaria: yellow, tan, grey-lilac
-// dead framework under turf and coralline algae: dark olive-brown and dusky pink, so the gaps between
-// colonies read as reef pavement, never as pale sand or slabs
-const PAD = [[0.3, 0.26, 0.2], [0.34, 0.25, 0.26], [0.27, 0.26, 0.19], [0.32, 0.27, 0.24]];
+// colony palettes (linear; per colony, so neighbours differ): golden-brown, cream, tan, pink, lilac and
+// lime massive corals; green, mustard, brown, cream and mauve brains; Acropora in tan, gold, lavender, blue,
+// lime and pink with pale, violet, blue or lime tips; Montipora purple, orange, green, pink and blue.
+// RL grades a palette for the water: the light path surface -> colony -> camera is 15-20 m at the reef, and
+// with red extinction 0.11/m against 0.03 blue a tan that is right in air reads as grey-green at 5 m. So the
+// palettes are written as the colony looks in air, then get +15 % saturation and +35 % red; a gold Porites
+// still reads gold up close and falls off into the blue with distance. Values above 1 are fine.
+const RL = (pal) => pal.map(([r, g, b]) => { const l = 0.3 * r + 0.55 * g + 0.15 * b, q = (c) => Math.max(0.03, l + (c - l) * 1.15); return [q(r) * 1.35, q(g), q(b)]; });
+const PORITES = RL([[1.0, 0.6, 0.2], [1.05, 0.78, 0.42], [0.86, 0.46, 0.22], [1.0, 0.48, 0.48], [0.78, 0.48, 0.86], [1.1, 0.8, 0.24], [0.62, 0.72, 0.28]]);
+const BRAINP = RL([[0.62, 0.8, 0.26], [1.0, 0.66, 0.24], [0.74, 0.42, 0.22], [1.0, 0.88, 0.56], [0.9, 0.46, 0.68], [0.42, 0.74, 0.66]]);
+const ACRO = RL([[0.86, 0.5, 0.22], [1.0, 0.8, 0.46], [0.72, 0.4, 0.95], [0.42, 0.58, 1.05], [0.66, 0.9, 0.24], [1.05, 0.44, 0.64], [1.05, 0.7, 0.18]]);
+const ACRO_TIP = [[1.2, 1.1, 0.95], [0.95, 0.72, 1.35], [0.7, 0.98, 1.4], [1.05, 1.25, 0.5], [1.35, 0.8, 1.05]];
+const MONTI = RL([[0.74, 0.3, 0.86], [1.1, 0.5, 0.16], [0.5, 0.82, 0.28], [0.84, 0.44, 0.24], [1.0, 0.52, 0.72], [0.4, 0.56, 0.98]]);
+const DIGIT = RL([[1.05, 0.86, 0.5], [0.76, 0.6, 1.0], [1.0, 0.6, 0.26], [0.95, 0.5, 0.6], [0.7, 0.88, 0.36]]);
+const TURB = RL([[1.05, 0.84, 0.3], [0.92, 0.62, 0.3], [0.84, 0.92, 0.34], [0.84, 0.64, 0.86]]); // Turbinaria: yellow, tan, lime, lilac
+// dead framework under turf and crustose coralline algae: olive turf, coralline pink and mauve, so the gaps
+// between colonies read as reef pavement, never as pale sand or grey slabs
+const PAD = RL([[0.44, 0.34, 0.18], [0.72, 0.36, 0.42], [0.36, 0.38, 0.2], [0.6, 0.34, 0.46]]);
 // encrusting and massive colonies that grow over a knoll's framework, side by side: a shade darker than
-// the raised colonies (broad sunlit surfaces glared pale under the caustics) and no olive or green (with
-// the polyp texture those cells read as moss)
-const MOSAIC = [...PORITES, ...MONTI.filter((c) => c[1] <= c[0]), [0.54, 0.43, 0.3], [0.84, 0.78, 0.6], [0.86, 0.52, 0.6]].map((c) => c.map((v) => v * 0.82));
+// the raised colonies (broad sunlit surfaces glared pale under the caustics); mostly browns, golds, creams
+// and olive, as a reef flat is from above, with pink, lilac and blue as accents (all-pastel read as candy)
+const MOSAIC = [...RL([[1.0, 0.6, 0.2], [1.05, 0.78, 0.42], [0.86, 0.46, 0.22], [0.74, 0.42, 0.22], [1.0, 0.86, 0.56], [0.7, 0.62, 0.3], [0.9, 0.7, 0.36], [0.62, 0.72, 0.3], [0.8, 0.52, 0.3]]),
+  PORITES[3], PORITES[4], MONTI[4], MONTI[5]].map((c) => c.map((v) => v * 0.82));
 // big heads stay in warm coral tones (lilac / blue-grey reads as rock at that size, olive as moss)
-const HEADP = [[0.78, 0.56, 0.26], [0.86, 0.74, 0.5], [0.66, 0.47, 0.3], [0.8, 0.52, 0.46], [0.9, 0.76, 0.36], [0.56, 0.44, 0.26]];
+const HEADP = RL([[1.0, 0.6, 0.2], [1.05, 0.8, 0.44], [0.84, 0.46, 0.22], [0.88, 0.52, 0.38], [1.1, 0.8, 0.26], [0.74, 0.46, 0.2]]);
 
 // growth-form mixes per knoll family (a reef community leans on one)
 const FAMS = {
@@ -340,19 +348,20 @@ const FORM_NAME = {
 const SOLID = new Set(['dome', 'brain', 'bush']);
 // Knoll: a broad, low mound of reef framework (a support others can rest on, 0.4-0.8 m high and 5-6 m
 // across: a patch of reef, not a boulder) whose surface is a mosaic of encrusting / massive colonies in
-// their own colours between dark turf and coralline pavement, with 3-4 raised colonies of different growth
-// forms on it (lo: 2 cheap ones for the fogged far bands). About 500-700 triangles (lo ~340); a low, broad
-// mound with raised colonies hides far more sand per triangle at the camera's grazing view than colonies
-// scattered on bare floor.
+// their own colours between dark turf and coralline pavement, with 5-6 raised colonies of different growth
+// forms and sizes on it (lo: 2 cheap ones for the fogged far bands). About 500-850 triangles (lo ~215) once
+// the buried bases are culled; a low, broad mound with raised colonies hides far more sand per triangle at
+// the camera's grazing view than colonies scattered on bare floor.
 function knoll(sd, fam, lo = false) {
   const b = new Builder(), rng = mulberry32(sd * 7349 + 11), mix = FAMS[fam];
   const Rx = 2.4 + rng() * 0.8, Rz = 1.8 + rng() * 0.6, pad = new Builder(), padC = pickC(rng, PAD);
   rockInto(pad, sd, { detail: 2, sx: Rx, sy: 0.38 + rng() * 0.22, sz: Rz, rough: 0.5, flat: 0.25, growth: 0, col: [1, 1, 1] });
-  // the mosaic: nearest of 5-8 jittered centres; ~1/5 of the cells are bare framework under turf (growth
-  // patches: green turf, coralline pink, orange). One surface mode (2, living texture with only a trace
-  // of sediment) everywhere, so no other material mode is ever interpolated across a triangle.
-  const cells = Array.from({ length: 5 + Math.floor(rng() * 4) }, () => {
-    const a = rng() * TAU, q = Math.sqrt(rng()) * 0.85, live = rng() < 0.78;
+  // the mosaic: nearest of 9-13 jittered centres; ~1/5 of the cells are bare framework under turf and
+  // coralline algae (PAD colours). One surface mode everywhere (9: knobbly living cover, no sediment; the
+  // smooth polyp mode made 5 m mounds read as pastel slabs), so no other material mode is ever
+  // interpolated across a triangle.
+  const cells = Array.from({ length: 9 + Math.floor(rng() * 5) }, () => {
+    const a = rng() * TAU, q = Math.sqrt(rng()) * 0.9, live = rng() < 0.8;
     return { x: Math.cos(a) * Rx * q, z: Math.sin(a) * Rz * q, live, col: live ? pickC(rng, MOSAIC) : padC };
   });
   pad.paint(0, (i, x, y, z, nx, ny, nz, o) => {
@@ -360,7 +369,7 @@ function knoll(sd, fam, lo = false) {
     for (const c of cells) { const d = Math.hypot(x - c.x, z - c.z) * (1 + 0.35 * vn3(x * 1.7, y * 1.7, z * 1.7, sd)); if (d < bd) { bd = d; best = c; } }
     const sh = o[0]; // rockInto's shading (ambient occlusion x mottling) on a white base
     o[0] = best.col[0] * sh; o[1] = best.col[1] * sh; o[2] = best.col[2] * sh;
-    o[3] = best.live ? 0 : 0.24 * sstep(0.1, 0.7, ny); o[4] = 2;
+    o[3] = 0; o[4] = 9.08; // knobbly living cover (mode 9: the same everywhere, see above)
   });
   const padT = pad.build(), top = (x, z) => Math.max(0, padT.rayDown(x, z)), sup = new Builder();
   b.append(pad); sup.append(pad);
@@ -370,10 +379,10 @@ function knoll(sd, fam, lo = false) {
   // tapers to its edges, which stay inside the lowered circle.
   const obs = padT.capsules(1, 1, 6).list.map((o) => { const c = o.slice(), y = Math.min(c[1], padT.maxY + 0.03 - c[6]); c[1] = c[4] = y; return c; });
   const forms = Object.entries(mix).map(([k, w]) => ({ k, w: lo && !(k === 'dome' || k === 'brain' || k === 'bush') ? 0 : w }));
-  const n = lo ? 2 : 3 + (rng() < 0.5 ? 1 : 0), placed = [];
+  const n = lo ? 2 : 5 + (rng() < 0.5 ? 1 : 0), placed = [];
   let main = null, mainR = 0;
-  for (let k = 0, tries = 0; k < n && tries < 30; tries++) {
-    const r = (k === 0 ? 0.6 + rng() * 0.25 : 0.36 + rng() * 0.3) * (lo ? 1.3 : 1);
+  for (let k = 0, tries = 0; k < n && tries < 40; tries++) {
+    const r = (k === 0 ? 0.6 + rng() * 0.25 : k < 3 ? 0.36 + rng() * 0.3 : 0.24 + rng() * 0.2) * (lo ? 1.3 : 1);
     const a = rng() * TAU, q = k === 0 ? rng() * 0.3 : 0.25 + rng() * 0.5, x = Math.cos(a) * Rx * q, z = Math.sin(a) * Rz * q;
     if (placed.some((p) => Math.hypot(p[0] - x, p[1] - z) < (p[2] + r) * 0.62)) continue; // colonies abut, not merge
     placed.push([x, z, r]); k++;
@@ -389,6 +398,7 @@ function knoll(sd, fam, lo = false) {
     for (const o of c.build().capsules(1, 1, 2).list) obs.push(o.slice());
     if (r > mainR) { mainR = r; main = f; }
   }
+  cullBase(b, 0.02);
   const t = b.build();
   [t.label, t.fact] = FORM_NAME[main] || FORM_NAME.dome;
   t.support = true; t.supTpl = sup.build(); t.obs = obs;
@@ -397,23 +407,28 @@ function knoll(sd, fam, lo = false) {
 // Reef pavement: a draped patch of rubble bound by coralline algae and turf, with a few small encrusting
 // colonies (follows the floor vertex by vertex, so it never floats). It fills the bare floor between the
 // knolls where the camera looks steeply down, under and beside the path; the grooves keep their sand.
+const SAND = [0.71, 0.59, 0.36]; // the reef's sand (biomes.js, sRGB 0.86 0.79 0.63) in linear
 function pavement(sd) {
   const b = new Builder(), rng = mulberry32(sd * 3371 + 9), R0 = 2.0 + rng() * 0.8, el = 0.75 + rng() * 0.5;
   const cells = Array.from({ length: 4 + Math.floor(rng() * 3) }, () => {
     const a = rng() * TAU, q = Math.sqrt(rng()) * 0.8, live = rng() < 0.35;
     return { x: Math.cos(a) * R0 * q * el, z: Math.sin(a) * R0 * q / el, live, col: live ? pickC(rng, MOSAIC) : pickC(rng, PAD) };
   });
-  b.grid(16, 5, (u, v, i, j, o) => {
+  // The outer band dips under the sand by a noisy amount (dLift below), so the visible outline is where the
+  // relief crosses the floor: ragged, not the straight-edged polygon of the rim; the rim also fades to sand.
+  b.grid(22, 6, (u, v, i, j, o) => {
     const a = u * TAU, R = R0 * (1 + 0.3 * vn3(Math.cos(a) * 1.4, Math.sin(a) * 1.4, sd, sd) + 0.1 * Math.sin(a * 5 + sd)), x = Math.cos(a) * v * R * el, z = Math.sin(a) * v * R / el;
     o[0] = x; o[2] = z;
-    o[1] = 0.012 + 0.05 * (1 - v * v) * (0.6 + 0.4 * vn3(x * 2.5, 0, z * 2.5, sd + 1)) + 0.015 * vn3(x * 7, 1, z * 7, sd + 2); // low lumpy relief
+    const rim = sstep(0.55, 1, v) * (0.5 + 0.5 * vn3(x * 2.2, 3, z * 2.2, sd + 5));
+    o[1] = 0.012 + 0.05 * (1 - v * v) * (0.6 + 0.4 * vn3(x * 2.5, 0, z * 2.5, sd + 1)) + 0.015 * vn3(x * 7, 1, z * 7, sd + 2) - 0.09 * rim; // low lumpy relief
     let best = cells[0], bd = 1e9;
     for (const c of cells) { const d = Math.hypot(x - c.x, z - c.z) * (1 + 0.35 * vn3(x * 1.7, 0, z * 1.7, sd + 3)); if (d < bd) { bd = d; best = c; } }
-    const k = 0.75 + 0.25 * vn3(x * 3, 2, z * 3, sd + 4);
-    o[3] = best.col[0] * k; o[4] = best.col[1] * k; o[5] = best.col[2] * k; o[6] = best.live ? 0 : 0.3; o[7] = 2;
+    const k = 0.75 + 0.25 * vn3(x * 3, 2, z * 3, sd + 4), f = 0.75 * sstep(0.6, 1, v);
+    for (let c = 0; c < 3; c++) o[3 + c] = lerp(best.col[c] * k, SAND[c], f);
+    o[6] = best.live ? 0 : 0.3; o[7] = 2;
   }, { wrapU: true, flip: true });
   const t = b.build();
-  t.drape = true; t.label = 'Reef flat';
+  t.drape = true; t.label = 'Reef flat'; t.dLift = -0.05;
   t.fact = 'Between the colonies, coralline algae cement dead coral rubble into a pavement where new coral larvae settle.';
   return t;
 }
@@ -448,15 +463,38 @@ function reefHead(sd) {
       b.xform(v0, [1, 0, 0, 0, 1, 0, 0, 0, 1], Math.cos(a) * rr, 0, Math.sin(a) * rr);
     }
   }
+  cullBase(b, BASE_Y + 0.01);
   const t = b.build();
   [t.label, t.fact] = FORM_NAME[f];
   t.support = true; if (sup) t.supTpl = sup;
   return t;
 }
 
+// Tall bommie (a showpiece): massive colonies stacked into a tower 2.5-3 m high (before scaling), each tier
+// stepping in to leave a ledge where the colonies placed around it settle, so it rises from the sand fully
+// overgrown. Each dome's flat base (inside the tier below it, or on the floor) is culled.
+function towerHead(sd) {
+  const b = new Builder(), rng = mulberry32(sd * 6271 + 3), tiers = 3 + (rng() < 0.4 ? 1 : 0);
+  let y = 0, r = 1.35 + rng() * 0.25, cx = 0, cz = 0;
+  for (let k = 0; k < tiers; k++) {
+    const c = new Builder(), h = r * (0.85 + rng() * 0.3), pal = k % 2 ? BRAINP : HEADP, key = k % 2 ? 0.62 + rng() * 0.76 : 2;
+    domeInto(c, rng, cx, cz, r, h, k ? 3 : 4, pickC(rng, pal), key, 0.16 + rng() * 0.08, 1.4 + rng() * 0.8);
+    c.xform(0, [1, 0, 0, 0, 1, 0, 0, 0, 1], 0, y, 0);
+    cullBase(c, y + BASE_Y + 0.01);
+    b.append(c);
+    // the next tier starts well inside this one (its rim at ~60 % of this dome's height leaves a ledge)
+    const a = rng() * TAU, off = r * 0.18 * rng();
+    y += h * (0.55 + rng() * 0.1); cx += Math.cos(a) * off; cz += Math.sin(a) * off; r *= 0.66 + rng() * 0.1;
+  }
+  const t = b.build();
+  t.label = 'Coral bommie'; t.support = true;
+  return t;
+}
+
 export function initReef() {
   const R = (n, f, o = 0) => Array.from({ length: n }, (_, i) => f(100 + i * 17 + o));
   T.stag = R(12, staghorn);
+  T.reefStag = R(16, (s) => acroThicket(s, ACRO_TIP[s % ACRO_TIP.length]));
   T.elkhorn = R(6, elkhorn);
   T.finger = R(8, fingerCoral);
   T.pillar = R(6, pillarCoral);
@@ -468,6 +506,7 @@ export function initReef() {
   T.boulder = R(8, boulderCoral);
   T.coralMound = [41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51, 52].map(coralHead);
   T.reefHead = Array.from({ length: 16 }, (_, i) => reefHead(201 + i));
+  T.reefTower = Array.from({ length: 6 }, (_, i) => towerHead(251 + i));
   T.knoll = {};
   for (const [f, o] of [['mixed', 300], ['branchy', 400], ['massive', 500], ['plating', 600]]) T.knoll[f] = Array.from({ length: 9 }, (_, i) => knoll(o + i, f));
   T.knollLo = Array.from({ length: 9 }, (_, i) => knoll(700 + i, 'mixed', true)); // far bands: fogged, ~340 triangles
@@ -491,26 +530,28 @@ export function initReef() {
 }
 
 // ---------- palettes (saturated so colour survives blue water) ----------
-const HARD = [[0.88, 0.66, 0.42], [0.72, 0.6, 0.38], [0.8, 0.6, 0.64], [0.6, 0.66, 0.9], [0.92, 0.8, 0.55], [0.62, 0.72, 0.5], [0.85, 0.5, 0.35]];
+// (the colony palettes above explain the extra red)
+const HARD = RL([[1.05, 0.68, 0.34], [0.9, 0.62, 0.3], [1.0, 0.56, 0.66], [0.6, 0.64, 1.05], [1.1, 0.84, 0.44], [0.7, 0.88, 0.4], [1.05, 0.48, 0.28], [0.8, 0.5, 1.0]]);
 const VIVID = [[0.72, 0.12, 0.98], [0.98, 0.14, 0.62], [1.1, 0.42, 0.05], [1.1, 0.86, 0.08], [0.98, 0.06, 0.08], [0.05, 0.88, 0.78]];
 const FANS = [[0.72, 0.1, 0.9], [1.0, 0.08, 0.16], [1.1, 0.45, 0.06], [1.05, 0.85, 0.12], [0.95, 0.15, 0.6]];
 // massive and brain corals: tan, brown, olive, cream and yellow-brown, an occasional dusky pink or violet
-const MASSIVE = [[0.82, 0.64, 0.4], [0.66, 0.5, 0.32], [0.62, 0.62, 0.36], [0.86, 0.78, 0.56], [0.8, 0.62, 0.3], [0.74, 0.54, 0.5], [0.58, 0.5, 0.6], [0.55, 0.62, 0.42]];
-const SOFTC = [[0.86, 0.56, 0.62], [0.9, 0.84, 0.68], [0.62, 0.64, 0.42], [0.82, 0.62, 0.52], [0.7, 0.52, 0.62], [0.95, 0.72, 0.6]];
-const BARREL = [[0.58, 0.24, 0.2], [0.5, 0.3, 0.22], [0.66, 0.38, 0.36], [0.46, 0.26, 0.24], [0.62, 0.42, 0.34]];
-const TABLE = [[0.66, 0.52, 0.34], [0.56, 0.46, 0.32], [0.72, 0.62, 0.44], [0.58, 0.54, 0.38], [0.64, 0.48, 0.42]];
+const MASSIVE = RL([[1.0, 0.68, 0.32], [0.84, 0.5, 0.26], [0.7, 0.78, 0.3], [1.05, 0.86, 0.5], [1.05, 0.66, 0.2], [0.95, 0.52, 0.5], [0.76, 0.5, 0.78], [0.56, 0.78, 0.44]]);
+// soft corals: lilac, pink, red, orange, yellow and cream (Dendronephthya, Sinularia, Sarcophyton)
+const SOFTC = RL([[1.05, 0.4, 0.66], [1.05, 0.9, 0.6], [0.8, 0.42, 1.0], [1.15, 0.5, 0.26], [1.1, 0.3, 0.32], [1.1, 0.86, 0.3], [0.9, 0.62, 0.86]]);
+const BARREL = RL([[0.8, 0.3, 0.22], [0.66, 0.36, 0.24], [0.86, 0.42, 0.4], [0.6, 0.3, 0.28], [0.84, 0.5, 0.36]]);
+const TABLE = RL([[0.95, 0.66, 0.34], [0.78, 0.54, 0.28], [1.0, 0.8, 0.5], [0.6, 0.68, 0.95], [0.86, 0.5, 0.66], [0.78, 0.86, 0.42]]);
 const NEUTRAL = [[1, 1, 1], [1.04, 0.99, 0.93], [0.96, 0.98, 1.04], [1.02, 0.96, 1.0]];
 export const REEF = {};
 function specs() {
   if (REEF.stag) return REEF;
   Object.assign(REEF, {
-    stag: { tpl: T.stag, scale: [0.8, 2.3], follow: 0.3, tint: tintFrom(HARD, 0.2) },
-    elkhorn: { tpl: T.elkhorn, scale: [1.0, 2.2], follow: 0.2, tint: tintFrom([[0.95, 0.65, 0.3], [0.85, 0.6, 0.35], [0.9, 0.75, 0.45]], 0.2), giant: 0.02 },
-    finger: { tpl: T.finger, scale: [0.8, 1.8], follow: 0.5, tint: tintFrom([[0.85, 0.7, 0.45], [0.75, 0.45, 0.85], [0.95, 0.85, 0.4]], 0.2) },
-    pillar: { tpl: T.pillar, scale: [0.8, 1.6], follow: 0.1, tint: tintFrom([[0.95, 0.8, 0.55], [0.8, 0.75, 0.5]], 0.15), giant: 0.03 },
-    plateC: { tpl: T.plateC, scale: [0.9, 2.2], follow: 0.3, tint: tintFrom([[0.76, 0.66, 0.42], [0.6, 0.62, 0.38], [0.7, 0.56, 0.5], [0.66, 0.6, 0.62]], 0.15) },
-    mushroom: { tpl: T.mushroom, scale: [0.12, 0.28], follow: 0.95, sink: 0, tint: tintFrom([[0.95, 0.75, 0.55], [0.8, 0.6, 0.9], [0.6, 0.85, 0.6]], 0.2) },
-    lettuce: { tpl: T.lettuce, scale: [0.9, 2.0], follow: 0.4, tint: tintFrom([[0.75, 0.65, 0.35], [0.6, 0.7, 0.35], [0.8, 0.55, 0.45]], 0.2) },
+    stag: { tpl: T.reefStag, scale: [0.8, 2.1], follow: 0.3, tint: tintFrom(HARD, 0.2) },
+    elkhorn: { tpl: T.elkhorn, scale: [1.0, 2.2], follow: 0.2, tint: tintFrom([[1.1, 0.66, 0.24], [1.0, 0.58, 0.3], [1.08, 0.8, 0.4]], 0.2), giant: 0.02 },
+    finger: { tpl: T.finger, scale: [0.8, 1.8], follow: 0.5, tint: tintFrom([[1.05, 0.72, 0.38], [0.86, 0.44, 1.0], [1.1, 0.9, 0.34], [0.95, 0.5, 0.62]], 0.2) },
+    pillar: { tpl: T.pillar, scale: [0.8, 1.6], follow: 0.1, tint: tintFrom([[1.1, 0.84, 0.5], [0.95, 0.78, 0.44]], 0.15), giant: 0.03 },
+    plateC: { tpl: T.plateC, scale: [0.9, 2.2], follow: 0.3, tint: tintFrom([[1.0, 0.72, 0.34], [0.72, 0.8, 0.34], [0.95, 0.56, 0.5], [0.8, 0.6, 0.86]], 0.15) },
+    mushroom: { tpl: T.mushroom, scale: [0.12, 0.28], follow: 0.95, sink: 0, tint: tintFrom([[1.1, 0.76, 0.5], [0.9, 0.58, 1.0], [0.62, 0.95, 0.56]], 0.2) },
+    lettuce: { tpl: T.lettuce, scale: [0.9, 2.0], follow: 0.4, tint: tintFrom([[0.95, 0.7, 0.28], [0.66, 0.86, 0.3], [1.0, 0.54, 0.42]], 0.2) },
     vase: { tpl: T.vase, scale: [0.9, 2.0], follow: 0.3, tint: tintFrom([[0.45, 0.6, 1.1], [0.95, 0.35, 0.7], [1.0, 0.6, 0.15], [0.7, 0.3, 0.9]], 0.18), giant: 0.03 },
     linckia: { tpl: T.linckia, scale: [0.12, 0.2], follow: 1, sink: 0, tint: tintFrom([[1, 1, 1]], 0.15) },
     cots: { tpl: T.cots, scale: [0.14, 0.24], follow: 1, sink: 0, tint: tintFrom([[1, 1, 1], [1.1, 0.8, 0.9]], 0.15) },
@@ -521,7 +562,7 @@ function specs() {
     tubeSp: { tpl: T.tubeSp, scale: [1.0, 2.0], follow: 0.4, tint: tintFrom(VIVID) },
     barrel: { tpl: T.barrel, scale: [0.8, 1.9], follow: 0.3, giant: 0.04, tint: tintFrom(BARREL, 0.1) },
     soft: { tpl: T.soft, scale: [0.9, 1.9], follow: 0.4, sway: true, tint: tintFrom(SOFTC, 0.12) },
-    leather: { tpl: T.leather, scale: [0.9, 1.9], follow: 0.6, sway: true, tint: tintFrom([[0.95, 0.85, 0.45], [0.7, 0.85, 0.4], [1.0, 0.7, 0.55]]) },
+    leather: { tpl: T.leather, scale: [0.9, 1.9], follow: 0.6, sway: true, tint: tintFrom([[1.1, 0.9, 0.4], [0.76, 0.95, 0.38], [1.15, 0.7, 0.5]]) },
     anem: { tpl: T.anem, scale: [1.0, 1.8], follow: 0.7, sway: true, tint: tintFrom([[1.05, 1.0, 1.0], [1.1, 0.8, 1.0]], 0.12) },
     whip: { tpl: T.whip, scale: [0.9, 1.7], follow: 0.2, sway: true, tint: tintFrom([[1.1, 0.4, 0.06], [1.0, 0.1, 0.12], [1.1, 0.85, 0.15]]) },
     clam: { tpl: T.clam, scale: [0.5, 1.15], follow: 0.8, fxScale: true, grow: [1, 1], giant: 0.04, tint: tintFrom([[1.1, 1.1, 1.1]], 0.1) }, // fx = closing distance, scales with size
@@ -530,13 +571,15 @@ function specs() {
     // coral heads and the framework knolls carry their colonies' colours in the template: instance tints
     // only shift them a little (random yaw: knolls must never line up in rows)
     mound: { tpl: T.reefHead, scale: [1.3, 2.3], follow: 0.3, grow: [1, 1], tint: tintFrom(NEUTRAL, 0.1), sink: 0.12, support: true, occ: 0.85 },
+    tower: { tpl: T.reefTower, scale: [1.15, 1.45], minK: 0.6, follow: 0.2, grow: [1, 1], tint: tintFrom(NEUTRAL, 0.1), sink: 0.15, support: true, occ: 0.85 },
     pave: { tpl: T.reefPave, scale: [1.0, 1.5], follow: 1, sink: 0, grow: [0.8, 1.1], tint: tintFrom(NEUTRAL, 0.1), drape: true, occ: 0.6, layer: 3 },
     knollLo: { tpl: T.knollLo, scale: [1.5, 2.3], ys: [0.75, 1.15], xz: 0.3, follow: 0.3, grow: [0.8, 1.1], tint: tintFrom(NEUTRAL, 0.1), sink: 0.06, support: true, occ: 0.35, layer: 2, straddle: 0.7 },
     ...Object.fromEntries(Object.keys(FAMS).map((f) => ['knoll_' + f,
       { tpl: T.knoll[f], scale: [1.2, 1.8], ys: [0.8, 1.25], xz: 0.3, follow: 0.3, grow: [0.8, 1.1], tint: tintFrom(NEUTRAL, 0.1), sink: 0.06, support: true, occ: 0.35, layer: 2, straddle: 0.7 }])),
-    // the worm tufts sit on coral heads, whose tops are bumpy (columns, fused domes): seat on the whole band
-    xmas: { tpl: T.xmas, scale: [1.4, 2.4], follow: 0.9, sway: true, fullFoot: true, grow: [1, 1], tint: tintFrom([[1.1, 0.25, 0.15], [1.1, 0.7, 0.1], [0.2, 0.5, 1.1], [1.0, 1.0, 1.0], [0.8, 0.2, 0.9], [0.2, 0.9, 0.6]], 0.15) },
-    duster: { tpl: T.duster, scale: [1.0, 1.8], follow: 0.8, sway: true, fullFoot: true, grow: [1, 1], tint: tintFrom([[1.0, 0.55, 0.45], [0.95, 0.85, 0.6], [0.7, 0.45, 0.9], [1.0, 1.0, 0.95]], 0.15) },
+    // the worm tufts sit on coral heads, whose tops are bumpy (columns, fused domes): seat on the whole band,
+    // and only where the head is fairly level (a tuft tilted across a steep knob overhung its lower side)
+    xmas: { tpl: T.xmas, scale: [1.4, 2.4], follow: 0.9, sway: true, fullFoot: true, maxSlope: 0.85, grow: [1, 1], tint: tintFrom([[1.1, 0.25, 0.15], [1.1, 0.7, 0.1], [0.2, 0.5, 1.1], [1.0, 1.0, 1.0], [0.8, 0.2, 0.9], [0.2, 0.9, 0.6]], 0.15) },
+    duster: { tpl: T.duster, scale: [1.0, 1.8], follow: 0.8, sway: true, fullFoot: true, maxSlope: 0.85, grow: [1, 1], tint: tintFrom([[1.0, 0.55, 0.45], [0.95, 0.85, 0.6], [0.7, 0.45, 0.9], [1.0, 1.0, 0.95]], 0.15) },
   });
   REEF.topList = [
     { w: 1.2, k: 'elkhorn' }, { w: 1.2, k: 'finger' }, { w: 0.7, k: 'pillar' }, { w: 1.4, k: 'plateC' }, { w: 1, k: 'lettuce' }, { w: 0.9, k: 'vase' },
@@ -584,6 +627,45 @@ function listFor(comm) {
   if (!comm._list) comm._list = R.topList.map((e) => ({ ...e, w: e.w * (comm.w[e.k] || 0.6) }));
   return comm._list;
 }
+// Local patches: every 60-110 m along a segment the reef changes character on top of its community (a
+// staghorn thicket, a table-coral terrace, a field of bommies, a fan and whip garden, a soft-coral garden),
+// so a segment reads as a sequence of scenes rather than one uniform scatter. About a fifth of the stretches
+// keep the plain community.
+const PATCHES = [
+  { name: 'thicket', w: { stag: 5, elkhorn: 1.5, finger: 1.5, table: 0.6 }, kn: { branchy: 4 } },
+  { name: 'tables', w: { table: 5, plateC: 2.5, lettuce: 1.2 }, kn: { plating: 4 } },
+  { name: 'bommies', w: { brain: 2.5, boulder: 1.5, pillar: 1.5, anem: 1.5 }, kn: { massive: 4 }, rows: 1.6 },
+  { name: 'fans', w: { fan: 5, whip: 3, soft: 2.5, barrel: 1.5, tubeSp: 1.5 }, kn: { mixed: 2, plating: 1 } },
+  { name: 'garden', w: { soft: 4, leather: 2, anem: 2, tubeSp: 2, vase: 1.5 }, kn: { mixed: 2, massive: 1 } },
+];
+function patchAt(ctx, s) {
+  let seg = null;
+  for (const g of ctx.segments) if (g.key === 'reef' && s >= g.start && s < g.end) { seg = g; break; }
+  if (!seg) return null;
+  const i = Math.floor((s - seg.start + 22 * noise2(s / 45, 0.5, 917)) / 85), r = mulberry32((seg.seed ^ Math.imul(i + 7, 0x9e3779b1)) | 0)();
+  return r < 0.2 ? null : PATCHES[Math.floor((r - 0.2) / 0.8 * PATCHES.length)];
+}
+const mixed = new Map();
+function listAt(ctx, comm, s) {
+  const p = patchAt(ctx, s), base = listFor(comm);
+  if (!p) return base;
+  const key = comm.name + '|' + p.name;
+  let L = mixed.get(key);
+  if (!L) mixed.set(key, L = base.map((e) => ({ ...e, w: e.w * (p.w[e.k] || 0.35) })));
+  return L;
+}
+function knollAt(ctx, comm, s) {
+  const p = patchAt(ctx, s);
+  if (!p) return knollList(comm);
+  const key = 'kn|' + comm.name + '|' + p.name;
+  let L = mixed.get(key);
+  if (!L) {
+    const w = { ...comm.kn };
+    for (const [f, v] of Object.entries(p.kn)) w[f] = (w[f] || 0) + v;
+    mixed.set(key, L = Object.entries(w).map(([f, v]) => ({ w: v, k: 'knoll_' + f })));
+  }
+  return L;
+}
 // colony tint through the community palette, sometimes bleached white
 function commTint(spec, comm, rng) {
   const c = spec.tint ? spec.tint(rng) : [1, 1, 1];
@@ -608,8 +690,8 @@ export function bommie(ctx, fs, st, sw, rng, x, s, moundK, n, coralK, list, opts
   let csc = 0, domeR = 0.6;
   n = Math.max(1, Math.round(n * tierK(ctx)));
   const out = [() => {
-    csc = putFloor(ctx, fs, st, R.mound, x, s, rng, moundK * (comm && comm.mound || 1));
-    if (csc) domeR = headR() * csc * 0.9;
+    csc = putFloor(ctx, fs, st, opts.tower ? R.tower : R.mound, x, s, rng, opts.tower ? 1 : moundK * (comm && comm.mound || 1));
+    if (csc) domeR = (opts.tower ? 1.35 : headR()) * csc * 0.9;
   }];
   for (let k0 = 0; k0 < n; k0 += 3) out.push(() => {
     for (let k = k0; k < Math.min(n, k0 + 3); k++) {
@@ -655,7 +737,9 @@ function spurs(x, s) { // > 0 on a spur; crests run across the valley about ever
 const REEF_SPUR_THR = -0.55;
 const pathYaw = (ctx, s) => Math.atan2(-(ctx.pathX(s + 3) - ctx.pathX(s - 3)), 6);
 
-// per-segment set pieces: one cleaning station, natural arches every 300-700 m (deterministic)
+// per-segment set pieces: one cleaning station, natural arches every 300-700 m, and a showpiece every
+// 120-200 m (a great overgrown bommie, a terrace of giant table corals or a sea-fan garden) on the outside
+// of the local bend, so it appears ahead and the camera curves past it (deterministic)
 const segSets = new Map();
 function reefSet(seg) {
   let S = segSets.get(seg.id);
@@ -663,9 +747,46 @@ function reefSet(seg) {
   const rng = mulberry32(seg.seed ^ 0xc1ea), len = seg.end - seg.start;
   S = { seed: seg.seed, station: seg.start + 140 + rng() * Math.max(10, len - 280), side: rng() < 0.5 ? -1 : 1, arches: [] };
   for (let a = seg.start + 160 + rng() * 200; a < seg.end - 160; a += 300 + rng() * 400) S.arches.push({ s: a, k: (rng() * 1e9) | 0 });
+  S.shows = [];
+  for (let a = seg.start + 70 + rng() * 60; a < seg.end - 60; a += 120 + rng() * 80) {
+    if (Math.abs(a - S.station) < 40 || S.arches.some((q) => Math.abs(a - q.s) < 30)) continue;
+    S.shows.push({ s: a, kind: SHOWS[S.shows.length % SHOWS.length], k: (rng() * 1e9) | 0 });
+  }
+  if (S.shows.length > 1) { const o = Math.floor(rng() * SHOWS.length); for (const q of S.shows) q.kind = SHOWS[(SHOWS.indexOf(q.kind) + o) % SHOWS.length]; }
   segSets.set(seg.id, S);
   if (segSets.size > 24) segSets.delete(segSets.keys().next().value);
   return S;
+}
+
+const SHOWS = ['bommie', 'tables', 'fans'];
+function showSteps(ctx, fs, st, mid, near, comm, head, q) {
+  const r2 = mulberry32(q.k), R = specs(), sh = ENV.shape;
+  const side = sh && sh.pathCurv ? (sh.pathCurv(q.s) > 0 ? -1 : 1) : (r2() < 0.5 ? -1 : 1);
+  const x = ctx.pathX(q.s) + side * (6.8 + r2() * 1.5), out = [];
+  const tinted = (k) => ({ ...R[k], tint: (r) => commTint(R[k], comm, r), occ: 0.5, layer: 1 });
+  if (q.kind === 'bommie') { // a great coral head, 3-4 m tall, overgrown on every side
+    out.push(...bommie(ctx, fs, st, mid.sw, r2, x, q.s, 1, 16, 1.1, listAt(ctx, comm, q.s), { ...head, tower: true }));
+    out.push(() => { const y = fs.at(x, q.s); poi(ctx, 'giant', x, y + 1.6, q.s, 3.5, { name: 'Coral bommie' }); });
+  } else if (q.kind === 'tables') { // a terrace of big table corals stepping out from a reef head
+    out.push(...bommie(ctx, fs, st, mid.sw, r2, x, q.s, 1.1, 4, 1.0, listAt(ctx, comm, q.s), head));
+    out.push(() => {
+      for (let k = 0; k < 6; k++) {
+        const a = r2() * TAU, rr = 2.2 + r2() * 2.8;
+        putFloor(ctx, fs, mid.st, tinted('table'), x + Math.cos(a) * rr, q.s + Math.sin(a) * rr, r2, 1.35);
+      }
+      poi(ctx, 'giant', x, fs.at(x, q.s) + 1.2, q.s, 4, { name: 'Table coral terrace' });
+    });
+  } else { // a sea-fan garden: fans, whips and soft corals crowding a low head
+    out.push(...bommie(ctx, fs, st, mid.sw, r2, x, q.s, 1.0, 5, 1.0, listAt(ctx, comm, q.s), head));
+    out.push(() => {
+      for (let k = 0; k < 9; k++) {
+        const a = r2() * TAU, rr = 1.6 + r2() * 3.2, e = k < 5 ? 'fan' : k < 7 ? 'whip' : 'soft';
+        putFloor(ctx, fs, k < 5 ? mid.sw : near.sw, tinted(e), x + Math.cos(a) * rr, q.s + Math.sin(a) * rr, r2, k < 5 ? 1.35 : 1.1);
+      }
+      poi(ctx, 'giant', x, fs.at(x, q.s) + 1.2, q.s, 4, { name: 'Sea fan garden' });
+    });
+  }
+  return out;
 }
 
 // natural rock arch spanning the path, crowned with colonies
@@ -713,6 +834,7 @@ export function layoutReef(ctx) {
         }
       });
     }
+    for (const q of S.shows) if (Math.floor(q.s / 64) === idx) more.push(...showSteps(ctx, fs, st, mid, near, comm, head, q));
     if (Math.floor(S.station / 64) === idx) { // cleaning station: a big, busy coral head
       const xs = ctx.pathX(S.station) + S.side * (8 + rng() * 3);
       more.push(...bommie(ctx, fs, st, mid.sw, rng, xs, S.station, 1.5, 14, 1.15, null, head), () => {
@@ -729,12 +851,12 @@ export function layoutReef(ctx) {
       for (let d = band.d[0] + rng() * band.cell * 0.5; d < band.d[1]; d += band.cell * (0.8 + 0.4 * rng())) {
         const s = s0 + (rng() - 0.5) * band.cell * 0.8, x = ctx.pathX(s) + side * d;
         if (rng() > ctx.weightOf(s, 'reef') || spurs(x, s) < REEF_SPUR_THR) continue;
-        const spec = band.lo ? R.knollLo : R[pickW(rng, knollList(comm)).k];
+        const spec = band.lo ? R.knollLo : R[pickW(rng, knollAt(ctx, comm, s)).k];
         const sc = putFloor(ctx, fs, frame, { ...spec, tint: (r) => commTint(spec, comm, r) }, x, s, rng, band.k);
         if (!sc || !band.col) continue;
         // a colony or two on the knoll (more near the path)
         for (let k = 0, n = Math.round((band.col - 0.5 + rng()) * ck); k < n; k++) {
-          const e = pickW(rng, listFor(comm)), a = rng() * TAU, rr = sc * 2.2 * Math.sqrt(rng()), small = SMALL.has(e.k);
+          const e = pickW(rng, listAt(ctx, comm, s)), a = rng() * TAU, rr = sc * 2.2 * Math.sqrt(rng()), small = SMALL.has(e.k);
           // colonies grow out of the lumpy framework: they may set into it (embed) rather than balance on a crest
           putFloor(ctx, fs, e.sway ? (small ? near.sw : mid.sw) : small ? near.st : mid.st, { ...R[e.k], tint: (r) => commTint(R[e.k], comm, r), occ: 0.55, layer: 1, embed: true }, x + Math.cos(a) * rr, s + Math.sin(a) * rr, rng, band.k * 0.9);
         }
@@ -752,10 +874,10 @@ export function layoutReef(ctx) {
   });
   // coral banks: a few steps per coral head (its parameters are drawn now, so the draw order is fixed)
   for (const row of ROWS) for (const side of [-1, 1]) {
-    for (let s = ctx.s0 + rng() * row.step; s < ctx.s1; s += row.step * (0.75 + 0.5 * rng()) / (comm.rows || 1)) {
+    for (let s = ctx.s0 + rng() * row.step; s < ctx.s1; s += row.step * (0.75 + 0.5 * rng()) / ((comm.rows || 1) * ((patchAt(ctx, s) || {}).rows || 1))) {
       if (rng() > ctx.weightOf(s, 'reef')) continue;
       const x = ctx.pathX(s) + side * lerp(row.d[0], row.d[1], rng()), m = row.m * (0.8 + 0.4 * rng()), n = row.n + (rng() < 0.5 ? 1 : 0);
-      more.push(...bommie(ctx, fs, st, mid.sw, rng, x, s, m, n, row.k, null, head));
+      more.push(...bommie(ctx, fs, st, mid.sw, rng, x, s, m, n, row.k, listAt(ctx, comm, s), head));
     }
   }
   // coral heads on the outside of bends: seen dead ahead, the camera curves past
