@@ -48,6 +48,11 @@ const P = {
   arrow: '<path d="M12 3.5l5 7h-3.2v9.5h-3.6v-9.5H7z" fill="currentColor" stroke="none"/>',
   fish: '<path d="M3 12c3-4.5 9-5.5 13-2l4-2.5v9l-4-2.5c-4 3.5-10 2.5-13-2z"/><circle cx="7.5" cy="11.2" r=".9" fill="currentColor"/>',
   star: '<path d="M12 3l2.2 6.3L21 12l-6.8 2.7L12 21l-2.2-6.3L3 12l6.8-2.7z"/>',
+  // instruments (a dial), simple controls (one bar), more (dots), hide (chevron down)
+  gauge: '<path d="M3.8 16.5a8.2 8.2 0 1 1 16.4 0"/><path d="M12 16.5l4.2-5.2M6.3 12.2l1.2.7M12 8.3v1.4M17.7 12.2l-1.2.7"/><circle cx="12" cy="16.5" r="1.5" fill="currentColor"/>',
+  simple: '<rect x="3" y="13.5" width="18" height="6" rx="2"/><path d="M6.5 16.5h2M11 16.5h2M15.5 16.5h2M8 5h8M10 9h4"/>',
+  more: '<circle cx="5.5" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.7" fill="currentColor" stroke="none"/><circle cx="18.5" cy="12" r="1.7" fill="currentColor" stroke="none"/>',
+  hide: '<path d="M6 9.5l6 6 6-6"/>',
 };
 
 // Inline SVG markup for an icon (aria-hidden: buttons carry their own labels).

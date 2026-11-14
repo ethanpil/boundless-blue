@@ -138,6 +138,7 @@ function rebase(globalZ) {
 
 // ---------- camera ----------
 let s = START_S + (qs.has('start') ? parseFloat(qs.get('start')) : 0);
+let jumpDist = 0;   // travel offset added by in-place zone jumps (s restarts elsewhere), for the trip distance
 let lastV = 0; // actual travel speed (m/s) this frame
 const camState = { s: 0, x: 0, y: 0, z: 0, forward: new THREE.Vector3(), camera, Oz: 0 };
 const subjectsFn = (out) => {
@@ -361,7 +362,7 @@ const app = {
     o.lamps = U.uLamp.value > 0.05;
     o.timeLabel = C.timeLabel; o.clockHours = conditions.clockHours;
     o.weather = C.weatherLabel || 'clear water'; o.weatherKey = conditions.cur; o.night = C.night;
-    o.distanceKm = (s - START_S) / 1000; o.diveTime = simTime;
+    o.distanceKm = (s - START_S + jumpDist) / 1000; o.diveTime = simTime;
     o.seed = SEED; o.tier = tier; o.gpu = app._gpu ??= gpuName(renderer); o.fps = res.fps; o.res = res.scale; // gl query once: it can stall
     o.species = sightings.size;
     o.watching = watchName;
@@ -603,6 +604,7 @@ async function jumpInPlace(key, onProgress) {
     if (surprises && surprises.reset) surprises.reset();
     director.reset();
     seq.restart(key, newS);
+    jumpDist += s - newS;            // the deck's trip distance carries on from where the jump left
     s = newS; lastSegId = -1; captionTimer = 0;
     placeCamera(0, simTime, C);
     await terrain.primeAsync(s, onProgress, paint);

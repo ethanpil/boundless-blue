@@ -111,7 +111,7 @@
     .dk-btn[hidden] { display: none; }
     .dk-mb { width: 52px; height: 50px; gap: 3px; padding-top: 2px; }
     .dk-hb { height: 50px; gap: 3px; padding: 2px 4px 0; box-sizing: border-box; }
-    .dk-mb span, .dk-hb span { font: 700 8.5px/1 var(--dk-sans); letter-spacing: .12em; white-space: nowrap; } /* 7.5px on phones */
+    .dk-mb span, .dk-hb span { font: 700 8.5px/1 var(--dk-sans); letter-spacing: .12em; white-space: nowrap; text-transform: uppercase; } /* 7.5px on phones */
     /* quick settings: labels carry the state (LAMPS AUTO, MUTED), so the buttons size to them */
     .dk-quick .dk-mb { width: auto; min-width: 52px; padding: 2px 5px 0; box-sizing: border-box; }
     #dk-lampq.off, #dk-snd.off { color: var(--dk-tdim); }
@@ -264,8 +264,38 @@
     .dk-paused.on ~ .dk-kn { visibility: hidden; }
     /* quick settings and menu */
     .dk-quick, .dk-menu { display: flex; gap: 5px; padding: 6px; }
+    /* ---------- essentials bar: the default level (hud.js); the cockpit panels show only in instruments mode ---------- */
+    #deck:not(.inst) > :is(.dk-nav, .dk-compass, .dk-time, .dk-depth, .dk-right, .dk-bottom), #deck.inst > .dk-ess { display: none; }
+    /* contain: layout only, so the shortcut chips may rise above the bar; a more opaque glass keeps its text >= 4.5:1 over a bright seabed */
+    .dk-ess { grid-area: bar; justify-self: center; align-self: end; display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+      gap: 6px 14px; max-width: 100%; box-sizing: border-box; padding: 6px 6px 6px 16px; contain: layout;
+      background: linear-gradient(180deg, rgba(6, 32, 42, .92), rgba(2, 14, 20, .95)) padding-box, var(--dk-brass) border-box; }
+    #deck:not(.open) .dk-ess { transform: translateY(12px); }
+    /* a set width (not a flex-basis), so the bar's intrinsic width counts it and it stays on one line where it fits */
+    .dk-est { flex: 0 1 auto; width: 220px; max-width: 100%; min-width: 0; display: grid; gap: 4px; }
+    .dk-esz { font: 400 18px/1.15 var(--dk-serif); letter-spacing: .04em; color: #f2fffc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dk-esn { font: 500 12px/1.2 var(--dk-sans); color: #a9dbd3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+    .dk-esn b { color: var(--dk-amber); font-weight: 600; }
+    .dk-est .dk-prog { height: 3px; margin-top: 1px; }
+    .dk-eacts { display: flex; gap: 4px; flex: none; }
+    /* fixed widths: a label that changes (Pause/Play, Sound/Muted) never moves its neighbours */
+    .dk-eb { width: 64px; height: 54px; gap: 4px; padding: 3px 2px 0; box-sizing: border-box; }
+    .dk-eb span { font: 600 11px/1 var(--dk-sans); letter-spacing: .02em; color: #e4fbf7; white-space: nowrap; }
+    .dk-eb[aria-pressed="true"] span, .dk-eb[aria-expanded="true"] span { color: inherit; }
+    #dk-esnd.off { color: var(--dk-tdim); }
+    #dk-esnd.off span { color: #b9dad5; }
+    #deck #dk-ehide { color: #a9dbd3; background: none; box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .18); }
+    /* keyboard shortcut chip above a bar button on hover or keyboard focus (mouse and keyboard users only) */
+    @media (hover: hover) and (pointer: fine) {
+      .dk-eb[data-key] { position: relative; }
+      .dk-eb[data-key]::after { content: attr(data-key); position: absolute; left: 50%; bottom: calc(100% + 9px); transform: translateX(-50%);
+        padding: 4px 7px; border-radius: 5px; font: 700 11px/1 var(--dk-mono); color: #04191f; background: #c4f7ef; white-space: nowrap;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, .45); opacity: 0; visibility: hidden; pointer-events: none; }
+      .dk-eb[data-key]:hover::after, .dk-eb[data-key]:focus-visible::after { opacity: 1; visibility: visible; }
+    }
     /* sheets (one at a time) */
-    .dk-sheet { position: fixed; z-index: 1; pointer-events: auto; display: flex; flex-direction: column; box-sizing: border-box;
+    /* overflow: hidden clips the scrolled content inside the bezel (it was drawn across the bottom edge) */
+    .dk-sheet { position: fixed; z-index: 1; pointer-events: auto; display: flex; flex-direction: column; box-sizing: border-box; overflow: hidden;
       right: calc(var(--dk-pad) + var(--sa-r)); bottom: calc(var(--dk-bar-m) + var(--dk-gap));
       width: min(var(--dk-sheet-w), calc(100vw - 2 * var(--dk-pad) - var(--sa-l) - var(--sa-r)));
       max-height: calc(100vh - var(--dk-bar-m) - var(--dk-top-m) - 2 * var(--dk-gap));
@@ -354,7 +384,32 @@
     .dk-diag .dk-dw { grid-column: 1 / -1; }
     .dk-keys { margin: 0; font: 11px/1.7 var(--dk-mono); color: var(--dk-tdim); }
     .dk-keys b { color: var(--dk-amber); margin-right: 4px; }
-    @media (pointer: coarse) { .dk-keys { display: none; } }
+    @media (pointer: coarse) { .dk-keys, .dk-tog kbd { display: none; } }
+    /* sheet groups (More, zone picker) */
+    .dk-grp { margin: 6px 0 -4px; font: 700 10.5px/1.2 var(--dk-sans); letter-spacing: .18em; text-transform: uppercase; color: var(--dk-amber); }
+    .dk-sh-b > .dk-grp:first-child { margin-top: 0; }
+    .dk-help { display: block; font: 11.5px/1.35 var(--dk-sans); color: var(--dk-tdim); }
+    .dk-segrow .dk-note { margin-top: -1px; }
+    .dk-tog kbd, .dk-tog b kbd { margin-left: 6px; padding: 2px 5px; border-radius: 4px; font: 700 10px/1 var(--dk-mono); color: var(--dk-teal);
+      box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .45); vertical-align: 1px; }
+    .dk-wbtn small b { font: inherit; color: var(--dk-amber); }
+    #deck .dk-spdseg button { display: flex; align-items: center; justify-content: center; gap: 6px; }
+    .dk-spdseg .dk-i { width: 16px; height: 16px; }
+    .dk-spdseg b { flex: 1 1 0; display: grid; place-items: center; min-width: 0; border-left: 1px solid rgba(98, 240, 220, .2);
+      font: 600 13px/1 var(--dk-mono); color: var(--dk-teal); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .dk-znow { margin: 0; font: 13px/1.3 var(--dk-sans); color: var(--dk-tdim); }
+    .dk-znow b { font: 400 17px/1.2 var(--dk-serif); color: #f2fffc; margin-left: 4px; }
+    .dk-zsec { display: grid; gap: 8px; }
+    /* group headings stay in view while their zones scroll under them */
+    .dk-zh { position: sticky; top: -12px; z-index: 2; margin: 2px -12px 0; padding: 10px 12px 7px; background: rgba(3, 21, 29, .97); }
+    .dk-more { border-radius: 10px; background: rgba(0, 0, 0, .24); box-shadow: inset 0 0 0 1px rgba(98, 240, 220, .2); }
+    .dk-more summary { display: flex; align-items: center; gap: 11px; min-height: 46px; padding: 0 12px; cursor: pointer; list-style: none; font: 600 13px/1.2 var(--dk-sans); }
+    .dk-more summary::-webkit-details-marker { display: none; }
+    .dk-more summary::after { content: '+'; margin-left: auto; font: 600 16px/1 var(--dk-mono); color: var(--dk-tdim); }
+    .dk-more[open] summary::after { content: '−'; }
+    .dk-more summary .dk-i { color: var(--dk-teal); }
+    .dk-more .dk-diag { margin: 0 8px 8px; }
+    #deck summary:focus-visible, #deck input:focus-visible, #deck .dk-zt:focus-visible { outline: 2px solid var(--dk-amber); outline-offset: 2px; }
     /* lift the caption and note above the deck's bottom bar while it is open */
     /* (the note sits just above the bar, the caption above it). They stay clear of the side panels that reach down
        to them and, with a sheet open, centre in the space between the depth gauge and the sheet: they wrap there,
@@ -448,8 +503,14 @@
       /* full-width sheets may cover the top row */
       .dk-sheet { max-height: calc(100vh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t));
         max-height: calc(100dvh - var(--dk-bar-m) - var(--dk-gap) - var(--dk-pad) - var(--sa-t)); }
-      /* no room beside the instruments here: while the deck is open, zone captions and notes come up as deck toasts */
-      body.deck-open #caption, body.deck-open #note { opacity: 0 !important; visibility: hidden; }
+      /* no room beside the instruments here: while they are open, zone captions and notes come up as deck toasts */
+      body.deck-open.dk-inst #caption, body.deck-open.dk-inst #note { opacity: 0 !important; visibility: hidden; }
+      /* essentials: a bottom sheet across the width, the status line above two rows of five buttons */
+      .dk-ess { justify-self: stretch; display: grid; justify-content: stretch; gap: 8px; padding: 9px 8px 8px; }
+      .dk-est { width: auto; padding: 0 6px; }
+      .dk-eacts { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 5px; }
+      #deck .dk-eb { width: auto; height: 54px; }
+      .dk-eb span { font-size: 10.5px; letter-spacing: 0; }
       .dk-navbtn { padding: 8px 11px 7px; gap: 3px; }
       .dk-zone { font-size: 17px; }
       .dk-sub { font-size: 11px; }
@@ -472,6 +533,7 @@
       .dk-dread .dk-big { font-size: 15px; }
       .dk-dzone { font-size: 7.5px; }
       .dk-row b { font-size: 11px; }
+      .dk-row .dk-k { letter-spacing: .05em; }   /* UP/DOWN fits the narrow gauge column */
       .dk-tk { right: 19px; font-size: 8.5px; }
       /* the sonar stays top right; the environment readouts become a 3 + 2 strip under it, beside the depth gauge */
       #deck { grid-template-rows: auto auto minmax(0, 1fr) auto auto;
@@ -579,6 +641,14 @@
       .dk-zgrid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
       .dk-opt { min-height: 60px; padding: 6px 4px; }
       .dk-tog { min-height: 46px; }
+      /* essentials: one row on a phone on its side (status 170 px + ten 56 px buttons) */
+      .dk-ess { padding: 4px 4px 4px 12px; gap: 4px 10px; }
+      .dk-est { width: 170px; gap: 3px; }
+      .dk-esz { font-size: 16px; }
+      .dk-esn { font-size: 11px; }
+      .dk-eacts { gap: 3px; }
+      #deck .dk-eb { width: 56px; height: 48px; gap: 3px; }
+      .dk-eb span { font-size: 10px; letter-spacing: 0; }
     }
     @media (max-height: 519px) and (max-width: 720px) {
       .dk-dial { display: none; }

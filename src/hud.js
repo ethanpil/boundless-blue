@@ -1,9 +1,14 @@
 // Submarine control deck: tap/click anywhere on the view to show it (M or Tab on a keyboard, Esc closes).
+// Two levels: by default a calm essentials bar (zone, what is next, and the everyday actions, all labelled);
+// the full instrument cockpit is opt-in ("Instruments" under More, G, or M again while the bar is open) and
+// remembered (localStorage ocean.deck.mode). Both share the sheets (zones, time, weather, log, more).
 // In identify mode (app.identifyOn) a tap on the view names what is there instead (app.pick), and a
 // "controls" handle in the corner opens the deck. Zone jumps rebuild the world in place behind a dark cover.
 // Instruments read app.info() at 5 Hz (the slower readouts in 1 Hz slices); the sonar and compass canvases draw
-// at <= 20 fps; while the deck is hidden only a 1 Hz check of the sightings log runs (for the toasts). Every
-// control works by touch, pen or mouse, and buttons are keyboard-focusable. Styles: index.html ("control deck").
+// at <= 20 fps; the essentials bar only writes its status and button states, and the hidden instruments are
+// neither updated nor drawn. While the deck is hidden only a 1 Hz check of the sightings log runs (for the
+// toasts). Every control works by touch, pen or mouse, and buttons are keyboard-focusable. Styles: index.html
+// ("control deck").
 // Perf note: each DOM write costs style/layout time on weak GPUs/CPUs, so writes are cached (txt/tf) and the
 // gauges have no CSS transitions (restarting ~10 transitions per refresh cost 1-2 ms on an HD 4600 laptop).
 import { icon } from './hud/icons.js';
@@ -20,8 +25,9 @@ const TOAST_MS = 4800;
 const PICK_MS = 4000, PICK_NONE_MS = 1600;     // identify card: a name, or "nothing to identify here"
 const CARD = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const LAMP_NEXT = { auto: 'on', on: 'off', off: 'auto' };
-// Systems switches (data-tog) and the app getter each one shows
-const TOG_STATE = { labels: 'labelsOn', captions: 'captionsOn', alerts: 'alertsOn', sound: 'soundOn', wake: 'wakeLock', full: 'fullscreen', stats: 'statsOn' };
+// More-sheet switches (data-tog) and the app getter each one shows (inst and pin are the deck's own)
+const TOG_STATE = { labels: 'labelsOn', captions: 'captionsOn', alerts: 'alertsOn', sound: 'soundOn', wake: 'wakeLock', stats: 'statsOn' };
+const MODE_KEY = 'ocean.deck.mode';   // 'instruments' or 'simple' (the default)
 
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -50,6 +56,7 @@ export class Hud {
     this.narrow = matchMedia('(max-width: 599px) and (orientation: portrait)'); // must match index.html
     this.open = false;
     this.pinned = store.get('ocean.deck.pinned') === '1';
+    this.inst = store.get(MODE_KEY) === 'instruments';
     this.sheet = null; this.sheetOpener = null;
     this.lastPoke = 0; this.nextUI = 0; this.forceFull = true; this.nextSight = 0; this.sizeDirty = true;
     this.cost = 0;
@@ -67,9 +74,8 @@ export class Hud {
     this._bind();
     this.sonar = new Sonar(this.R.sonar, app, this.reduced);
     this.tape = new CompassTape(this.R.tape, this.reduced);
-    pressed(this.R.pin, this.pinned);
-    const ft = this.deck.querySelector('[data-tog="full"]');
-    if (ft && app.canFullscreen === false) { ft.hidden = true; this.R.full.hidden = true; } // e.g. iPhone Safari has no element fullscreen
+    this._applyMode();
+    if (app.canFullscreen === false) { this.R.full.hidden = true; this.R.efull.hidden = true; } // e.g. iPhone Safari has no element fullscreen
     if (app.onNote) app.onNote((text) => this._onNote(text));
     if (window.__ocean) window.__ocean.hud = this;              // debugging: __ocean.hud.show(), .cost
     // first-load hint, after the loader has faded (identify mode shows its handle instead)
@@ -139,13 +145,14 @@ export class Hud {
     const ids = ['zone', 'sub', 'prog', 'next', 'tonext', 'dive', 'dist', 'species', 'tape', 'hor', 'hdg', 'card', 'pitch',
       'watchrow', 'watch', 'hh', 'mh', 'clock', 'todg', 'tod', 'wxg', 'wx', 'smk', 'dmk', 'depth', 'dzone', 'seabed', 'alt', 'vs',
       'sonar', 'rangev', 'ncont', 'temp', 'vis', 'light', 'lightv', 'lamp', 'lampv', 'lampled', 'cura', 'curv', 'curd',
-      'pause', 'needle', 'setm', 'spd', 'kn', 'paused', 'pin', 'id', 'lampq', 'snd', 'full', 'logn', 'loglist', 'qnote', 'sharest', 'shareurl',
-      'fps', 'res', 'tier', 'cost', 'gpu', 'seed', 'tg-wake', 'tg-sound', 'vol', 'volv', 'volrow'];
+      'pause', 'needle', 'setm', 'spd', 'kn', 'paused', 'id', 'lampq', 'snd', 'full', 'logn', 'loglist', 'qnote', 'sharest', 'shareurl',
+      'fps', 'res', 'tier', 'cost', 'gpu', 'seed', 'tg-wake', 'tg-sound', 'vol', 'volv', 'volrow',
+      'ess', 'ezone', 'enext', 'eto', 'eprog', 'epause', 'esnd', 'eid', 'efull', 'znow', 'znext', 'mlogn', 'mspd'];
     this.R = {};
     for (const id of ids) this.R[id.replace('-', '_')] = $(id);
     this.sheets = {};
     for (const el of deck.querySelectorAll('.dk-sheet')) this.sheets[el.id.slice(6)] = el;
-    this.menuBtns = deck.querySelectorAll('.dk-menu [data-sheet]');
+    this.menuBtns = deck.querySelectorAll('[data-sheet][aria-expanded]');   // the bar's and the cockpit menu's
     this.togs = deck.querySelectorAll('[data-tog]');
     this.lampBtns = deck.querySelectorAll('[data-lamp]');
     this.camBtns = deck.querySelectorAll('[data-cam]');
@@ -153,11 +160,40 @@ export class Hud {
     this.timeBtns = deck.querySelectorAll('[data-time]');
     this.wxBtns = deck.querySelectorAll('[data-weather]');
     this.zoneBtns = deck.querySelectorAll('[data-zone]');
-    this.topPanels = deck.querySelectorAll('.dk-nav, .dk-compass, .dk-time');
-    this.barPanels = deck.querySelectorAll('.dk-helm, .dk-quick, .dk-menu');
+    this.instTop = deck.querySelectorAll('.dk-nav, .dk-compass, .dk-time');
+    this.instBar = deck.querySelectorAll('.dk-helm, .dk-quick, .dk-menu');
     this.leftPanels = deck.querySelectorAll('.dk-depth');
     this.rightPanels = deck.querySelectorAll('.dk-sonar, .dk-env');
+    this.instTog = deck.querySelector('[data-tog="inst"]');
+    this.pinTog = deck.querySelector('[data-tog="pin"]');
     this.glyph = { tod: '', wx: '', pause: null, lamp: '', snd: null, full: null };
+  }
+
+  // Essentials bar or instrument cockpit (remembered). Only the visible level is refreshed and measured.
+  setInstruments(on, kb) {
+    on = !!on;
+    if (on === this.inst) return;
+    const hadFocus = this.deck.contains(document.activeElement) && !document.activeElement.closest('.dk-sheet');
+    this.inst = on;
+    store.set(MODE_KEY, on ? 'instruments' : 'simple');
+    this._applyMode();
+    // the focused button has just been hidden: carry keyboard focus to the same place in the other level
+    if (hadFocus && kb) this._focusFirst();
+    else if (hadFocus) document.activeElement.blur();
+  }
+  _applyMode() {
+    const on = this.inst;
+    flag(this.deck, 'inst', on);
+    flag(document.body, 'dk-inst', on);
+    this.topPanels = on ? this.instTop : [];
+    this.barPanels = on ? this.instBar : [this.R.ess];
+    pressed(this.instTog, on);
+    this.sizeDirty = true; this.nextUI = 0; this.forceFull = true; this.zoneKey = null;
+    for (const k in this.glyph) this.glyph[k] = k === 'tod' || k === 'wx' || k === 'lamp' ? '' : null;
+  }
+  _focusFirst() {
+    const b = this.deck.querySelector(this.inst ? '#dk-pause' : '#dk-epause');
+    if (b) b.focus();
   }
 
   _bind() {
@@ -205,7 +241,15 @@ export class Hud {
         return;
       }
       if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
-      if (e.key === 'm' || e.key === 'M') { this.toggle(true); return; }
+      // M opens the deck; pressed again on the essentials bar it brings up the instruments, and on those it closes
+      if (e.key === 'm' || e.key === 'M') {
+        if (this.open && !this.inst) { this.setInstruments(true, true); this.poke(); } else this.toggle(true);
+        return;
+      }
+      if (e.key === 'g' || e.key === 'G') {
+        if (!this.open) { this.setInstruments(true, true); this.show(true); } else { this.setInstruments(!this.inst, true); this.poke(); }
+        return;
+      }
       if (e.key === 'Tab' && !this.open) { e.preventDefault(); this.show(true); return; }
       // shortcuts (main.js, which runs first) may have changed a setting: show it at the next update
       if (this.open) { this.poke(); this.nextUI = 0; this.forceFull = true; }
@@ -224,6 +268,10 @@ export class Hud {
     let top = 0, bar = H;
     for (const el of this.topPanels) top = Math.max(top, el.offsetTop + el.offsetHeight);
     for (const el of this.barPanels) bar = Math.min(bar, el.offsetTop);
+    if (!this.topPanels.length) {    // essentials: nothing on top, so sheets may reach the deck's top padding
+      const cs = getComputedStyle(this.deck);
+      top = Math.max(0, parseFloat(cs.paddingTop) - (parseFloat(cs.rowGap) || 0));
+    }
     const rs = document.documentElement.style;
     const put = (k, v) => { const s = Math.round(v) + 'px'; if (this.mv[k] !== s) { this.mv[k] = s; rs.setProperty(k, s); } };
     put('--dk-top-m', top); put('--dk-bar-m', H - bar);
@@ -245,7 +293,7 @@ export class Hud {
     flag(document.body, 'dk-cap-off-s', this.capOffS);
   }
   // True while the open deck hides the zone caption and notes (no room for them): they come up as toasts.
-  _capHidden() { return this.narrow.matches || (this.sheet ? this.capOffS : this.capOff); }
+  _capHidden() { return (this.inst && this.narrow.matches) || (this.sheet ? this.capOffS : this.capOff); }
 
   // ---------- open / close ----------
   poke() { this.lastPoke = performance.now(); }
@@ -259,7 +307,7 @@ export class Hud {
     this.hint.classList.remove('on');
     this.sizeDirty = true; this.nextUI = 0; this.forceFull = true; this.zoneKey = null;
     this.poke();
-    if (kb) { const b = this.deck.querySelector('#dk-pause'); if (b) b.focus(); }
+    if (kb) this._focusFirst();
   }
   hide() {
     if (!this.open) return;
@@ -282,7 +330,21 @@ export class Hud {
     document.body.classList.add('dk-sheet-open');
     for (const b of this.menuBtns) b.setAttribute('aria-expanded', b.dataset.sheet === name ? 'true' : 'false');
     if (name === 'log') { this.logDirty = true; this._renderLog(); }
-    if (name === 'zones') this._arm(null);
+    if (name === 'zones') {
+      this._arm(null);
+      // mark the current zone now and, if it is below the fold (the list is long on a phone), scroll its group
+      // to the top (or the zone itself, under its sticky group heading, if the group is taller than the view)
+      this._refreshSheet(this.app.info());
+      const cur = el.querySelector('.dk-zt.cur'), sb = el.querySelector('.dk-sh-b');
+      if (cur && sb) {
+        sb.scrollTop = 0;
+        const top = sb.getBoundingClientRect().top, c = cur.getBoundingClientRect();
+        if (c.bottom > top + sb.clientHeight) {
+          const sec = cur.closest('.dk-zsec'), st = sec ? sec.getBoundingClientRect().top - top : c.top - top;
+          sb.scrollTop = c.bottom - top - st <= sb.clientHeight ? st : c.top - top - 48;
+        }
+      }
+    }
     this.nextUI = 0; this.forceFull = true;
     this.poke();
     if (kb) { const f = el.querySelector('.dk-sh-b button'); if (f) f.focus(); }
@@ -315,35 +377,39 @@ export class Hud {
     else if (ds.lamp) a.setLamp(ds.lamp);
     else if (ds.cam) a.setCuriosity(ds.cam === '1' ? 1 : 0);
     else if (ds.q) { if (ds.q !== a.quality) this._reload(() => a.setQuality(ds.q)); }
-    else if (ds.tog) this._toggle(ds.tog);
-    else if (ds.act === 'next') { this.nextZone(); this.closeSheet(false); }
-    else if (ds.act === 'skiptime') a.skipTime();
-    else if (ds.act === 'nextwx') a.nextWeather();
-    else {
+    else if (ds.tog) this._toggle(ds.tog, kb);
+    else if (ds.act) {
+      switch (ds.act) {     // shared by the essentials bar, the cockpit and the sheets
+        case 'next': this.nextZone(); this.closeSheet(false); break;
+        case 'skiptime': a.skipTime(); break;
+        case 'nextwx': a.nextWeather(); break;
+        case 'pause': a.togglePause(); break;
+        case 'slower': a.slower(); break;
+        case 'faster': a.faster(); break;
+        case 'identify': a.setIdentify(!a.identifyOn); break;
+        case 'sound': a.setSound(!a.soundOn); break;
+        case 'full': a.toggleFullscreen(); break;
+        case 'simple': this.setInstruments(false, kb); break;
+        case 'hide': this.hide(); return;
+        default: break;
+      }
+    } else {
       switch (b.id) {
-        case 'dk-pause': a.togglePause(); break;
-        case 'dk-slower': a.slower(); break;
-        case 'dk-faster': a.faster(); break;
-        case 'dk-nextz': this.nextZone(); break;
         case 'dk-lamp': case 'dk-lampq': a.setLamp(LAMP_NEXT[a.lampMode] || 'auto'); break;
-        case 'dk-id': a.setIdentify(!a.identifyOn); break;
-        case 'dk-snd': a.setSound(!a.soundOn); break;
-        case 'dk-full': a.toggleFullscreen(); break;
         case 'dk-range': txt(this.R.rangev, this.sonar.cycleRange() + ' m'); break;
-        case 'dk-pin': this.pinned = !this.pinned; store.set('ocean.deck.pinned', this.pinned ? '1' : '0'); pressed(b, this.pinned); break;
-        case 'dk-close': this.hide(); return;
         case 'dk-share': this._share(); break;
         default: break;
       }
     }
     this.nextUI = 0; this.forceFull = true;                 // reflect the change at the next update
   }
-  _toggle(k) {
+  _toggle(k, kb) {
     const a = this.app;
-    if (k === 'labels') a.toggleLabels();
+    if (k === 'inst') this.setInstruments(!this.inst, kb);
+    else if (k === 'pin') { this.pinned = !this.pinned; store.set('ocean.deck.pinned', this.pinned ? '1' : '0'); }
+    else if (k === 'labels') a.toggleLabels();
     else if (k === 'captions') a.toggleCaptions();
     else if (k === 'stats') a.toggleStats();
-    else if (k === 'full') a.toggleFullscreen();
     else if (k === 'wake') a.setWakeLock(!a.wakeLock);
     else if (k === 'sound') a.setSound(!a.soundOn);
     else if (k === 'alerts') {
@@ -535,10 +601,12 @@ export class Hud {
     // layout reads after the refresh's writes: the panels' widths follow their readouts
     if (this.sizeDirty || this.measureDirty) {
       this.measureDirty = false; this._measure();
-      if (this.sizeDirty) { this.sizeDirty = false; this.sonar.resize(); this.tape.resize(); }
+      if (this.sizeDirty) { this.sizeDirty = false; if (this.inst) { this.sonar.resize(); this.tape.resize(); } }
     }
-    this.sonar.draw(now);
-    this.tape.draw(now);
+    if (this.inst) {                 // the canvases neither draw nor fetch sonar contacts while hidden
+      this.sonar.draw(now);
+      this.tape.draw(now);
+    }
     this.cost = this.cost * 0.97 + (performance.now() - now) * 0.03;
   }
 
@@ -547,25 +615,35 @@ export class Hud {
   // and no frame pays for all of them: each DOM write costs style/layout time. A control action forces a
   // full refresh at once.
   _refresh(full) {
-    const a = this.app, o = a.info(), R = this.R;
-    this.last = o;
-    const h = o.heading, d = o.depth;
-    this.tape.set(h);                // the tape eases toward this on its own canvas
-    txt(R.hdg, pad3(Math.round(h) % 360) + '°');
-    txt(R.card, CARD[Math.round(h / 22.5) % 16]);
+    const a = this.app, R = this.R;
     const sl = full ? -1 : (this.slice = (this.slice + 1) % 5);
-
+    this._buttons(!!a.paused);
+    // essentials bar: the button states at 5 Hz, but the readings (app.info) only once a second, for the status
+    // line and the open sheet
+    if (!this.inst && sl > 0) return;
+    const o = this.last = a.info();
     if (o.zoneKey !== this.zoneKey) {   // the open deck may leave no room for the zone caption: say it here
       if (this.zoneKey && this._capHidden() && a.captionsOn) this.tq.push({ kind: 'zone', name: o.zone, fact: o.subtitle });
       this.zoneKey = o.zoneKey;
     }
+    if (!this.inst) {
+      txt(R.ezone, o.zone);
+      txt(R.enext, o.nextZone);
+      txt(R.eto, this._toNext(o, false));
+      tf(R.eprog, `scaleX(${o.zoneProgress.toFixed(3)})`);
+      if (this.sheet) this._refreshSheet(o);
+      return;
+    }
+    const h = o.heading, d = o.depth;
+    this.tape.set(h);                // the tape eases toward this on its own canvas
+    txt(R.hdg, pad3(Math.round(h) % 360) + '°');
+    txt(R.card, CARD[Math.round(h / 22.5) % 16]);
+
     if (sl <= 0) { // navigation
       txt(R.zone, o.zone); txt(R.sub, o.subtitle);
       tf(R.prog, `scaleX(${o.zoneProgress.toFixed(3)})`);
       txt(R.next, o.nextZone);
-      const m = o.metresToNext, eta = o.speed > 0.2 ? m / o.speed : 0;
-      txt(R.tonext, (m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m / 10) * 10 + ' m')
-        + (eta ? ` · ${eta >= 90 ? Math.round(eta / 60) + ' min' : Math.round(eta) + ' s'}` : ''));
+      txt(R.tonext, this._toNext(o, true));
       txt(R.dive, hms(o.diveTime));
       txt(R.dist, o.distanceKm.toFixed(2) + ' km');
       txt(R.species, String(o.species));
@@ -623,33 +701,6 @@ export class Hud {
       txt(R.spd, v.toFixed(1));
       txt(R.kn, o.speedKnots.toFixed(1) + ' kn · set ' + (o.speedSetting * 1.94384).toFixed(1));   // both in knots
       flag(R.paused, 'on', o.paused);
-      if (this.glyph.pause !== o.paused) {
-        this.glyph.pause = o.paused;
-        R.pause.innerHTML = icon(o.paused ? 'play' : 'pause') + `<span>${o.paused ? 'PLAY' : 'PAUSE'}</span>`;
-        R.pause.setAttribute('aria-label', o.paused ? 'Play' : 'Pause');
-      }
-      // quick settings: state in the icon and label (lamps on: amber; lamps off, muted: dimmed)
-      pressed(R.id, !!a.identifyOn);
-      const lm = a.lampMode;
-      if (this.glyph.lamp !== lm) {
-        this.glyph.lamp = lm;
-        R.lampq.innerHTML = icon(lm === 'on' ? 'lamp' : lm === 'off' ? 'lampoff' : 'lampauto') + `<span>LAMPS ${lm.toUpperCase()}</span>`;
-        R.lampq.className = 'dk-btn dk-mb ' + lm;
-        R.lampq.setAttribute('aria-label', `Lamps: ${lm}. Tap to cycle auto, on and off`);
-      }
-      const snd = !!a.soundOn;
-      if (this.glyph.snd !== snd) {
-        this.glyph.snd = snd;
-        R.snd.innerHTML = icon(snd ? 'sound' : 'mute') + `<span>${snd ? 'SOUND' : 'MUTED'}</span>`;
-        flag(R.snd, 'off', !snd);
-        R.snd.setAttribute('aria-label', snd ? 'Sound on. Tap to mute' : 'Sound off. Tap to turn it on');
-      }
-      const fs = !!a.fullscreen;
-      if (this.glyph.full !== fs) {
-        this.glyph.full = fs;
-        R.full.innerHTML = icon(fs ? 'exitfull' : 'full') + '<span>FULLSCREEN</span>';
-        pressed(R.full, fs);
-      }
       const p = Math.round(o.pitch);
       txt(R.pitch, (p > 0 ? '+' : p < 0 ? '−' : '±') + Math.abs(p) + '°');
       tf(R.hor, `translateY(${Math.max(-13, Math.min(13, o.pitch * 0.55)).toFixed(0)}px)`);
@@ -657,10 +708,59 @@ export class Hud {
       if (this.sheet) this._refreshSheet(o);
     }
   }
+  // "760 m · 4 min" (cockpit) or "in 760 m" (essentials bar)
+  _toNext(o, eta) {
+    const m = o.metresToNext, d = m >= 1000 ? (m / 1000).toFixed(1) + ' km' : Math.round(m / 10) * 10 + ' m';
+    if (!eta) return 'in ' + d;
+    const t = o.speed > 0.2 ? m / o.speed : 0;
+    return d + (t ? ` · ${t >= 90 ? Math.round(t / 60) + ' min' : Math.round(t) + ' s'}` : '');
+  }
+  // Button states in the visible level: the state shows in the icon and label (paused: Play; muted: dimmed;
+  // identify and fullscreen pressed; lamps on: amber). Cached, so a refresh without changes writes nothing.
+  _buttons(paused) {
+    const a = this.app, R = this.R, g = this.glyph, inst = this.inst;
+    const pz = inst ? R.pause : R.epause, sn = inst ? R.snd : R.esnd, fu = inst ? R.full : R.efull;
+    if (g.pause !== paused) {
+      g.pause = paused;
+      pz.innerHTML = icon(paused ? 'play' : 'pause') + `<span>${paused ? 'Play' : 'Pause'}</span>`;
+      pz.setAttribute('aria-label', paused ? 'Play' : 'Pause');
+    }
+    pressed(inst ? R.id : R.eid, !!a.identifyOn);
+    const snd = !!a.soundOn;
+    if (g.snd !== snd) {
+      g.snd = snd;
+      sn.innerHTML = icon(snd ? 'sound' : 'mute') + `<span>${snd ? 'Sound' : 'Muted'}</span>`;
+      flag(sn, 'off', !snd);
+      sn.setAttribute('aria-label', snd ? 'Sound on. Tap to mute' : 'Muted. Tap to turn sound on');
+    }
+    const fs = !!a.fullscreen;
+    if (g.full !== fs) {
+      g.full = fs;
+      fu.innerHTML = icon(fs ? 'exitfull' : 'full') + '<span>Fullscreen</span>';
+      pressed(fu, fs);
+    }
+    if (inst) {
+      const lm = a.lampMode;
+      if (g.lamp !== lm) {
+        g.lamp = lm;
+        R.lampq.innerHTML = icon(lm === 'on' ? 'lamp' : lm === 'off' ? 'lampoff' : 'lampauto') + `<span>Lamps ${lm}</span>`;
+        R.lampq.className = 'dk-btn dk-mb ' + lm;
+        R.lampq.setAttribute('aria-label', `Lamps: ${lm}. Tap to cycle auto, on and off`);
+      }
+    }
+  }
   _refreshSheet(o) {
     const a = this.app, R = this.R;
     switch (this.sheet) {
-      case 'zones': for (const z of this.zoneBtns) flag(z, 'cur', z.dataset.zone === o.zoneKey); break;
+      case 'zones':
+        for (const z of this.zoneBtns) {
+          const c = z.dataset.zone === o.zoneKey;
+          flag(z, 'cur', c);
+          if (c !== (z.getAttribute('aria-current') === 'true')) { if (c) z.setAttribute('aria-current', 'true'); else z.removeAttribute('aria-current'); }
+        }
+        txt(R.znow, o.zone);
+        txt(R.znext, 'next: ' + o.nextZone);
+        break;
       case 'time': {
         const cur = o.timeLabel === 'midday' ? 'day' : o.timeLabel;
         for (const b of this.timeBtns) pressed(b, b.dataset.time === cur);
@@ -669,7 +769,9 @@ export class Hud {
       case 'weather': for (const b of this.wxBtns) pressed(b, b.dataset.weather === o.weatherKey); break;
       case 'log': break;
       case 'systems': {
-        for (const b of this.togs) pressed(b, !!a[TOG_STATE[b.dataset.tog]]);
+        for (const b of this.togs) { const t = b.dataset.tog; pressed(b, t === 'inst' ? this.inst : t === 'pin' ? this.pinned : !!a[TOG_STATE[t]]); }
+        txt(R.mlogn, String(o.species));
+        txt(R.mspd, o.paused ? 'paused' : o.speedSetting.toFixed(1) + ' m/s');
         txt(R.tg_sound, !a.soundOn ? 'off' : a.soundActive ? 'on: ambient sea sounds' : 'waiting: browsers start sound on a tap or key');
         flag(R.tg_sound, 'ok', a.soundOn && a.soundActive);
         const vol = Math.round(a.soundVolume * 100);

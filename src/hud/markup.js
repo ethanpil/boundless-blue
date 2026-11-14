@@ -62,24 +62,81 @@ function speedDial() {
   return `<svg viewBox="0 0 60 33" class="dk-dialf" aria-hidden="true"><path class="dk-darc" d="M4 30A26 26 0 0 1 56 30"/><path class="dk-dred" d="M48.38 11.62A26 26 0 0 1 56 30"/><g class="dk-fticks">${t}</g></svg>`;
 }
 
-// helm buttons keep their labels at every size; menu and quick-bar labels hide on narrow landscape screens.
-// title: the mouse tooltip (what it does, and its key), so icon-only buttons explain themselves too
-const helmBtn = (id, ic, text, label, title) => `<button type="button" class="dk-btn dk-hb" id="${id}" aria-label="${label}" title="${title}">${icon(ic)}<span>${text}</span></button>`;
+// Zone picker groups, in picker order. A zone whose key is not listed (a zone added later) is placed by its
+// water temperature (below 0 °C: polar; up to 6 °C: the deep), else under "More zones" at the end.
+export const ZONE_GROUPS = [
+  { id: 'shallows', label: 'Shallows & shores', keys: ['seagrass', 'mangrove', 'tidepool', 'sandflat', 'otterkelp', 'biobay', 'jellylake'] },
+  { id: 'reefs', label: 'Reefs & forests', keys: ['reef', 'softcoral', 'anemone', 'champagne', 'wall', 'kelp', 'sunkenforest'] },
+  { id: 'open', label: 'Open water', keys: ['pelagic', 'sargassum', 'whaleshark', 'seamount'] },
+  { id: 'caves', label: 'Caves, wrecks & ruins', keys: ['cave', 'bluehole', 'wreck', 'ruins'] },
+  { id: 'ice', label: 'Polar seas', keys: ['polar', 'iceedge'] },
+  { id: 'deep', label: 'The deep', keys: ['coldcoral', 'vents', 'lostcity', 'abyss', 'deepplain', 'hadal'] },
+  { id: 'more', label: 'More zones', keys: [] },
+];
+export function zoneGroup(z) {
+  for (const g of ZONE_GROUPS) if (g.keys.includes(z.key)) return g.id;
+  return z.tempC < 0 ? 'ice' : z.tempC <= 6 ? 'deep' : 'more';
+}
+
+// Instrument-mode buttons. Helm buttons keep their labels at every size; menu and quick-bar labels hide on
+// narrow landscape screens. title: the mouse tooltip (what it does, and its key), so icon-only buttons explain
+// themselves too. Labels are written in sentence case and set in capitals by CSS (the essentials bar shares them).
+const helmBtn = (id, ic, text, label, title, extra = '') => `<button type="button" class="dk-btn dk-hb" id="${id}" aria-label="${label}" title="${title}" ${extra}>${icon(ic)}<span>${text}</span></button>`;
 const quickBtn = (id, ic, text, label, title, extra = '') => `<button type="button" class="dk-btn dk-mb" id="${id}" aria-label="${label}" title="${title}" ${extra}>${icon(ic)}<span>${text}</span></button>`;
 const menuBtn = (sheet, ic, text, label, title = label) =>
   `<button type="button" class="dk-btn dk-mb" data-sheet="${sheet}" aria-label="${label}" title="${title}" aria-expanded="false" aria-controls="dk-sh-${sheet}">${icon(ic)}<span>${text}</span></button>`;
+// Essentials-bar button: always labelled; data-key shows its keyboard shortcut on hover or keyboard focus.
+const essBtn = (attrs, ic, text, key = '', kbd = '') => `<button type="button" class="dk-btn dk-eb" ${attrs}${key ? ` data-key="${key}"` : ''}${kbd ? ` aria-keyshortcuts="${kbd}"` : ''}>${icon(ic)}<span>${text}</span></button>`;
+const essSheet = (sheet, ic, text, key = '', kbd = '') => essBtn(`data-sheet="${sheet}" aria-expanded="false" aria-controls="dk-sh-${sheet}"`, ic, text, key, kbd);
 const sheetHead = (ic, title) =>
   `<header class="dk-sh-h"><span class="dk-sh-t">${icon(ic)}${title}</span><button type="button" class="dk-x" data-close aria-label="Close panel">${icon('close')}</button></header>`;
-const tog = (key, ic, title, sub) =>
-  `<button type="button" class="dk-tog" data-tog="${key}" aria-pressed="false">${icon(ic)}<span><b>${title}</b><small id="dk-tg-${key}">${sub}</small></span><i class="dk-sw" aria-hidden="true"></i></button>`;
+const tog = (key, ic, title, sub, kbd = '') =>
+  `<button type="button" class="dk-tog" data-tog="${key}" aria-pressed="false"${kbd ? ` aria-keyshortcuts="${kbd}"` : ''}>${icon(ic)}<span><b>${title}${kbd ? ` <kbd>${kbd}</kbd>` : ''}</b><small id="dk-tg-${key}">${sub}</small></span><i class="dk-sw" aria-hidden="true"></i></button>`;
+const grp = (title) => `<h3 class="dk-grp">${title}</h3>`;
+// labelled readout: the label in plain words, with a tooltip saying what it measures
+const k = (text, title) => `<span class="dk-k" title="${title}">${text}</span>`;
+
+function zonePicker(app) {
+  const tile = (z) => `<button type="button" class="dk-zt" data-zone="${esc(z.key)}" style="--zc:${z.color || '#3aa7c9'};--zd:${z.deep || '#0b3550'}">`
+    + `<b>${esc(z.label)}</b><small>${esc(z.subtitle || '')}</small><span class="dk-zgo">tap again to dive ${icon('next')}</span></button>`;
+  let h = '';
+  for (const g of ZONE_GROUPS) {
+    const zs = app.zones.filter((z) => zoneGroup(z) === g.id);
+    if (!zs.length) continue;
+    h += `<section class="dk-zsec" aria-label="${esc(g.label)}"><h3 class="dk-grp dk-zh">${esc(g.label)}</h3><div class="dk-zgrid">${zs.map(tile).join('')}</div></section>`;
+  }
+  return h;
+}
+
+// The essentials bar: the default deck. One line of status and the everyday actions, all labelled.
+function essHTML() {
+  return `
+<section class="dk-p dk-ess" id="dk-ess" aria-label="Controls">
+  <div class="dk-est" aria-live="off">
+    <span class="dk-esz" id="dk-ezone">&nbsp;</span>
+    <span class="dk-esn">Next: <b id="dk-enext"></b> <span id="dk-eto"></span></span>
+    <span class="dk-prog" aria-hidden="true"><i id="dk-eprog"></i></span>
+  </div>
+  <div class="dk-eacts">
+    ${essBtn('data-act="pause" id="dk-epause"', 'pause', 'Pause', 'Space', 'Space')}
+    ${essBtn('data-act="next" id="dk-enextz"', 'nextzone', 'Next zone', 'N', 'N')}
+    ${essSheet('zones', 'zones', 'Zones')}
+    ${essSheet('time', 'clock', 'Time', 'T skips ahead')}
+    ${essSheet('weather', 'cloud', 'Weather', 'W changes it')}
+    ${essBtn('data-act="sound" id="dk-esnd"', 'sound', 'Sound', 'A', 'A')}
+    ${essBtn('data-act="identify" id="dk-eid" aria-pressed="false"', 'identify', 'Identify', 'D', 'D')}
+    ${essBtn('data-act="full" id="dk-efull" aria-pressed="false"', 'full', 'Fullscreen', 'F', 'F')}
+    ${essSheet('systems', 'more', 'More')}
+    ${essBtn('data-act="hide" id="dk-ehide" aria-label="Hide the controls"', 'hide', 'Hide', 'Esc', 'Escape')}
+  </div>
+</section>`;
+}
 
 export function deckHTML(app) {
-  const zones = app.zones.map((z) => `<button type="button" class="dk-zt" data-zone="${esc(z.key)}" style="--zc:${z.color || '#3aa7c9'};--zd:${z.deep || '#0b3550'}" aria-label="Dive to ${esc(z.label)}">`
-    + `<b>${esc(z.label)}</b><small>${esc(z.subtitle || '')}</small><span class="dk-zgo">tap again to dive ${icon('next')}</span></button>`).join('');
   const times = app.times.map((t) => `<button type="button" class="dk-opt" data-time="${t}" aria-pressed="false">${icon(t)}<b>${TIME_INFO[t]?.label || t}</b><small>${TIME_INFO[t]?.clock || ''}</small></button>`).join('');
   const wx = app.weathers.map((w) => `<button type="button" class="dk-opt" data-weather="${w}" aria-pressed="false">${icon(w)}<b>${WEATHER_INFO[w] || w}</b></button>`).join('');
   const quals = ['auto', 'low', 'medium', 'high', 'ultra'].map((q) => `<button type="button" data-q="${q}" aria-pressed="false">${q === 'medium' ? 'MED' : q.toUpperCase()}</button>`).join('');
-  return `
+  return `${essHTML()}
 <section class="dk-p dk-nav" aria-label="Navigation">
   <button type="button" class="dk-navbtn" data-sheet="zones" aria-label="Current zone. Open the zone picker">
     <span class="dk-k"><i class="dk-led" aria-hidden="true"></i>ZONE</span>
@@ -89,8 +146,8 @@ export function deckHTML(app) {
     <span class="dk-nextl"><span class="dk-k">NEXT</span> <b id="dk-next"></b> <span id="dk-tonext"></span></span>
   </button>
   <div class="dk-trip">
-    <span class="dk-tv"><span class="dk-k">DIVE</span><b id="dk-dive">00:00:00</b></span>
-    <span class="dk-tv"><span class="dk-k">DIST</span><b id="dk-dist">0.00 km</b></span>
+    <span class="dk-tv">${k('DIVE TIME', 'Time since the dive began')}<b id="dk-dive">00:00:00</b></span>
+    <span class="dk-tv">${k('DISTANCE', 'Distance travelled on this dive')}<b id="dk-dist">0.00 km</b></span>
     <button type="button" class="dk-tv dk-chip" data-sheet="log" aria-label="Species seen. Open the sightings log"><span class="dk-k">SPECIES</span><b id="dk-species">0</b></button>
   </div>
 </section>
@@ -98,9 +155,9 @@ export function deckHTML(app) {
 <section class="dk-p dk-compass" aria-label="Compass">
   <div class="dk-tape" aria-hidden="true"><canvas id="dk-tape"></canvas><i class="dk-lubber"></i></div>
   <div class="dk-hdgrow">
-    <span class="dk-att" aria-hidden="true"><i id="dk-hor"></i><b></b></span>
-    <span class="dk-k">HDG</span><b class="dk-big" id="dk-hdg">000°</b><span class="dk-card" id="dk-card">N</span>
-    <span class="dk-k dk-pk">PITCH</span><b id="dk-pitch">+0°</b>
+    <span class="dk-att" aria-hidden="true" title="Attitude: the camera's tilt against the horizon"><i id="dk-hor"></i><b></b></span>
+    ${k('HEADING', 'Compass heading: the direction of travel')}<b class="dk-big" id="dk-hdg">000°</b><span class="dk-card" id="dk-card">N</span>
+    <span class="dk-k dk-pk" title="Camera tilt: + looking up, − looking down">TILT</span><b id="dk-pitch">+0°</b>
   </div>
   <div class="dk-watch" id="dk-watchrow"><span class="dk-k">WATCHING</span><b id="dk-watch"></b></div>
 </section>
@@ -116,61 +173,61 @@ export function deckHTML(app) {
 </section>
 
 <section class="dk-p dk-depth" aria-label="Depth">
-  <span class="dk-k dk-ct">DEPTH</span>
+  <span class="dk-k dk-ct" title="Depth below the surface (log scale)">DEPTH</span>
   <div class="dk-dg" aria-hidden="true">${depthScale()}<div class="dk-mk dk-smk" id="dk-smk"><i></i></div><div class="dk-mk dk-dmk" id="dk-dmk"><i></i></div></div>
   <div class="dk-dread">
     <b class="dk-big" id="dk-depth">0 m</b>
     <span class="dk-dzone" id="dk-dzone"></span>
-    <span class="dk-row"><span class="dk-k">BED</span><b id="dk-seabed"></b></span>
-    <span class="dk-row"><span class="dk-k">ALT</span><b id="dk-alt"></b></span>
-    <span class="dk-row"><span class="dk-k">V/S</span><b id="dk-vs"></b></span>
+    <span class="dk-row">${k('SEABED', 'Depth of the seabed below the surface')}<b id="dk-seabed"></b></span>
+    <span class="dk-row">${k('HEIGHT', 'Height above the seabed')}<b id="dk-alt"></b></span>
+    <span class="dk-row">${k('UP/DOWN', 'Vertical speed: ▲ rising, ▼ sinking')}<b id="dk-vs"></b></span>
   </div>
 </section>
 
 <div class="dk-right">
   <section class="dk-p dk-sonar" aria-label="Sonar">
-    <div class="dk-scope"><canvas id="dk-sonar" aria-hidden="true"></canvas></div>
+    <div class="dk-scope" title="Sonar: life and sites around you, the direction of travel up"><canvas id="dk-sonar" aria-hidden="true"></canvas></div>
     <div class="dk-sonrow">
-      <button type="button" class="dk-mini" id="dk-range" aria-label="Sonar range, tap to change">${icon('sonar')}<span id="dk-rangev">60 m</span></button>
+      <button type="button" class="dk-mini" id="dk-range" aria-label="Sonar range, tap to change" title="Sonar range: tap to change">${icon('sonar')}<span id="dk-rangev">60 m</span></button>
       <span class="dk-ncont"><b id="dk-ncont">0</b> contacts</span>
     </div>
     <div class="dk-legend" aria-hidden="true"><span><i class="lg-a"></i>life</span><span><i class="lg-b"></i>large</span><span><i class="lg-p"></i>site</span><span><i class="lg-r"></i>rare</span></div>
   </section>
   <section class="dk-p dk-env" aria-label="Environment">
-    <div class="dk-cell"><span class="dk-k">TEMP</span><b id="dk-temp"></b></div>
-    <div class="dk-cell"><span class="dk-k">VIS</span><b id="dk-vis"></b></div>
-    <div class="dk-cell dk-lightc"><span class="dk-k">LIGHT</span><span class="dk-bar" aria-hidden="true"><i id="dk-light"></i></span><b id="dk-lightv"></b></div>
-    <button type="button" class="dk-cell dk-lampbtn" id="dk-lamp" aria-label="Lamps. Tap to cycle auto, on and off"><span class="dk-k">LAMPS <i class="dk-ledl" id="dk-lampled" aria-hidden="true"></i></span><b id="dk-lampv">AUTO</b></button>
-    <div class="dk-cell dk-cur"><span class="dk-k">CURRENT</span><span class="dk-cura" id="dk-cura" aria-hidden="true">${icon('arrow')}</span><b id="dk-curv"></b><span class="dk-curd" id="dk-curd"></span></div>
+    <div class="dk-cell">${k('WATER', 'Water temperature')}<b id="dk-temp"></b></div>
+    <div class="dk-cell">${k('VISIBILITY', 'How far you can see through the water')}<b id="dk-vis"></b></div>
+    <div class="dk-cell dk-lightc">${k('DAYLIGHT', 'Sunlight reaching this depth')}<span class="dk-bar" aria-hidden="true"><i id="dk-light"></i></span><b id="dk-lightv"></b></div>
+    <button type="button" class="dk-cell dk-lampbtn" id="dk-lamp" aria-label="Lamps. Tap to cycle auto, on and off" title="Camera lamps: tap to cycle auto, on and off (L)"><span class="dk-k">LAMPS <i class="dk-ledl" id="dk-lampled" aria-hidden="true"></i></span><b id="dk-lampv">AUTO</b></button>
+    <div class="dk-cell dk-cur" title="Water current: its speed, and the compass direction it flows toward">${k('CURRENT', 'Water current: its speed, and the compass direction it flows toward')}<span class="dk-cura" id="dk-cura" aria-hidden="true">${icon('arrow')}</span><b id="dk-curv"></b><span class="dk-curd" id="dk-curd"></span></div>
   </section>
 </div>
 
 <div class="dk-bottom">
 <section class="dk-p dk-helm" aria-label="Helm">
-  ${helmBtn('dk-pause', 'pause', 'PAUSE', 'Pause', 'Pause or play (Space)')}
-  ${helmBtn('dk-slower', 'minus', 'SLOWER', 'Slower', 'Slower (←)')}
+  ${helmBtn('dk-pause', 'pause', 'Pause', 'Pause', 'Pause or play (Space)', 'data-act="pause"')}
+  ${helmBtn('dk-slower', 'minus', 'Slower', 'Slower', 'Slower (←)', 'data-act="slower"')}
   <div class="dk-speed" aria-live="off">
     <span class="dk-dial" aria-hidden="true">${speedDial()}<i class="dk-needle dk-set" id="dk-setm"></i><i class="dk-needle" id="dk-needle"></i></span>
-    <span class="dk-spcol"><span class="dk-k">SPEED</span><b class="dk-big" id="dk-spd">0.0</b><small>m/s</small><span class="dk-paused" id="dk-paused">PAUSED</span><span class="dk-kn" id="dk-kn">0.0 kn</span></span>
+    <span class="dk-spcol" title="Speed now in metres per second; below, in knots and the cruising speed set with Slower / Faster"><span class="dk-k">SPEED</span><b class="dk-big" id="dk-spd">0.0</b><small>m/s</small><span class="dk-paused" id="dk-paused">PAUSED</span><span class="dk-kn" id="dk-kn">0.0 kn</span></span>
   </div>
-  ${helmBtn('dk-faster', 'plus', 'FASTER', 'Faster', 'Faster (→)')}
-  ${helmBtn('dk-nextz', 'nextzone', 'NEXT ZONE', 'Next zone', 'Skip ahead to the next zone (N)')}
+  ${helmBtn('dk-faster', 'plus', 'Faster', 'Faster', 'Faster (→)', 'data-act="faster"')}
+  ${helmBtn('dk-nextz', 'nextzone', 'Next zone', 'Next zone', 'Skip ahead to the next zone (N)', 'data-act="next"')}
 </section>
 <div class="dk-tools">
 <section class="dk-p dk-quick" aria-label="Quick settings">
-  ${quickBtn('dk-id', 'identify', 'IDENTIFY', 'Identify mode', 'Identify: tap or click anything to name it (D)', 'aria-pressed="false"')}
-  ${quickBtn('dk-lampq', 'lampauto', 'LAMPS AUTO', 'Lamps: auto. Tap to cycle auto, on and off', 'Lamps: auto, on or off (L)')}
-  ${quickBtn('dk-snd', 'sound', 'SOUND', 'Sound', 'Sound on or off (A)')}
-  ${quickBtn('dk-full', 'full', 'FULLSCREEN', 'Fullscreen', 'Fullscreen (F)', 'aria-pressed="false"')}
-  ${quickBtn('dk-pin', 'pin', 'PIN', 'Keep the deck open', 'Keep the deck open', 'aria-pressed="false"')}
+  ${quickBtn('dk-id', 'identify', 'Identify', 'Identify mode', 'Identify: tap or click anything to name it (D)', 'data-act="identify" aria-pressed="false"')}
+  ${quickBtn('dk-lampq', 'lampauto', 'Lamps auto', 'Lamps: auto. Tap to cycle auto, on and off', 'Lamps: auto, on or off (L)')}
+  ${quickBtn('dk-snd', 'sound', 'Sound', 'Sound', 'Sound on or off (A)', 'data-act="sound"')}
+  ${quickBtn('dk-full', 'full', 'Fullscreen', 'Fullscreen', 'Fullscreen (F)', 'data-act="full" aria-pressed="false"')}
+  ${quickBtn('dk-simple', 'simple', 'Simple', 'Simple controls', 'Back to the simple control bar (G)', 'data-act="simple"')}
 </section>
 <section class="dk-p dk-menu" aria-label="Deck menu">
-  ${menuBtn('zones', 'zones', 'ZONES', 'Zones', 'Zones: dive anywhere')}
-  ${menuBtn('time', 'clock', 'TIME', 'Time of day')}
-  ${menuBtn('weather', 'cloud', 'WEATHER', 'Weather')}
-  ${menuBtn('log', 'log', 'LOG', 'Sightings log')}
-  ${menuBtn('systems', 'systems', 'SYSTEMS', 'Systems and settings')}
-  <button type="button" class="dk-btn dk-mb" id="dk-close" aria-label="Close the deck" title="Close the deck (Esc)">${icon('close')}<span>CLOSE</span></button>
+  ${menuBtn('zones', 'zones', 'Zones', 'Zones', 'Zones: dive anywhere')}
+  ${menuBtn('time', 'clock', 'Time', 'Time of day')}
+  ${menuBtn('weather', 'cloud', 'Weather', 'Weather')}
+  ${menuBtn('log', 'log', 'Log', 'Sightings log')}
+  ${menuBtn('systems', 'more', 'More', 'More settings')}
+  <button type="button" class="dk-btn dk-mb" data-act="hide" aria-label="Close the deck" title="Close the deck (Esc)">${icon('close')}<span>Close</span></button>
 </section>
 </div>
 </div>
@@ -178,9 +235,10 @@ export function deckHTML(app) {
 <div class="dk-sheet" id="dk-sh-zones" role="dialog" aria-label="Zones">
   ${sheetHead('zones', 'Zones')}
   <div class="dk-sh-b">
-    <button type="button" class="dk-wbtn" data-act="next">${icon('nextzone')}<span>Skip ahead to the next zone <small>same dive</small></span></button>
+    <p class="dk-znow">Now in <b id="dk-znow"></b></p>
+    <button type="button" class="dk-wbtn" data-act="next">${icon('nextzone')}<span>Skip ahead to the next zone <small>same dive · <span id="dk-znext"></span></small></span></button>
     <p class="dk-note">Or pick a zone, then tap it again to dive there. The dive and its log carry on in a freshly generated stretch of ocean.</p>
-    <div class="dk-zgrid">${zones}</div>
+    ${zonePicker(app)}
   </div>
 </div>
 
@@ -188,7 +246,7 @@ export function deckHTML(app) {
   ${sheetHead('clock', 'Time of day')}
   <div class="dk-sh-b">
     <div class="dk-grid3">${times}</div>
-    <button type="button" class="dk-wbtn" data-act="skiptime">${icon('skip')}<span>Skip ahead <small>a few hours</small></span></button>
+    <button type="button" class="dk-wbtn" data-act="skiptime">${icon('skip')}<span>Skip ahead <small>a few hours (T)</small></span></button>
     <p class="dk-note">The sun moves on its own: a full day and night pass in about an hour.</p>
   </div>
 </div>
@@ -197,7 +255,7 @@ export function deckHTML(app) {
   ${sheetHead('cloud', 'Weather')}
   <div class="dk-sh-b">
     <div class="dk-grid3">${wx}</div>
-    <button type="button" class="dk-wbtn" data-act="nextwx">${icon('surge')}<span>Change the weather <small>surprise me</small></span></button>
+    <button type="button" class="dk-wbtn" data-act="nextwx">${icon('surge')}<span>Change the weather <small>surprise me (W)</small></span></button>
     <p class="dk-note">Weather drifts on its own every few minutes and fades in over about a minute and a half.</p>
   </div>
 </div>
@@ -210,36 +268,58 @@ export function deckHTML(app) {
   </div>
 </div>
 
-<div class="dk-sheet" id="dk-sh-systems" role="dialog" aria-label="Systems">
-  ${sheetHead('systems', 'Systems')}
+<div class="dk-sheet" id="dk-sh-systems" role="dialog" aria-label="More settings">
+  ${sheetHead('more', 'More')}
   <div class="dk-sh-b">
+    ${grp('View')}
     <div class="dk-togs">
-      ${tog('labels', 'eye', 'Names', 'label creatures and objects')}
-      ${tog('captions', 'cc', 'Captions', 'zone titles and notes')}
-      ${tog('alerts', 'fish', 'New species alerts', 'a card when a species is first logged, rare ones too')}
-      ${tog('sound', 'sound', 'Sound', 'ambient sea sounds')}
-      <label class="dk-vol" id="dk-volrow"><span class="dk-k">VOLUME</span><input type="range" id="dk-vol" min="0" max="100" step="1" value="60"><b id="dk-volv">60%</b></label>
-      ${tog('wake', 'awake', 'Keep screen awake', 'checking…')}
-      ${tog('full', 'full', 'Fullscreen', 'hide the browser')}
-      ${tog('stats', 'stats', 'Stats overlay', 'frame rate and draw calls')}
+      ${tog('inst', 'gauge', 'Instruments', 'the full cockpit: depth, compass, sonar and more', 'G')}
+      <button type="button" class="dk-wbtn" data-sheet="log" aria-controls="dk-sh-log">${icon('log')}<span>Sightings log <small><b id="dk-mlogn">0</b> species seen on this dive</small></span></button>
     </div>
+    ${grp('Dive')}
+    <div class="dk-segrow"><span class="dk-k">${icon('next')}SPEED</span>
+      <div class="dk-seg dk-spdseg" role="group" aria-label="Speed"><button type="button" data-act="slower" aria-keyshortcuts="ArrowLeft">${icon('minus')}SLOWER</button><b id="dk-mspd" aria-live="off">—</b><button type="button" data-act="faster" aria-keyshortcuts="ArrowRight">${icon('plus')}FASTER</button></div>
+      <small class="dk-help">How fast the camera glides (← and → keys).</small></div>
     <div class="dk-segrow"><span class="dk-k">${icon('lamp')}LAMPS</span><div class="dk-seg" role="group" aria-label="Lamps">
-      <button type="button" data-lamp="auto" aria-pressed="false">AUTO</button><button type="button" data-lamp="on" aria-pressed="false">ON</button><button type="button" data-lamp="off" aria-pressed="false">OFF</button></div></div>
+      <button type="button" data-lamp="auto" aria-pressed="false">AUTO</button><button type="button" data-lamp="on" aria-pressed="false">ON</button><button type="button" data-lamp="off" aria-pressed="false">OFF</button></div>
+      <small class="dk-help">Lights beside the camera. Auto turns them on when it gets dark (L).</small></div>
     <div class="dk-segrow"><span class="dk-k">${icon('camera')}CAMERA</span><div class="dk-seg" role="group" aria-label="Camera mode">
-      <button type="button" data-cam="1" aria-pressed="false">DOCUMENTARY</button><button type="button" data-cam="0" aria-pressed="false">STEADY</button></div></div>
-    <div class="dk-segrow"><span class="dk-k">${icon('quality')}QUALITY</span><div class="dk-seg dk-seg5" role="group" aria-label="Graphics quality">${quals}</div></div>
-    <p class="dk-note" id="dk-qnote"></p>
+      <button type="button" data-cam="1" aria-pressed="false">DOCUMENTARY</button><button type="button" data-cam="0" aria-pressed="false">STEADY</button></div>
+      <small class="dk-help">Documentary turns to follow animals; steady keeps a calm glide ahead.</small></div>
+    ${grp('On screen')}
+    <div class="dk-togs">
+      ${tog('labels', 'eye', 'Names', 'label creatures and objects', 'I')}
+      ${tog('captions', 'cc', 'Captions', 'zone titles and notes', 'H')}
+      ${tog('alerts', 'fish', 'New species alerts', 'a card when a species is first logged, rare ones too')}
+      ${tog('pin', 'pin', 'Keep controls open', 'do not hide them when idle')}
+      ${tog('stats', 'stats', 'Stats overlay', 'frame rate and draw calls', 'S')}
+    </div>
+    ${grp('Sound')}
+    <div class="dk-togs">
+      ${tog('sound', 'sound', 'Sound', 'ambient sea sounds', 'A')}
+      <label class="dk-vol" id="dk-volrow"><span class="dk-k">VOLUME</span><input type="range" id="dk-vol" min="0" max="100" step="1" value="60"><b id="dk-volv">60%</b></label>
+    </div>
+    ${grp('Device')}
+    <div class="dk-togs">
+      ${tog('wake', 'awake', 'Keep screen awake', 'checking…')}
+    </div>
+    <div class="dk-segrow"><span class="dk-k">${icon('quality')}GRAPHICS QUALITY</span><div class="dk-seg dk-seg5" role="group" aria-label="Graphics quality">${quals}</div>
+      <p class="dk-note" id="dk-qnote"></p></div>
+    ${grp('Share')}
     <button type="button" class="dk-wbtn" id="dk-share">${icon('link')}<span>Copy a link to this dive <small id="dk-sharest">same seed and starting zone</small></span></button>
     <input class="dk-url" id="dk-shareurl" type="text" readonly hidden aria-label="Link to this dive">
-    <div class="dk-diag" aria-label="Diagnostics">
-      <div><span class="dk-k">FPS</span><b id="dk-fps">—</b></div>
-      <div><span class="dk-k">RES</span><b id="dk-res">—</b></div>
-      <div><span class="dk-k">TIER</span><b id="dk-tier">—</b></div>
-      <div><span class="dk-k">DECK</span><b id="dk-cost">—</b></div>
-      <div class="dk-dw"><span class="dk-k">GPU</span><b id="dk-gpu">—</b></div>
-      <div class="dk-dw"><span class="dk-k">SEED</span><b id="dk-seed">—</b></div>
-    </div>
-    <p class="dk-keys"><b>Keys</b> M deck · Space pause · ←/→ speed · N next zone · D identify · L lamps · A sound · F fullscreen · T time · W weather · I names · H captions · S stats · Esc close</p>
+    <details class="dk-more">
+      <summary>${icon('stats')}<span>Performance details</span></summary>
+      <div class="dk-diag" aria-label="Diagnostics">
+        <div>${k('FPS', 'Frames drawn per second')}<b id="dk-fps">—</b></div>
+        <div>${k('RES', 'Render resolution, lowered automatically on slow devices')}<b id="dk-res">—</b></div>
+        <div>${k('TIER', 'Graphics quality in use')}<b id="dk-tier">—</b></div>
+        <div>${k('DECK', 'Time these controls take per frame')}<b id="dk-cost">—</b></div>
+        <div class="dk-dw"><span class="dk-k">GPU</span><b id="dk-gpu">—</b></div>
+        <div class="dk-dw"><span class="dk-k">SEED</span><b id="dk-seed">—</b></div>
+      </div>
+    </details>
+    <p class="dk-keys"><b>Keys</b> M controls (again: instruments) · G instruments · Space pause · ←/→ speed · N next zone · D identify · L lamps · A sound · F fullscreen · T time · W weather · I names · H captions · S stats · Esc close</p>
   </div>
 </div>`;
 }
