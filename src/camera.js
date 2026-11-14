@@ -80,7 +80,7 @@ export class CameraDirector {
       for (const p of this.pois) {
         const id = 'poi:' + p.type + ':' + Math.round(p.x) + ':' + Math.round(p.s);
         if (p.type === 'light-shaft' && !(this.subject && this.subject.id === id) && !this.forceLight && !(this.lightOK && this.clock >= this.lightNext)) continue;
-        const base = POI_INTEREST[p.type] ?? 0.4;
+        const base = (POI_INTEREST[p.type] ?? 0.4) + (p.data && p.data.showpiece ? 0.15 : 0); // e.g. a ship's hull beats a dinghy
         // a rare set piece seen for the first time beats almost anything else
         const light = p.type === 'light-shaft';
         const interest = light && this.forceLight ? 1.6 : base >= 0.7 && !this.seen.has(id) ? Math.min(1.6, base * 1.7) : base;

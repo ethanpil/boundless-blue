@@ -155,6 +155,8 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - They steer the camera through `CameraDirector.moment` (gaze, speed, height, weight eased in and out) and dim the lamps through `creatures.lampDim`.
   - `'light-shaft'` POIs (kelp canopy windows, cave skylights, sunken-forest beams, the blue hole's beam) give a 7 s slow tilt up into the beam, by day in clear weather (`director.lightOK`), at most every 2.5-4.5 min. The reef has no single light column beside the path, so it has none.
   - Debug: `?event=bayhunt|curtain|lampsoff|jellyarc|cathedral|strike`.
+- **Wreck zone** (`wreck.js`): `GAP` is 64 m between set pieces (it was 110, and the zone was bare sand for 55-60% of a flight). `patchSteps` places a growth-covered wreckage patch every 15-27 m between them (own random stream, two steps each). Hull growth uses attach points plus `upPointsG` (up-facing deck and roof points, time-sliced in the build job). Consecutive ships never share a resting state. Big-ship `wreck` POIs carry `data.showpiece`, worth +0.15 interest in `camera.js`, so the camera watches the hull rather than a dinghy.
+  - Wreck water is clear blue (sigma g 0.034) over pale sand, so hulls read as silhouettes from about 60 m.
 - **Merging parallel branches:** two branches that each append a block after the same anchor share its closing `};` / `});` line, so a keep-both conflict resolution drops one closer. After any merge, import the touched modules (`node --import ./audit/register.mjs --input-type=module -e "await import('../src/...')"` from tools/): `node --check` does not catch it.
 
 ## Debugging

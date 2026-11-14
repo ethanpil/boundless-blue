@@ -188,10 +188,11 @@ export const BIOMES = {
     },
   },
   wreck: {
+    // clear blue wreck-dive water (Red Sea, Truk, Malta): a hull resolves as a dark silhouette from ~60 m out
     label: 'Sunken Wrecks', camY: -20, clearance: 5.5, len: [650, 1000], weight: 1.0,
-    sigma: [0.12, 0.042, 0.038], lightSigma: [0.055, 0.02, 0.018],
-    deep: C(0x0a3e50), up: C(0x3e93a6), sun: 0.85, caustic: 0.5, shafts: 1.0, ambient: 0.9, glow: 0, snow: 1.3,
-    sand: [0.56, 0.54, 0.48], rock: [0.36, 0.35, 0.33],
+    sigma: [0.11, 0.034, 0.03], lightSigma: [0.05, 0.017, 0.015],
+    deep: C(0x0b4866), up: C(0x43a2c4), sun: 1.0, caustic: 0.6, shafts: 1.05, ambient: 1.0, glow: 0, snow: 1.1,
+    sand: [0.7, 0.66, 0.56], rock: [0.4, 0.38, 0.35], // pale sand: the dark hulls stand out against it
     floor(x, s, ad, g) { return fbm2(x / 30, s / 30, 3, 61) * 1.2 * (0.5 + sv(g, 1)) + smoothstep(50, 110, ad) * 6; },
   },
   ruins: {
