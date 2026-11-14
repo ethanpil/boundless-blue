@@ -231,8 +231,9 @@ const EMISSIVE_SWAY = /* glsl */`
   vec3 vd = normalize(vWPos - cameraPosition);
   float tr = pow(max(dot(vd, uSunDir), 0.0), 3.0);
   float dB = max(0.0, uSurfaceY - vWPos.y);
-  float kelpK = (pMode > 0.5 && pMode < 1.5) ? 2.6 : 1.0;
-  totalEmissiveRadiance += diffuseColor.rgb * uSunColor * uSunScatter * exp(-uLightSigma * dB * 0.8) * skyVis(vWPos) * (0.1 + 0.6 * tr) * kelpK;
+  // kelp (style 1): sunlight through a blade glows warm amber-gold (the brown pigment passes red and yellow)
+  vec3 trC = (pMode > 0.5 && pMode < 1.5) ? (0.1 + vec3(1.0, 0.8, 0.38) * pow(max(dot(vd, uSunDir), 0.0), 2.0) * 0.95) * 2.6 : vec3(0.1 + 0.6 * tr);
+  totalEmissiveRadiance += diffuseColor.rgb * uSunColor * uSunScatter * exp(-uLightSigma * dB * 0.8) * skyVis(vWPos) * trC;
   // sea pens: soft green bioluminescent pulses at night
   if (pMode > 5.5 && pMode < 6.5) totalEmissiveRadiance += vec3(0.22, 0.95, 0.72) * uNight * (0.4 + 0.35 * sin(uTime * 1.3 + dot(vWPos.xz, vec2(0.6135923, 0.4908739))));
 }

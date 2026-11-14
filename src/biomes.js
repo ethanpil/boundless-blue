@@ -7,6 +7,55 @@ const C = (hex) => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 
 // Per-segment random value in [0,1): every biome segment varies its own shape and character.
 export const sv = (g, k) => (g ? hash1((g.seed ^ Math.imul(k + 1, 0x9e3779b1)) | 0) : 0.5);
 
+// ---------- Kelp forest layout fields, shared by the canopy (sky map, in the workers) and the props (kelp.js) ----------
+// Stands per segment: plants = planting density, canopy = cover of the surface canopy, tall = stipe reach.
+export const KELP_STANDS = [
+  { name: 'old-growth forest', plants: 1.45, canopy: 1.0, tall: 1, under: 1.0 },
+  { name: 'mixed kelp', plants: 1.1, canopy: 0.85, tall: 0.8, under: 1.1 },
+  { name: 'young forest', plants: 1.3, canopy: 0.4, tall: 0.5, under: 1.3 },
+  { name: 'stalked-kelp grove', plants: 0.75, canopy: 0.6, tall: 0.7, under: 1.0, palms: 1 },
+  { name: 'urchin barren', plants: 0.6, canopy: 0.6, tall: 0.6, under: 0.7, urchins: true },
+];
+export function kelpStand(g) {
+  const u = sv(g, 40);
+  return KELP_STANDS[u < 0.3 ? 0 : u < 0.55 ? 1 : u < 0.73 ? 2 : u < 0.86 ? 3 : 4];
+}
+// The segment's sunlit clearing (s, dx from the path, radius r): storms tear out old plants.
+const _kclear = new Map();
+export function kelpClearing(g) {
+  let c = _kclear.get(g.seed);
+  if (c) return c;
+  const rng = mulberry32(g.seed ^ 0xc1ea2), len = g.end - g.start;
+  const s = g.start + 120 + rng() * Math.max(10, len - 240);
+  c = { s, dx: (rng() - 0.5) * 10, r: 8 + rng() * 5 };
+  _kclear.set(g.seed, c);
+  if (_kclear.size > 32) _kclear.delete(_kclear.keys().next().value);
+  return c;
+}
+// Urchin barren patches inside a forest (1 = barren); a barren stand is bare along the route, with the
+// surviving forest standing 18-30 m off to the sides (so the zone still reads as a kelp forest).
+export function kelpBarren(x, s, g, dx = 0) {
+  return kelpStand(g).urchins ? 1 - smoothstep(18, 30, Math.abs(dx)) * 0.85 : smoothstep(0.38, 0.52, noise2(x / 40, s / 40, 331));
+}
+// Planting density 0..1 (before the stand's own factor): groves, barrens and the clearing.
+export function kelpGrove(x, s, g, dx) {
+  let c = (0.3 + 0.7 * smoothstep(0.22, 0.68, 0.5 + 0.5 * noise2(x / 26, s / 26, 301))) * (1 - kelpBarren(x, s, g, dx));
+  if (dx !== undefined) { const C = kelpClearing(g); c *= smoothstep(C.r * 0.7, C.r + 5, Math.hypot(dx - C.dx, s - C.s)); }
+  return c;
+}
+// Canopy cover 0..1 at the surface; `holes` adds the gaps between plants that let the sun through as shafts.
+export function kelpCover(x, s, g, dx, holes) {
+  let c = kelpStand(g).canopy * Math.min(1, 1.25 * kelpGrove(x, s, g, dx));
+  if (holes) c *= kelpHole(x, s);
+  return c;
+}
+// Gaps in the canopy (0 = open): sharp-edged holes 4-8 m across, the 'windows' the shafts fall through.
+export function kelpHole(x, s) { return 1 - 0.95 * smoothstep(0.2, 0.34, noise2(x / 9, s / 9, 311)); }
+// Sand channels winding through the rocky reef (1 = channel floor).
+export function kelpChannel(x, s) {
+  return 1 - smoothstep(0.03, 0.13, Math.abs(noise2(x / 24, s / 40, 341) + 0.15 * noise2(x / 7, s / 7, 342)));
+}
+
 // Shape functions return floor height RELATIVE to (pathY - clearance); positive = up.
 // ceil() returns ceiling height RELATIVE to pathY, or undefined for open water.
 // canopy() returns sunlight transmission (0..1) from above-water cover (mangroves).
@@ -51,14 +100,20 @@ export const BIOMES = {
     },
   },
   kelp: {
+    // green-gold, luminous temperate water (clearer than it used to be: 0x0f4c43 / 0.06 left a black-green
+    // murk in which the forest and its canopy did not read); still cooler and greener than the reef
     label: 'Kelp Forest', camY: -11, clearance: 6, len: [650, 1000], weight: 1.0,
-    sigma: [0.16, 0.06, 0.07], lightSigma: [0.07, 0.028, 0.035],
-    deep: C(0x0f4c43), up: C(0x5fb39f), sun: 1.0, caustic: 0.75, shafts: 1.35, ambient: 0.95, glow: 0, snow: 1.0,
-    sand: [0.5, 0.47, 0.38], rock: [0.3, 0.29, 0.26],
+    sigma: [0.15, 0.048, 0.062], lightSigma: [0.062, 0.022, 0.03],
+    deep: C(0x246652), up: C(0x98cf9c), sun: 1.35, caustic: 0.9, shafts: 1.6, ambient: 1.12, glow: 0, snow: 1.0,
+    sand: [0.56, 0.51, 0.4], rock: [0.34, 0.31, 0.26],
+    // rocky reef cut by sand channels (kelpChannel, shared with floorTint)
     floor(x, s, ad, g) {
       return fbm2(x / 14, s / 14, 5, 21) * 2.6 + ridge2(x / 30, s / 30, 3, 22) * 3.5 * (0.5 + sv(g, 1))
-        + smoothstep(30, 85, ad) * 7 * (0.5 + sv(g, 2));
+        - kelpChannel(x, s, ad) * 0.9 + smoothstep(30, 85, ad) * 7 * (0.5 + sv(g, 2));
     },
+    // the floating canopy: dark over the groves, open over clearings and barrens, and holed by gaps that
+    // let the sun through as shafts (the sky map turns this into light pools and god rays)
+    canopy(x, s, ad, g, dx) { return 1 - 0.76 * kelpCover(x, s, g, dx, true); },
   },
   seagrass: {
     label: 'Seagrass Meadow', camY: -4.2, clearance: 2.4, len: [600, 900], weight: 0.9,
@@ -477,7 +532,14 @@ BIOMES.vents.floorTint = (x, s, nn, T) => {
   T[3] += 0.35 * p; T[4] += 0.18 * p; T[5] += 0.02 * p; T[0] += 0.2 * p; T[1] += 0.1 * p;
 };
 const greenish = (x, s, nn, T) => { const p = smoothstep(0.2, 0.6, nn); T[3] -= 0.06 * p; T[4] += 0.04 * p; };
-BIOMES.kelp.floorTint = BIOMES.reef.floorTint = BIOMES.softcoral.floorTint = BIOMES.anemone.floorTint = greenish;
+BIOMES.reef.floorTint = BIOMES.softcoral.floorTint = BIOMES.anemone.floorTint = greenish;
+// kelp: rocky reef in patches (kelp needs rock to hold on to), pale sand along the channels
+BIOMES.kelp.floorTint = (x, s, nn, T) => {
+  greenish(x, s, nn, T);
+  const ch = kelpChannel(x, s);
+  T[7] += 0.55 * (1 - ch) * smoothstep(-0.2, 0.25, noise2(x / 11, s / 11, 343));
+  T[0] += 0.05 * ch; T[1] += 0.045 * ch; T[2] += 0.03 * ch;
+};
 BIOMES.wall.floorTint = (x, s, nn, T) => { const p = smoothstep(0.1, 0.55, fbm2(x / 5, s / 5, 2, 17)); T[3] += 0.22 * p; T[4] += 0.06 * p; T[5] += 0.08 * p; };
 BIOMES.mangrove.floorTint = (x, s, nn, T) => { const p = smoothstep(0.2, 0.7, fbm2(x / 3, s / 3, 2, 19)); T[0] -= 0.12 * p; T[1] -= 0.1 * p; T[2] -= 0.07 * p; };
 BIOMES.deepplain.floorTint = (x, s, nn, T) => { const p = smoothstep(0.3, 0.7, fbm2(x / 13, s / 13, 2, 23)); T[0] -= 0.1 * p; T[1] -= 0.1 * p; T[2] -= 0.08 * p; };
@@ -855,8 +917,8 @@ export class WorldShape {
     let any = false;
     for (const e of ws) if (BIOMES[e.key].canopy) { any = true; break; }
     if (!any) return 1;
-    const ad = Math.abs(x - this.pathX(s));
-    for (const e of ws) { const b = BIOMES[e.key]; t += (b.canopy ? b.canopy(x, s, ad, e.g) : 1) * e.w; }
+    const dx = x - this.pathX(s), ad = Math.abs(dx);
+    for (const e of ws) { const b = BIOMES[e.key]; t += (b.canopy ? b.canopy(x, s, ad, e.g, dx) : 1) * e.w; }
     return t;
   }
   hasCeiling(s) { return this.seq.weights(s).some((e) => BIOMES[e.key].ceil); }
