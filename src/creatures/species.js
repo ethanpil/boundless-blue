@@ -1826,3 +1826,47 @@ export function commonName(sp) {
   }
   return NAMES[k] || k.replace(/([A-Z])/g, ' $1').replace(/^./, (m) => m.toUpperCase());
 }
+
+// --- events 2026-11 --- species of the rare wildlife events (events.js). Own keys, so the on-screen facts are the
+// checked ones and the scheduling (director TABLES) of the existing species is untouched.
+Object.assign(SPECIES, {
+  // resting sperm whales hanging upright near the surface (route 'hang'): the big blunt head (about a third of the
+  // body), a narrow underslung lower jaw, small paddle flippers, a low hump and knuckles toward the tail
+  spermWhaleRest: merge(S.spermWhale, {
+    body: { bumps: [['t', 0.62, 0.02, 0.1], ['t', 0.7, 0.015, 0.08], ['t', 0.77, 0.012, 0.06]] },
+    extra: { bill: { len: -0.27, r: 0.011, y: -0.032, blunt: true, part: 0 } },
+    beh: { kind: 'pod', n: [5, 7], speed: [0.02, 0.05], dist: [14, 24], routes: { hold: 1 } }, hl: false, interest: 1,
+  }),
+  // scalloped hammerhead school over a seamount pinnacle by day: the wide, notched hammer (about a quarter of the length)
+  hammerheadPinnacle: merge(S.hammerheadSchool, {
+    body: { bumps: [['w', 0.035, 0.03, 5.2], ['t', 0.035, 0.03, -0.5], ['b', 0.035, 0.03, -0.5]] },
+    eye: { x: 0.175 },
+    col: { d: 0x7a7c74, b: 0xf0f0ea },
+    beh: { kind: 'school', n: [30, 90], speed: [0.45, 0.7], zone: 'mid', dist: [10, 40], routes: { hold: 1 }, open: true }, hl: false, interest: 0.9,
+  }),
+  // Munk's devil ray (Mobula munkiana): small (disc about 1.1 m across), short cephalic fins, grey-mauve back, white below
+  devilRay: merge(S.manta, {
+    det: 0,
+    fins: { ceph: { h: 0.075, fwd: 1.1 } },
+    col: C(0x3c3c4a, 0xf0f0ec, 0x30303c, 0x3c3c4a, 0xe8e8e4), pat: [0, 1, 0], pat2: [0, 1, 0], scars: 0.1,
+    mot: { amp: 0.3, beat: 0.45, idle: 0.35 },
+    beh: { kind: 'school', n: [120, 320], speed: [0.9, 1.3], zone: 'mid', dist: [8, 30], routes: { cross: 1 } }, size: [0.46, 0.5], hl: false, interest: 0.95, // (>= 0.45 m: smooth turning)
+  }),
+  // brooding deep-sea octopus (Muusoctopus robustus): small, pale pearl-violet, sitting in a crack over its eggs
+  broodOctopus: merge(S.octopus, {
+    col: C(0xe8dcec, 0xfaf4fb, 0xc4aed0, 0xeee4f2, 0xfaf6fb, 0xe4c4dc), pat: [30, 5, 0.5], pat2: [3, 26, 0.08], rough: 0.7,
+    beh: { kind: 'octo', n: [16, 48], speed: [0, 0], spread: 6, lift: [0, 0] }, size: [0.56, 0.66], interest: 0.8,
+  }),
+});
+for (const k of ['spermWhaleRest', 'hammerheadPinnacle', 'devilRay', 'broodOctopus']) { S[k].key = k; S[k].name = k; }
+Object.assign(NAMES, {
+  spermWhaleRest: 'Sperm whale', hammerheadPinnacle: 'Scalloped hammerhead', devilRay: "Munk's devil ray", broodOctopus: 'Octopus (Muusoctopus robustus)',
+});
+// facts: checked wordings only (sources: see docs/SOURCES.md)
+Object.assign(FACTS, {
+  spermWhaleRest: 'Sperm whales rest floating upright, motionless, heads at or just below the surface.',
+  hammerheadPinnacle: 'By day hammerheads gather at islands and seamounts; at night they range into deep water to feed, probably on squid.',
+  devilRay: "Munk's devil rays form aggregations of thousands in the Gulf of California.",
+  broodOctopus: 'Thousands of octopuses (Muusoctopus robustus) brood their eggs near warm springs on a hillock by Davidson Seamount.',
+});
+Object.assign(DIEL, { hammerheadPinnacle: 'day' });

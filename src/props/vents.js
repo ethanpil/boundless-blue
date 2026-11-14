@@ -966,6 +966,10 @@ function smokeMesh(em, rng) {
   return m;
 }
 
+// --- events 2026-11 --- the faint shimmer of warm water over the Octopus Garden's springs (octogarden.js) uses the
+// same plume particles; em entries as in smokeMesh (chunk-local position, n, phase, speed, rise, size, spread, alb, glow, alpha)
+export function shimmerMesh(em, rng) { return smokeMesh(em, rng); }
+
 // ---------- init: startup fallbacks + per-segment palette providers ----------
 const N_CHIMNEY = { low: 6, medium: 7, high: 8, ultra: 9 };
 export function initVents() {

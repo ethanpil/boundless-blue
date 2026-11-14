@@ -14,6 +14,8 @@ const POI_INTEREST = {
   'sargassum-raft': 0.55, 'drowned-tree': 0.5, 'limestone-notch': 0.45, 'fallen-log': 0.4, anchor: 0.6, 'lost-instrument': 0.6,
   'kelp-canopy': 0.55, plankton: 0.45, 'glow-field': 0.6, brinicle: 0.7, 'xeno-field': 0.45, 'sea-pigs': 0.6, 'glass-sponge': 0.55, 'sea-lily': 0.5,
 };
+// --- events 2026-11 --- (the garden's POI sits below the floor, so the camera looks down across it while it slows)
+Object.assign(POI_INTEREST, { 'octopus-garden': 0.95 });
 
 // critically damped spring toward target (x, v) -> mutates state object {x, v}
 function spring(st, target, omega, dt) {

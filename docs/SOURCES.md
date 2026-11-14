@@ -73,4 +73,14 @@ Rules for new facts: one sentence, at most 140 characters, plain language. Prefe
 
 ## New events
 
-(to be filled in)
+| Where it appears | Fact text | Source | URL |
+|---|---|---|---|
+| Sperm whale (resting group) | Sperm whales rest floating upright, motionless, heads at or just below the surface. | University of St Andrews, "Drifting off to sleep" (Miller et al. 2008, Current Biology) | https://news.st-andrews.ac.uk/archive/drifting-off-to-sleep/ |
+| Scalloped hammerhead (pinnacle school) | By day hammerheads gather at islands and seamounts; at night they range into deep water to feed, probably on squid. | CMS COP15 listing proposal, scalloped hammerhead shark | https://www.cms.int/sites/default/files/document/2025-11/cms_cop15_doc.30.2.14_listing-proposal-scalloped-hammerhead-shark_e_0.pdf |
+| Munk's devil ray | Munk's devil rays form aggregations of thousands in the Gulf of California. | Palacios et al. 2021, Munk's devil ray aggregations (PMC) | https://pmc.ncbi.nlm.nih.gov/articles/PMC7794486 |
+| Octopus (Muusoctopus robustus) | Thousands of octopuses (Muusoctopus robustus) brood their eggs near warm springs on a hillock by Davidson Seamount. | Barry et al. 2023, Science Advances (PMC) | https://pmc.ncbi.nlm.nih.gov/articles/PMC10446498 |
+| Octopus Garden | Warm springs cut brooding to about 1.8 years, versus an estimated 5-8 years in ambient water. | Barry et al. 2023, Science Advances (PMC) | https://pmc.ncbi.nlm.nih.gov/articles/PMC10446498 |
+| Warm spring | Ambient water is about 1.6 °C; crevices in the springs reach about 10.8 °C. | Barry et al. 2023, Science Advances (PMC) | https://pmc.ncbi.nlm.nih.gov/articles/PMC10446498 |
+
+Depicted but not stated as fact, because no source we read confirms them: the brooding octopuses' inverted pose, the
+basalt pillow rock of the garden, and how long a sperm-whale rest lasts. Devil-ray leaping is not shown.

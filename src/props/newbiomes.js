@@ -7,6 +7,7 @@ import { initMangrove, layoutMangroveP, layoutMangroveA, layoutMangroveB, layout
 import { initWall, layoutWallP, layoutWallA, layoutWallB, layoutWallC, layoutWallD, layoutWallE } from './wall.js';
 import { initSoftcoral, layoutSoftA, layoutSoftB } from './softcoral.js';
 import { initDeepplain, layoutDeepA, layoutDeepB, layoutDeepC } from './deepplain.js';
+import { initOctoGarden, layoutOctoGarden } from './octogarden.js'; // events 2026-11
 
 export function registerNewBiomeProps(terrain, env) {
   const t0 = performance.now();
@@ -17,6 +18,7 @@ export function registerNewBiomeProps(terrain, env) {
   initWall();
   initSoftcoral();
   initDeepplain();
+  initOctoGarden();
   NBSTATS.init = performance.now() - t0;
   if (typeof window !== 'undefined' && window.__props) window.__props.initNew = NBSTATS.init;
   if (typeof console !== 'undefined') console.info(`new-biome props: templates built in ${NBSTATS.init.toFixed(0)} ms`);
@@ -24,7 +26,7 @@ export function registerNewBiomeProps(terrain, env) {
     mangroveA: layoutMangroveA, mangroveB: layoutMangroveB, mangroveC: layoutMangroveC,
     wallA: layoutWallA, wallB: layoutWallB, wallC: layoutWallC, wallD: layoutWallD, wallE: layoutWallE,
     softA: layoutSoftA, softB: layoutSoftB,
-    deepA: layoutDeepA, deepB: layoutDeepB, deepC: layoutDeepC,
+    deepA: layoutDeepA, deepB: layoutDeepB, deepC: layoutDeepC, deepG: layoutOctoGarden,
   };
   NBDBG.layouts = L;
   // plan-only stages (layouts that cache a per-chunk plan used by the next chains)

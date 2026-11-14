@@ -4,6 +4,7 @@ import { mulberry32, hash2i } from '../noise.js';
 import { speciesOf, DIEL } from './species.js';
 import { Obstacles } from '../obstacles.js';
 import { sargassumCover, blueHoleOf } from '../biomes.js';
+import { eventsTick, eventPiece, eventPrewarm, triggerEvent, eventSkip, eventRare, EVENT_POI_SPECIES } from './events.js';
 
 // [species key | 'proc:<kind>', weight, cooldown (s)]
 // target = desired simultaneous encounters, lat = max lateral offset from the camera path.
@@ -204,6 +205,7 @@ const POI_SPECIES = { 'cleaning-station': ['manta', 'cleanerWrasse'], 'whale-fal
   'garden-eel-field': ['gardenEel', 'splendidEel'], 'cave-opening': ['glassfish', 'sweeper'], 'vent-field': ['eelpout', 'deepCrab'],
   'mangrove-roots': ['juvSnapper', 'grunt', 'juvBarracuda'], statue: ['jack', 'snapper'], giant: ['jack', 'snapper'], arch: ['jack', 'snapper'], treasure: ['moray', 'spotMoray'],
   anemone: ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown', 'cleanerShrimp', 'dominoDamsel'] };
+Object.assign(POI_SPECIES, EVENT_POI_SPECIES); // events 2026-11 (events.js)
 const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
@@ -253,7 +255,7 @@ export class Director {
       if (this.closeSeen) for (const [k, t] of this.closeSeen) if (this.clock - t > 300) this.closeSeen.delete(k);
     }
     this.delightTick(c);
-    if (this.whaleTick(c) || this.holeTick(c)) return;
+    if (this.whaleTick(c) || this.holeTick(c) || eventsTick(this, c)) return;
     this.closeTick(c);
     if (this.poiTick(c)) return;
     // Coverage control: keep enough groups that are (or will soon be) readable inside the forward view.
@@ -389,9 +391,13 @@ export class Director {
         if (r() < 0.3) this.spawnAt(r() < 0.6 ? 'dominoDamsel' : 'humbug', p, { kind: 'hover', homeY: p.y + 0.25, n: 3 + Math.floor(r() * 6), spread: rad * 1.3 + 0.3, altMul: 0.5, noSeek: true });
         return !!fam;
       }
-      default: return false;
+      default: return eventPiece(this, p, c); // rare wildlife events at pinnacles and the octopus garden (events.js)
     }
   }
+
+  // Debug: start one of the rare wildlife events now ('sperm', 'hammerheads', 'devilrays', 'octopus'; see events.js).
+  triggerEvent(kind) { return triggerEvent(this, kind); }
+  eventRare(name) { return eventRare(this, name); }
 
   // Size of a set piece's fish cloud (wreck / cave glassfish: 80-220 at full size) for the quality tier: these are
   // the largest groups in the game and every wreck has one, so low tier keeps them at about a third.
@@ -641,7 +647,7 @@ export class Director {
       }
     }
     // hitchhikers, hunters for bait balls, and the cast of set pieces coming up
-    const extra = ['remora', 'seaOtterPup', 'goldenTrevally', 'cobia', 'narwhalF', ...(HUNTERS[sys.seq.weights(c.s + 60)[0].key] || [])];
+    const extra = ['remora', 'seaOtterPup', 'goldenTrevally', 'cobia', 'narwhalF', ...(HUNTERS[sys.seq.weights(c.s + 60)[0].key] || []), ...eventPrewarm(this)];
     if (sys.env && sys.env.pois) for (const p of sys.env.pois.query(c.s + 20, c.s + 220, this._ppw || (this._ppw = []))) extra.push(...(POI_SPECIES[p.type] || []));
     for (const k of extra) {
       if (this._pw.has(k)) continue;
@@ -735,7 +741,7 @@ export class Director {
       let k = key;
       if (key.startsWith('proc:')) k = `${key}:${(region % 100000) * 16 + Math.floor(rng() * 12)}`;
       if (this.forced) k = this.forced;
-      const sp = this.species(k); if (!sp) return;
+      const sp = this.species(k); if (!sp || eventSkip(k, night)) return;
       const ck = key.startsWith('proc:') ? key : sp.key;
       const cooling = (this.cool.get(ck) ?? -1) > this.clock && !this.forced;
       if (cooling && !lead) return; // lead requests may reuse a cooling species (at lower weight) to keep the view alive

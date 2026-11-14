@@ -42,6 +42,9 @@ const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 // Maximum path curvature x body length by motion mode (fish / sharks, cetaceans, rays, flipper swimmers, squid, mola):
 // a whale needs over a body length of radius to turn, a turtle or a sea lion much less.
 const KAP = { 0: 1.2, 1: 0.8, 2: 1.2, 3: 1.6, 5: 1.5, 7: 1.0 };
+// events 2026-11: brooding octopus (centre height over the rock x size, curl of the arms over the body), resting
+// sperm whales' tilt from horizontal (rad; nearly upright)
+const BROOD_LIFT = 0.33, BROOD_CURL = 0.32, HANG_TH = 1.42;
 // Turn bend for the shader: front (head) and rear (tail) bend, each in -0.5..0.5, packed into one float (exact in fp32)
 const packBend = (b, t) => Math.round((clamp(b, -0.5, 0.5) + 0.5) * 1000) * 1024 + Math.round((clamp(t, -0.5, 0.5) + 0.5) * 1000);
 
@@ -144,6 +147,7 @@ export class Encounter {
     this.dist = 0; this._mUp = false; this._aUp = false; this.obsValid = false; this.orbR = 0;
     this.FLIP = null; this.FLB = null; // manta somersaults: loop phase, loop frame (see startFlip)
     this.glowAcc = 0;                  // bioluminescent bay: sparkle emission carried over (Creatures._ambientFx)
+    this.brood = false;                 // events: brooding octopuses (_broodInit)
     const rng = mulberry32(plan.seed);
     this.rng = rng; this.sys = sys; this.sp = sp; this.plan = plan;
     const beh = sp.beh, n = plan.n;
@@ -576,6 +580,7 @@ export class Encounter {
         SL[i * 4 + 3] = lift[0] + (lift[1] - lift[0]) * rng();   // startle distance
         this.TMR[i] = kind === 'octo' ? (this.den ? 400 : 30 + rng() * 60) : 0; // octopus: time to the next spontaneous swim
       }
+      if (kind === 'octo' && plan.brood) this._broodInit(plan);
     } else if (kind === 'walk') {
       // crabs, lobsters, isopods, sea pigs: on the floor, walking in short bouts (herds and queues share a heading)
       const spread = beh.spread ?? 4, walk = plan.walk || beh.walk || 'wander';
@@ -636,7 +641,8 @@ export class Encounter {
       }
       this.curX = (rng() - 0.5) * 0.1; this.curZ = (rng() - 0.5) * 0.1;
     }
-    if (FLOCK_KINDS.has(kind) || kind === 'shoal' || kind === 'hover' || kind === 'drift') this._placeClear();
+    if (plan.route === 'hang' && FLOCK_KINDS.has(kind)) this._hangInit(plan); // (placed in open water by the director)
+    else if (FLOCK_KINDS.has(kind) || kind === 'shoal' || kind === 'hover' || kind === 'drift') this._placeClear();
     if (plan.mixOf) plan.mixOf = null; // only needed to lay out the slots (don't keep a retired primary group alive)
     this.matrixDirty = true;
     this._writeAll(0);
@@ -988,7 +994,7 @@ export class Encounter {
   _restLift(i) {
     const sp = this.sp, sz = this.SZ[i];
     if (sp.beh.perch) return sz * sp.beh.perch;          // tripod fish on its fin stilts
-    if (sp.plan === 'octopus') return 0.01 * sz;
+    if (sp.plan === 'octopus') return (this.brood ? BROOD_LIFT : 0.01) * sz;
     const d = this.bankBase ? this.entry.maxX : -this.entry.minY; // flatfish lie on their side
     return sz * Math.max(0.006, d - 0.003);
   }
@@ -1193,7 +1199,8 @@ export class Encounter {
       this.terrainOn = k !== 'walk' && !(FLOCK_KINDS.has(k) && this.openWater);
       if (this.terrainOn && !was) this.TCL.fill(0); // budgets went stale while out in open water
     }
-    if (FLOCK_KINDS.has(k)) { this._leader(dt, c); this._steer(dt, c, true); }
+    if (FLOCK_KINDS.has(k) && this.route === 'hang') this._hang(dt, c);
+    else if (FLOCK_KINDS.has(k)) { this._leader(dt, c); this._steer(dt, c, true); }
     else if (k === 'shoal' || k === 'hover') this._steer(dt, c, false);
     else if (k === 'drift') this._drift(dt, c);
     else if (k === 'rest') this._rest(dt, c);
@@ -2140,6 +2147,76 @@ export class Encounter {
       let at = 1 + JET[i] * 1.2;         // shader: blanching when alarmed
       if (this.FLASH && this.FLASH[i] > 0) { this.FLASH[i] -= dt; at = Math.max(at, 2.4 + Math.min(1, this.FLASH[i] / 0.25)); } // ... after a dark flush (fading out)
       this.AMP[i] += (at - this.AMP[i]) * Math.min(1, dt * 8); // eased: chromatophores flush in ~0.1 s (it switched in one frame)
+    }
+    if (this.brood) this._broodPose();
+    this._writeAll(dt);
+  }
+
+  // --- events 2026-11 ---
+  // Brooding octopuses (events.js, Octopus Garden): each sits upside down in its crack, mantle down, arms drawn up and
+  // curled back over the body (the jet pose of the shader, pointing up), and never leaves: no wander, no startle (lift
+  // 0), no spontaneous swim. Spots come from the garden's POI (plan.spots: global x, s pairs).
+  _broodInit(plan) {
+    const sh = this.sys.shape, P = this.P, N = this.NRM, H = this.HOME, spots = plan.spots, az = this.anchorZ, n = this.n;
+    this.brood = true; this.den = true;
+    if (!this.AX || this.AX.length < n * 3) this.AX = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      if (spots && spots.length >= i * 2 + 2) { P[i3] = spots[i * 2]; P[i3 + 2] = -spots[i * 2 + 1] - az; }
+      const s = -(P[i3 + 2] + az), nn = sh.floorNormal(P[i3], s);
+      P[i3 + 1] = sh.floorAt(P[i3], s) + this._restLift(i);
+      // the up axis of the drawing points into the rock (see _broodPose)
+      this.AX[i3] = -nn.x; this.AX[i3 + 1] = -nn.y; this.AX[i3 + 2] = -nn.z;
+      N[i3] = -nn.x; N[i3 + 1] = -nn.y; N[i3 + 2] = -nn.z;
+      H[i * 2] = P[i3]; H[i * 2 + 1] = P[i3 + 2];
+      this.TMR[i] = 1e9; this.SL[i * 4 + 3] = 0; this.JET[i] = BROOD_CURL; this.BEND[i] = BROOD_CURL;
+    }
+  }
+  _broodPose() {
+    const N = this.NRM, AX = this.AX, n = this.n;
+    for (let i = 0; i < n; i++) {
+      const i3 = i * 3;
+      N[i3] = AX[i3]; N[i3 + 1] = AX[i3 + 1]; N[i3 + 2] = AX[i3 + 2]; // (the crawl code eases NRM toward the floor normal)
+      this.JET[i] = BROOD_CURL; this.BEND[i] = BROOD_CURL; this.AMP[i] = 1; // (no blanching: AMP > 1 pales an octopus)
+    }
+  }
+
+  // Resting sperm whales (events.js): each hangs nearly upright and motionless at its own spot (SL: x, centre y, z,
+  // heading), the head about a metre under the surface, bobbing and turning very slowly; the group ignores the camera
+  // (the director keeps it 20+ m from the path).
+  _hangInit(plan) {
+    const n = this.n, P = this.P, F = this.F, SL = this.SL, rng = this.rng, H = plan.hang, sh = this.entry.shape;
+    const cx = this.Cx, cz = this.Cz;
+    for (let i = 0; i < n; i++) {
+      // a loose row along the path, side by side a few body widths apart, so every whale passes the camera at a
+      // similar distance (staggered a little across the row)
+      const x = cx + (i & 1 ? 1 : -1) * rng() * H.gap * 0.45, z = cz + (i - (n - 1) / 2) * H.gap * (0.9 + 0.25 * rng());
+      const o = i * 4, i3 = i * 3, top = H.top - rng() * 0.5, nose = (sh.c + sh.h + sh.r) * this.SZ[i];
+      SL[o] = x; SL[o + 2] = z; SL[o + 3] = rng() * TAU;
+      const th = HANG_TH + (rng() - 0.5) * 0.08;
+      SL[o + 1] = top - nose * Math.sin(th);
+      P[i3] = x; P[i3 + 1] = SL[o + 1]; P[i3 + 2] = z;
+      F[i3] = Math.cos(th) * Math.sin(SL[o + 3]); F[i3 + 1] = Math.sin(th); F[i3 + 2] = Math.cos(th) * Math.cos(SL[o + 3]);
+      this.PSI[i] = SL[o + 3]; this.AMP[i] = 0.06; this.BANK[i] = 0;
+    }
+  }
+  _hang(dt, c) {
+    const { n, P, V, F, SL, RP } = this, a = this.age, k = Math.min(1, dt * 0.3), az = this.anchorZ;
+    const cx = c.x, cy = c.y, cz = c.z - az;
+    for (let i = 0; i < n; i++) {
+      const o = i * 4, i3 = i * 3, px = P[i3], py = P[i3 + 1], pz = P[i3 + 2];
+      const tx = SL[o] + 0.25 * Math.sin(a * 0.031 + RP[o] * TAU), ty = SL[o + 1] + 0.12 * Math.sin(a * 0.07 + RP[o + 1] * TAU);
+      const tz = SL[o + 2] + 0.25 * Math.cos(a * 0.027 + RP[o + 2] * TAU);
+      let nx = px + (tx - px) * k, ny = py + (ty - py) * k, nz = pz + (tz - pz) * k;
+      const ex = nx - cx, ey = ny - cy, ez = nz - cz, ed = h3(ex, ey, ez), hr = this.hardR + this.SZ[i] * 0.2; // (never near: the camera bubble all the same)
+      if (ed < hr && ed > 1e-4) { nx = cx + ex / ed * hr; ny = cy + ey / ed * hr; nz = cz + ez / ed * hr; }
+      V[i3] = (nx - px) / dt; V[i3 + 1] = (ny - py) / dt; V[i3 + 2] = (nz - pz) / dt;
+      P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
+      const psi = SL[o + 3] + 0.12 * Math.sin(a * 0.011 + RP[o + 3] * TAU), th = HANG_TH + 0.025 * Math.sin(a * 0.043 + RP[o] * 9), ct = Math.cos(th);
+      F[i3] = ct * Math.sin(psi); F[i3 + 1] = Math.sin(th); F[i3 + 2] = ct * Math.cos(psi);
+      this.PSI[i] = psi; this.BANK[i] = 0; this.BEND[i] *= 1 - k; this.BT[i] *= 1 - k;
+      let ph = this.PH[i] + TAU * 0.05 * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph; this.BF[i] = 0.05;
+      this.AMP[i] += (0.06 - this.AMP[i]) * k;
     }
     this._writeAll(dt);
   }

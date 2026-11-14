@@ -13,6 +13,7 @@ import {
   basePts, xf, decalDisc, decalRibbon, builderMesh, nbFloor, slice,
 } from './nb_common.js';
 import { cheapMussels, ground, bez } from './nb_shapes.js';
+import { inGarden } from './octogarden.js'; // events 2026-11
 import { tintFrom } from './scatter.js';
 
 const D = {};
@@ -399,7 +400,7 @@ export function* layoutDeepA(ctx) {
     const s = ctx.s0 + rng() * CHUNK, g = segFor(ctx, s, 'deepplain');
     if (!g || rng() > ctx.weightOf(s, 'deepplain')) continue;
     const rc = recipeOf(g), d = Math.pow(rng(), 1.4) * 30, x = pc.x(s) + (rng() < 0.5 ? -1 : 1) * d;
-    if (inBasin(bas, x, s, 1)) continue;
+    if (inBasin(bas, x, s, 1) || inGarden(ctx, x, s)) continue;
     const tot = rc.pen + rc.umb + rc.lily + rc.glass + rc.xeno + rc.mound + rc.brittle + rc.stones * 0.4;
     let u = rng() * tot;
     if ((u -= rc.pen) < 0) { // sea pens stand in loose meadows
@@ -446,7 +447,7 @@ export function* layoutDeepA(ctx) {
 }
 
 // ---------------------------------------------------------------- chain B: whale fall, brine pools, lost things
-function whalePlan(g, pc) { // deterministic per segment, clear of the brine basins
+export function whalePlan(g, pc) { // deterministic per segment, clear of the brine basins (also read by octogarden.js)
   const rng = mulberry32(g.seed ^ 0x3fa11), len = g.end - g.start;
   let s = g.start + (0.3 + 0.4 * sv(g, 31)) * len, x = pc.x(s) + (sv(g, 32) - 0.5) * 12;
   for (let k = 0; k < 8; k++) {

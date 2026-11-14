@@ -377,7 +377,7 @@ const app = {
     _cands.length = 0;
     if (surprises.labels) surprises.labels(_cands);
     for (const e of _cands) if (e.name === name) return true;
-    return false;
+    return !!(creatures && creatures.director.eventRare(name)); // rare wildlife events (creatures/events.js)
   },
   // Sonar contacts within 90 m, relative to the camera heading: dx right, dz ahead (m), dy up.
   // kind: 'rare' (surprise encounter) | 'big' | 'school' | 'animal' | 'poi' (set piece; type, name).
