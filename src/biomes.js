@@ -722,18 +722,47 @@ Object.assign(BIOMES.whalefalldeep, META.whalefalldeep);
 Object.assign(BIOMES, {
   whalefall: {
     label: 'Whale Fall', camY: -14, clearance: 3.4, len: [340, 420], weight: 0.5, lenAhead: 280, cruise: 0.55,
-    sigma: [0.1, 0.03, 0.026], lightSigma: [0.045, 0.016, 0.013],
+    // (clear: the carcass and the crowd round it read from 40-60 m, as the >40 m visibility of the Kona day)
+    sigma: [0.09, 0.024, 0.021], lightSigma: [0.045, 0.016, 0.013],
     deep: C(0x0c5f8e), up: C(0x5ac6ea), sun: 1.15, caustic: 1.1, shafts: 1.25, ambient: 1.0, glow: 0, snow: 0.7,
-    sand: [0.84, 0.8, 0.68], rock: [0.55, 0.5, 0.44],
-    floor: BIOMES.whalefalldeep.floor,
+    sand: [0.84, 0.8, 0.68], rock: [0.55, 0.5, 0.44], // (floor, floorTint: the lava flat, below)
   },
 });
 // (shown as off Hawaii: 25 degC water, 40 m+ visibility, as on the day tiger sharks and whitetips were filmed at a carcass)
 Object.assign(META, { whalefall: { subtitle: 'sharks feeding at a whale carcass in warm, clear water', tempC: 25, ripple: 0.9 } });
 Object.assign(BIOMES.whalefall, META.whalefall);
-// the sand around a sunlit carcass: a faint oily stain close in
+// The sunlit carcass has come to rest on a lava flat (a carcass off Kona was moved onto one in 2026: DLNR): pale rippled
+// sand between low, ropy flows of black basalt ridged a few tens of centimetres, kept back from the carcass so nothing
+// hides it; a level bench under the body as in the deep variant (props: nb7_whalefall.js, layoutWfB)
+export function wfLavaAt(x, s, W) {
+  // (patches, kept off the corridor under the camera: there they read as dark smudges filling the foreground)
+  let m = smoothstep(0.04, 0.26, fbm2(x / 13, s / 13, 3, 664)) * smoothstep(5, 13, Math.abs(x - pathXAt(s)));
+  if (W && m > 0) {
+    const uv = whaleFallUV(W, x, s, _wuv), eu = uv[0] / (W.L / 2 + 8), ev = uv[1] / 10;
+    m *= smoothstep(1.0, 1.5, Math.sqrt(eu * eu + ev * ev));
+  }
+  return m;
+}
+BIOMES.whalefall.floor = (x, s, ad, g) => {
+  // (a flat: the large swells of the deep variant hid the carcass behind them from 30-50 m out)
+  const W = whaleFallOf(g), base = (xx, ss) => fbm2(xx / 40, ss / 40, 3, 661) * 0.55 + fbm2(xx / 9, ss / 9, 2, 662) * 0.12;
+  let h = base(x, s);
+  const m = wfLavaAt(x, s, W);
+  if (m > 0) h += m * (0.15 + 0.3 * ridge2(x / 3.2, s / 3.2, 2, 663));
+  if (W) {
+    const uv = whaleFallUV(W, x, s, _wuv), eu = uv[0] / (W.L / 2 + 6), ev = uv[1] / 8.5, e = Math.sqrt(eu * eu + ev * ev);
+    if (e < 1.6) {
+      h += (base(W.x, W.s) + 0.15 - h) * smoothstep(1.6, 0.9, e);
+      const bu = uv[0] / (W.L / 2 - 1.5), bv = Math.abs(uv[1]) / 2.8;
+      h -= 0.16 * smoothstep(1.05, 0.8, bv) * smoothstep(1.0, 0.85, Math.abs(bu)) - 0.08 * Math.exp(-(((bv - 1.2) / 0.18) ** 2)) * smoothstep(1.1, 0.8, Math.abs(bu)) * (0.6 + 0.4 * noise2(x / 1.7, s / 1.7, 643));
+    }
+  }
+  return h;
+};
+// the sand around a sunlit carcass: a faint oily stain close in; black basalt on the lava, no ripples there
 BIOMES.whalefall.floorTint = (x, s, nn, T, g) => {
-  const W = whaleFallOf(g);
+  const W = whaleFallOf(g), m = wfLavaAt(x, s, W);
+  if (m > 0) { T[3] = 0.085; T[4] = 0.075; T[5] = 0.07; T[7] = 0.85 * m; T[6] = 1 - m; }
   if (!W) return;
   const uv = whaleFallUV(W, x, s, _wuv), eu = uv[0] / (W.L / 2 + 4), ev = uv[1] / 5.5, e = Math.sqrt(eu * eu + ev * ev);
   if (e > 1.3) return;

@@ -5,7 +5,7 @@ import * as THREE from 'three';
 import { WATER_PARS } from '../water.js';
 
 const MAX = 2048; // (the bioluminescent bay keeps ~1500 sparks alive)
-export const FXK = { GLOW: 0, INK: 1, BUBBLE: 2, RING: 3, GLINT: 4 };
+export const FXK = { GLOW: 0, INK: 1, BUBBLE: 2, RING: 3, GLINT: 4, SCRAP: 5 }; // (SCRAP: drawn as ink, but solid for its whole life)
 
 const VS = /* glsl */`
 attribute vec4 iPos;   // x, y, z (relative to the fx anchor), size (m)
@@ -172,11 +172,12 @@ export class FX {
       const env = kind === FXK.GLOW ? Math.sin(Math.PI * Math.min(1, f * 1.4)) * (1 - f * 0.4)
         : kind === FXK.INK ? (1 - f) * (1 - f) * Math.min(1, T[i4] * 4)
         : kind === FXK.GLINT ? Math.min(1, T[i4] * 3) * Math.min(1, (T[i4 + 1] - T[i4]) * 2) * (0.85 + 0.15 * Math.sin(T[i4] * 9 + i))
+        : kind === FXK.SCRAP ? Math.min(1, T[i4] * 12) * Math.min(1, (T[i4 + 1] - T[i4]) * 2.5) // (whale-fall scraps, wf_crowd.js)
         : (1 - f) * Math.min(1, T[i4] * 3);
       const size = T[i4 + 2] + (T[i4 + 3] - T[i4 + 2]) * Math.sqrt(f);
       AP[i4] = P[i3]; AP[i4 + 1] = P[i3 + 1]; AP[i4 + 2] = P[i3 + 2]; AP[i4 + 3] = size;
       AC[i4] = C[i4]; AC[i4 + 1] = C[i4 + 1]; AC[i4 + 2] = C[i4 + 2]; AC[i4 + 3] = C[i4 + 3] * env;
-      AD[i4] = D[i4]; AD[i4 + 1] = D[i4 + 1]; AD[i4 + 2] = D[i4 + 2]; AD[i4 + 3] = kind;
+      AD[i4] = D[i4]; AD[i4 + 1] = D[i4 + 1]; AD[i4 + 2] = D[i4 + 2]; AD[i4 + 3] = kind === FXK.SCRAP ? FXK.INK : kind;
       i++;
     }
     this.geo.instanceCount = this.n;

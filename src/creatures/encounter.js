@@ -157,6 +157,7 @@ export class Encounter {
     this.FLIP = null; this.FLB = null; // manta somersaults: loop phase, loop frame (see startFlip)
     this.glowAcc = 0;                  // bioluminescent bay: sparkle emission carried over (Creatures._ambientFx)
     this.brood = false;                 // events: brooding octopuses (_broodInit)
+    this.HOLD = null;                   // --- whalefall --- a pose set by the feeding controller (wf_crowd.js, _holdPose)
     const rng = mulberry32(plan.seed);
     this.rng = rng; this.sys = sys; this.sp = sp; this.plan = plan;
     const beh = sp.beh, n = plan.n;
@@ -2599,6 +2600,7 @@ export class Encounter {
     const n = this.n, D = this.SD, P = this.P, V = this.V, sh = this.sys.shape, az = this.anchorZ, k = this.kind;
     const M = this.mesh.instanceMatrix.array, cx = c.x, cy = c.y, cz = c.z - az, MV = this.SMV;
     let cnt = 0;
+    if (this.HOLD !== null && this.HOLD[13] > 0) { D[0] = 0; D[1] = 0; D[2] = 0; } // --- whalefall --- (a posed shark stays on the flesh: _holdPose)
     for (let i = 0; i < n; i++) {
       const i3 = i * 3;
       let dx = D[i3], dy = D[i3 + 1], dz = D[i3 + 2];
@@ -2972,7 +2974,22 @@ export class Encounter {
   }
 
   // ======================================================================
+  // --- whalefall --- (creatures/wf_crowd.js) a shark clamped on a whale carcass: its steering cannot hold a body still
+  // with the snout on one point, so while it bites (and comes in, and tears free) the feeding controller sets member
+  // 0's pose, blended by weight HOLD[13]; at weight 0 its own steering carries on from that pose.
+  // HOLD = [x, y, z (global), heading xyz, velocity xyz, head bend, tail bend, tail-beat amplitude, bank, weight]
+  _holdPose() {
+    const H = this.HOLD, w = H[13], P = this.P, F = this.F, V = this.V;
+    P[0] += (H[0] - P[0]) * w; P[1] += (H[1] - P[1]) * w; P[2] += (H[2] - this.anchorZ - P[2]) * w;
+    V[0] += (H[6] - V[0]) * w; V[1] += (H[7] - V[1]) * w; V[2] += (H[8] - V[2]) * w;
+    const fx = F[0] + (H[3] - F[0]) * w, fy = F[1] + (H[4] - F[1]) * w, fz = F[2] + (H[5] - F[2]) * w, l = h3(fx, fy, fz) || 1;
+    F[0] = fx / l; F[1] = fy / l; F[2] = fz / l;
+    this.PSI[0] = Math.atan2(F[0], F[2]); this.YR[0] *= 1 - w; this.PR[0] *= 1 - w;
+    this.BEND[0] += (H[9] - this.BEND[0]) * w; this.BT[0] += (H[10] - this.BT[0]) * w; this.BV[0] *= 1 - w;
+    this.AMP[0] += (H[11] - this.AMP[0]) * w; this.BANK[0] += (H[12] - this.BANK[0]) * w;
+  }
   _writeAll(dt) {
+    if (this.HOLD !== null && this.HOLD[13] > 0) this._holdPose(); // --- whalefall ---
     const { n, P, F, SZ, BANK } = this;
     const M = this.mesh.instanceMatrix.array, A = this.aAnim.array;
     const kind = this.kind, upright = this.sp.beh.upright, plan = this.sp.plan;

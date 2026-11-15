@@ -29,6 +29,9 @@ export class Pacing {
     this.urge = late <= 0 ? 0 : Math.min(1, late / 60);
   }
 
+  // a highlight the director's set pieces saw happen in view (whale fall: wf_crowd.js)
+  mark() { this.lastHl = this.dir.clock; }
+
   // weight multiplier for a highlight-class candidate (big, rare, curious or playful species of this zone)
   get boost() { return 1 + 4 * this.urge; }
   // delight-behaviour cooldowns shrink while a highlight is overdue (down to 40%)

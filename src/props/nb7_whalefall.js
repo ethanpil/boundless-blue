@@ -12,13 +12,13 @@
 // docs/SOURCES.md), never this carcass. The carcass template is generated per segment through the rock_gen providers
 // (<= 2 ms slices ahead of the camera; a layout that finds none builds it itself in slices).
 import * as THREE from 'three';
-import { Builder, Batch, TAU, CHUNK, vn3, sat, sstep, lerp, rotY, pointsClear, placedPoints, presence, budgetK, releaseAfterUpload } from './core.js';
+import { Builder, Batch, TAU, CHUNK, T, vn3, sat, sstep, lerp, rotY, pointsClear, placedPoints, presence, budgetK, releaseAfterUpload } from './core.js';
 import { MAT } from './materials.js';
 import { applyWater } from '../water.js';
-import { whaleFallOf } from '../biomes.js';
-import { pathCache, clearBox, SOFT, seat, put, segFor, lowK, slice, nbFloor, decalDisc, builderMesh, NBMAT, lab, setBase, upTo, mix3 } from './nb_common.js';
-import { poolOf } from './nb2_common.js';
-import { gridG, paintG, blobG, drain } from './rock_recipes.js';
+import { whaleFallOf, whaleFallUV } from '../biomes.js';
+import { pathCache, clearBox, SOFT, SOLID, seat, put, segFor, lowK, slice, nbFloor, decalDisc, builderMesh, NBMAT, lab, setBase, upTo, mix3 } from './nb_common.js';
+import { poolOf, tintOf } from './nb2_common.js';
+import { gridG, paintG, blobG, drain, rockJob, tiered } from './rock_recipes.js';
 import { pick, chunkRng, segSeed, planktonMeshG, IBatch, iput } from './nb4_common.js';
 import { mulberry32 } from '../noise.js';
 
@@ -59,6 +59,12 @@ const resOf = (tier) => RES[tier] || RES.high;
 const SKIN = [0.018, 0.022, 0.03], SKIN2 = [0.045, 0.05, 0.062], BELLY = [0.38, 0.355, 0.3], SLOUGH = [0.3, 0.25, 0.23];
 const BLUB = [0.78, 0.68, 0.52], BLUB2 = [0.8, 0.58, 0.48], MUSC = [0.42, 0.06, 0.05], MAROON = [0.17, 0.022, 0.028], DEEP = [0.06, 0.012, 0.016];
 const BONE = [0.82, 0.76, 0.6], MAT_W = [0.88, 0.88, 0.82], MAT_Y = [0.85, 0.7, 0.28], OSE = [0.75, 0.06, 0.05];
+// the sunlit carcass (whalefall): the same body as it looks in air, then +35 % red for the light path through the water,
+// as the reef palettes (reef.js RL): mid-grey hide with pale sloughed patches, a cream belly, a cream band of blubber
+// at the cuts, bright red muscle, ivory bone. In sunlight these are the most colourful things in the frame.
+const PAL_DEEP = { SKIN, SKIN2, BELLY, SLOUGH, BLUB, BLUB2, MUSC, MAROON, DEEP, BONE, STR: [0.55, 0.42, 0.36] };
+const PAL_SUN = { SKIN: [0.055, 0.058, 0.066], SKIN2: [0.1, 0.1, 0.108], BELLY: [0.86, 0.74, 0.6], SLOUGH: [0.66, 0.52, 0.48], BLUB: [1.12, 0.9, 0.62],
+  BLUB2: [1.12, 0.74, 0.6], MUSC: [1.0, 0.15, 0.11], MAROON: [0.6, 0.06, 0.06], DEEP: [0.24, 0.035, 0.04], BONE: [1.06, 0.98, 0.84], STR: [1.05, 0.72, 0.64] };
 const mixIn = (c, b, t) => { c[0] += (b[0] - c[0]) * t; c[1] += (b[1] - c[1]) * t; c[2] += (b[2] - c[2]) * t; return c; };
 const set3 = (c, a) => { c[0] = a[0]; c[1] = a[1]; c[2] = a[2]; return c; };
 
@@ -86,13 +92,14 @@ const MUD = 0.26;
 // cam: the carcass a dive starts at (page load, zone jump): always fresh, partly eaten, the sharks at it.
 function carcassPlan(seed, W) {
   const rng = mulberry32(seed), r = (a, b) => a + (b - a) * rng(), L = W.L, cam = W.cam;
-  const Pl = { L, rng, seed, sd: (seed % 99991) + 7, Rr: 0.065 * L, W: [], sc: L / 21 };
+  const Pl = { L, rng, seed, sd: (seed % 99991) + 7, Rr: 0.065 * L, W: [], sc: L / 21, K: W.deep ? PAL_DEEP : PAL_SUN };
   Pl.gk = r(0.9, 1.1); Pl.bloat = rng() < 0.4 ? r(0.05, 0.16) : 0;
   // skin: how much has peeled off (pale grey-pink), and its cast (blue-grey .. brownish)
-  Pl.slough = cam ? r(0.05, 0.35) : r(0.05, 0.6); Pl.tint = [r(0.85, 1.25), r(0.9, 1.05), r(0.75, 1.1)];
+  Pl.slough = (cam ? r(0.05, 0.35) : r(0.05, 0.6)) + (W.deep ? 0 : 0.2); Pl.tint = [r(0.85, 1.25), r(0.9, 1.05), r(0.75, 1.1)];
   const u = rng();
   // (the first carcass of a dive shows its pale belly to the camera: belly up or turned toward the route)
-  Pl.rho0 = (cam ? (u < 0.55 ? HP : 0.35) : u < 0.36 ? HP : u < 0.58 ? 0 : u < 0.78 ? Math.PI : -HP) + r(-0.3, 0.3);
+  // (sunlit: mostly the pale belly up or toward the route, where the sun and the camera find it)
+  Pl.rho0 = (cam ? (u < 0.55 ? HP : 0.35) : !W.deep ? (u < 0.42 ? HP : u < 0.82 ? 0.3 : Math.PI * 0.8) : u < 0.36 ? HP : u < 0.58 ? 0 : u < 0.78 ? Math.PI : -HP) + r(-0.3, 0.3);
   Pl.twist = rng() < 0.4 ? r(-0.9, 0.9) : r(-0.2, 0.2);
   Pl.curl = rng() < 0.45 ? r(-1.8, 1.8) : 0;      // the tail stock bent sideways (m at the flukes)
   Pl.jaw = rng() < 0.45 ? r(0.5, 1) : 0;          // jaw agape
@@ -167,7 +174,10 @@ function woundAt(Pl, x, p, out) {
   out[0] = D; out[1] = M; out[2] = B;
   return out;
 }
-const _w3 = [0, 0, 0];
+const _w3 = [0, 0, 0], _uv = [0, 0];
+// Hawaiian coral heads (linear tints of the reef's grey templates): lobe coral (yellow-brown, olive), cauliflower coral
+// (pink-brown), rice coral (brown, purple-brown)
+const CORAL_HI = [[0.86, 0.74, 0.36], [0.62, 0.62, 0.32], [0.8, 0.56, 0.4], [0.82, 0.56, 0.52], [0.58, 0.44, 0.38], [0.6, 0.46, 0.56]];
 
 // point on the body surface at (t, anatomical angle a), radius factor k. The carcass has settled on the mud: below
 // its axis it is flattened and spread; where the middle is stripped the axis sinks toward the mud.
@@ -190,7 +200,7 @@ const pleat = (Pl, t, a) => { const da = angD(a, 0); return t > 0.48 && t < 0.97
 const mouthAt = (Pl, t, a) => { const w = 0.07 + 0.07 * Pl.jaw; return sstep(0.78 - 0.05 * Pl.jaw, 0.84, t) * Math.max(Math.exp(-((angD(a, 1.15) / w) ** 2)), Math.exp(-((angD(a, -1.15) / w) ** 2))); };
 
 // ---------------------------------------------------------------- the fresh carcass (stage 0)
-function* freshG(b, Pl, Q, spots) {
+function* freshG(b, Pl, Q, spots, ring) {
   const L = Pl.L, nv = Math.max(24, Math.round(L / Q.du)), nu = Q.nu, sd = Pl.sd, P3 = [0, 0, 0];
   const Dv = [], PV = new Float32Array((nv + 1) * nu * 3);
   // the surface first, two rings per step (gridG's own steps of 8 rings cost up to 8 ms on medium, cold, at zone start)
@@ -221,14 +231,14 @@ function* freshG(b, Pl, Q, spots) {
     } }
   // paint: dark back, paler belly and throat (countershaded), mottling, pale sloughed patches; at the wounds a rim of
   // blubber, red muscle, a dark cavity, or bone where the wound goes down to it
-  const C = [0, 0, 0];
+  const C = [0, 0, 0], K = Pl.K;
   yield* paintG(b, v0, (i, x, y, z, nx, ny, nz, o) => {
     const q = (i - v0) * 8, D = Dv[q], M = Dv[q + 1], mouth = Dv[q + 2], pl = Dv[q + 3], B = Dv[q + 4], ven = Dv[q + 5], t = Dv[q + 6], a = Dv[q + 7];
     const n1 = vn3(x * 0.35, y * 0.35, z * 0.35, sd + 11), n2 = vn3(x * 1.4, y * 1.4, z * 1.4, sd + 12);
-    set3(C, SKIN); C[0] *= Pl.tint[0]; C[1] *= Pl.tint[1]; C[2] *= Pl.tint[2];
-    mixIn(C, SKIN2, sstep(0.1, 0.5, n2) * 0.7);                                 // mottling
-    mixIn(C, BELLY, sstep(-0.05, 0.55, ven) * (0.85 + 0.15 * n2));              // countershading: cream belly and throat
-    mixIn(C, SLOUGH, sstep(0.55 - 0.6 * Pl.slough, 0.85 - 0.6 * Pl.slough, n1 + 0.25 * n2) * 0.8); // skin peeling off
+    set3(C, K.SKIN); C[0] *= Pl.tint[0]; C[1] *= Pl.tint[1]; C[2] *= Pl.tint[2];
+    mixIn(C, K.SKIN2, sstep(0.1, 0.5, n2) * 0.7);                               // mottling
+    mixIn(C, K.BELLY, sstep(-0.05, 0.55, ven) * (0.85 + 0.15 * n2));            // countershading: cream belly and throat
+    mixIn(C, K.SLOUGH, sstep(0.55 - 0.6 * Pl.slough, 0.85 - 0.6 * Pl.slough, n1 + 0.25 * n2) * 0.8); // skin peeling off
     mixIn(C, [0.05, 0.045, 0.045], pl * 0.85);                                   // pleat grooves
     mixIn(C, [0.012, 0.01, 0.01], mouth * 0.95);                                 // the jaw line / gape
     const eye = Math.min(Math.hypot((t - 0.805) * Pl.L, (Math.abs(angD(a, 0)) - 1.32) * Pl.Rr), 1);
@@ -238,18 +248,21 @@ function* freshG(b, Pl, Q, spots) {
       // the cut: a cream band of blubber at the rim (the step down), then red muscle in strands, maroon and near
       // black deeper in; bone where the wound goes down to it
       const bl = sstep(0.04, 0.16, M), st = vn3(x * 0.6, a * 9, 0.4, sd + 13) * 0.6 + vn3(x * 2.5, a * 22, 0.9, sd + 14) * 0.4;
-      mixIn(C, n2 > 0 ? BLUB : BLUB2, bl);
-      mixIn(C, MUSC, sstep(0.5, 0.62, M) * (0.85 + 0.3 * st));
-      mixIn(C, MAROON, sstep(0.62, 0.9, M) * sstep(-0.2, 0.4, st + 0.3 * n1));
-      mixIn(C, [0.55, 0.42, 0.36], sstep(0.35, 0.5, st) * sstep(0.55, 0.8, M) * 0.5); // pale strings of connective tissue
-      mixIn(C, DEEP, sstep(0.25, 0.48, D) * (1 - B));
-      mixIn(C, BONE, B * (0.85 + 0.15 * n1));
+      mixIn(C, n2 > 0 ? K.BLUB : K.BLUB2, bl);
+      mixIn(C, K.MUSC, sstep(0.5, 0.62, M) * (0.85 + 0.3 * st));
+      mixIn(C, K.MAROON, sstep(0.62, 0.9, M) * sstep(-0.2, 0.4, st + 0.3 * n1));
+      mixIn(C, K.STR, sstep(0.35, 0.5, st) * sstep(0.55, 0.8, M) * 0.5);        // pale strings of connective tissue
+      mixIn(C, K.DEEP, sstep(0.25, 0.48, D) * (1 - B));
+      mixIn(C, K.BONE, B * (0.85 + 0.15 * n1));
       wet = 0.25 + 0.65 * bl - 0.3 * B;
     }
     const ao = 0.5 + 0.5 * sat(y / 0.5);                                         // dark where it meets the mud
     o[0] = C[0] * ao; o[1] = C[1] * ao; o[2] = C[2] * ao; o[3] = wet; o[4] = 0;
     // spots: where scavengers feed (rims of the wounds) and hagfish crowd
     if (M > 0.35 && M < 0.85 && ny > -0.3 && y > 0.3 && ((i - v0) & 1) === 0 && (Math.floor((i - v0) / nu) & 1) === 0) spots.push(x, y, z, nx, ny, nz, M);
+    // (sunlit: feeding spots all around the body for the crowd, wf_crowd.js: skin, wound rims, deep wounds, the tail stock)
+    if (ring && (i - v0) < (nv + 1) * nu && ((i - v0) % nu) % 4 === 0 && Math.floor((i - v0) / nu) % 4 === 0 && y > MUD + 0.3 && ny > -0.25)
+      ring.push(x, y, z, nx, ny, nz, t < 0.14 ? 3 : D > 0.25 ? 2 : M > 0.3 ? 1 : 0, t);
   });
   return v0;
 }
@@ -287,7 +300,7 @@ function* flapsG(b, Pl) {
       if (out[1] > 0.6 || A[1] < MUD + 0.4) continue; // only where it can hang down the flank
       const len = 0.5 + rng() * 0.7, wd = 0.14 + rng() * 0.12, tw = (rng() - 0.5) * 0.6, down = nrm3([tw * 0.3, -1, out[2] * 0.25]), sz = out[2] >= 0 ? 1 : -1;
       yield* bladeG(b, 4, 6, (u) => ({ c: [A[0] + down[0] * len * u + tw * u * 0.2, Math.max(MUD + 0.05, A[1] + down[1] * len * u), A[2] + down[2] * len * u + out[2] * 0.06 * u], cd: [1, 0, 0], ch: wd * (1 - 0.5 * u), nd: [0, 0, sz], th: 0.035 }),
-        (i, x, y, z, nx, ny, nz, o) => { const c = set3([0, 0, 0], BLUB); mixIn(c, MUSC, sstep(0.1, 0.5, vn3(x * 5, y * 5, z * 5, Pl.sd + k)) * 0.5); if (nz * sz > 0.3) mixIn(c, SKIN2, 0.85); o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; o[3] = 0.8; o[4] = 0; });
+        (i, x, y, z, nx, ny, nz, o) => { const c = set3([0, 0, 0], Pl.K.BLUB); mixIn(c, Pl.K.MUSC, sstep(0.1, 0.5, vn3(x * 5, y * 5, z * 5, Pl.sd + k)) * 0.5); if (nz * sz > 0.3) mixIn(c, Pl.K.SKIN2, 0.85); o[0] = c[0]; o[1] = c[1]; o[2] = c[2]; o[3] = 0.8; o[4] = 0; });
     }
   }
 }
@@ -305,19 +318,19 @@ function* bladeG(b, n, m, at, paint) {
 }
 const nrm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 const cross = (a, c) => [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
-function skinPaint(sd, pale = 0.5) {
+function skinPaint(sd, pale = 0.5, K = PAL_DEEP) {
   return (i, x, y, z, nx, ny, nz, o) => {
-    const n2 = vn3(x * 1.4, y * 1.4, z * 1.4, sd), n1 = vn3(x * 0.4, y * 0.4, z * 0.4, sd + 1), c = set3([0, 0, 0], SKIN);
-    mixIn(c, SKIN2, sstep(0.1, 0.5, n2) * 0.7); mixIn(c, BELLY, pale * sat(ny)); mixIn(c, SLOUGH, sstep(0.3, 0.6, n1) * 0.6);
+    const n2 = vn3(x * 1.4, y * 1.4, z * 1.4, sd), n1 = vn3(x * 0.4, y * 0.4, z * 0.4, sd + 1), c = set3([0, 0, 0], K.SKIN);
+    mixIn(c, K.SKIN2, sstep(0.1, 0.5, n2) * 0.7); mixIn(c, K.BELLY, pale * sat(ny)); mixIn(c, K.SLOUGH, sstep(0.3, 0.6, n1) * 0.6);
     const ao = 0.55 + 0.45 * sat(y / 0.4);
     o[0] = c[0] * ao; o[1] = c[1] * ao; o[2] = c[2] * ao; o[3] = 0.3; o[4] = 0;
   };
 }
 // bone: ivory, a little glossy, a faint stain of tissue (stage 2 has its own: bonePaint)
-function cleanBone(sd, stain = 0.2) {
+function cleanBone(sd, stain = 0.2, K = PAL_DEEP) {
   return (i, x, y, z, nx, ny, nz, o) => {
-    const c = set3([0, 0, 0], BONE), n = vn3(x * 2.2, y * 2.2, z * 2.2, sd);
-    mixIn(c, MUSC, sstep(0.25, 0.7, n) * stain); mixIn(c, [0.95, 0.9, 0.74], sat(ny) * 0.25);
+    const c = set3([0, 0, 0], K.BONE), n = vn3(x * 2.2, y * 2.2, z * 2.2, sd);
+    mixIn(c, K.MUSC, sstep(0.25, 0.7, n) * stain); mixIn(c, [0.95, 0.9, 0.74], sat(ny) * 0.25);
     const ao = 0.62 + 0.38 * sat(0.5 + 0.5 * ny);                                // shaded below: it reads as a solid
     o[0] = c[0] * ao; o[1] = c[1] * ao; o[2] = c[2] * ao; o[3] = 0.55; o[4] = 0;
   };
@@ -344,7 +357,7 @@ function* appendagesG(b, Pl, Q, obs) {
       if (y < MUD + 0.08) y = MUD + 0.08 + (y - MUD - 0.08) * 0.04; // a lobe that would reach into the mud lies on it
       const rag = cut < 1 && w > 0.9 ? 0.6 + 0.4 * vn3(w * 9, side, 0.3, sd) : 1;
       return { c: [le - ch + notch * 0.5, y, c0[2] + lat[2] * sw], cd: [1, 0, 0], ch: (ch - notch * 0.5) * rag, nd: ven, th: 0.08 * sc * (1 - 0.75 * ww) };
-    }, skinPaint(sd + 21, 0.4));
+    }, skinPaint(sd + 21, 0.4, Pl.K));
   }
   obs.push([x0 - 0.5 * C0, Math.max(0.3, c0[1]), c0[2] - span * 0.7, x0 - 0.5 * C0, Math.max(0.3, c0[1]), c0[2] + span * 0.7, 0.35]);
   yield;
@@ -359,15 +372,15 @@ function* appendagesG(b, Pl, Q, obs) {
       return [base[0] + dir[0] * len * w, Math.max(MUD + 0.07, base[1] + dir[1] * len * w - droop * 0.4), base[2] + dir[2] * len * w];
     };
     const wEnd = F.st === 1 ? 0.5 : 1;
-    yield* bladeG(b, F.st === 1 ? 5 : 9, Math.max(8, Q.rib + 4), (w) => ({ c: at(w * wEnd), cd, ch: 0.013 * L * (1 - 0.6 * (w * wEnd) ** 1.4) + 0.04, nd, th: 0.08 * sc * (1 - 0.65 * w * wEnd) }), skinPaint(sd + 22 + f, 0.65));
+    yield* bladeG(b, F.st === 1 ? 5 : 9, Math.max(8, Q.rib + 4), (w) => ({ c: at(w * wEnd), cd, ch: 0.013 * L * (1 - 0.6 * (w * wEnd) ** 1.4) + 0.04, nd, th: 0.08 * sc * (1 - 0.65 * w * wEnd) }), skinPaint(sd + 22 + f, 0.65, Pl.K));
     if (F.st === 1) { // the finger bones beyond the flesh
       for (let k = -1.5; k <= 1.5; k++) {
         const pts = [], rr = [];
         for (let q = 0; q <= 4; q++) { const w = 0.45 + 0.5 * q / 4, p = at(w), cw = 0.013 * L * (1 - 0.6 * w ** 1.4) * 0.5 * k / 1.5; pts.push([p[0] + cd[0] * cw, Math.max(MUD + 0.04, p[1] + cd[1] * cw), p[2] + cd[2] * cw]); rr.push(0.035 * sc * (1 - 0.4 * q / 4)); }
-        const v1 = b.vc; b.tube(pts, rr, 4, null, { tip: true }); yield* paintG(b, v1, cleanBone(sd + 50 + k));
+        const v1 = b.vc; b.tube(pts, rr, 4, null, { tip: true }); yield* paintG(b, v1, cleanBone(sd + 50 + k, 0.2, Pl.K));
       }
     }
-    if (F.st === 2) { const v1 = yield* blobAx(b, 1, at(1), dir, 0.12, cd, 0.18, nd, 0.1); yield* paintG(b, v1, cleanBone(sd + 60, 0.5)); }
+    if (F.st === 2) { const v1 = yield* blobAx(b, 1, at(1), dir, 0.12, cd, 0.18, nd, 0.1); yield* paintG(b, v1, cleanBone(sd + 60, 0.5, Pl.K)); }
     const tip = at(1);
     obs.push([base[0], base[1], base[2], tip[0], tip[1], tip[2], 0.3]);
   }
@@ -399,7 +412,7 @@ function* bonesG(b, Pl, Q, obs, marks) {
       if (pts.length < 2) continue;
       const v1 = b.vc;
       b.tube(pts, rr, Q.rib, null, { tip: true });
-      yield* paintG(b, v1, cleanBone(sd + 100 + nRib, 0.15));
+      yield* paintG(b, v1, cleanBone(sd + 100 + nRib, 0.15, Pl.K));
       if (!nRib) marks.ribs = pts[pts.length >> 1];
       nRib++;
     }
@@ -420,7 +433,7 @@ function* bonesG(b, Pl, Q, obs, marks) {
       const tp = [c[0], Math.max(MUD + 0.05, c[1] + lat[1] * s * r * 1.5), c[2] + lat[2] * s * r * 1.5];
       yield* blobAx(b, 1, tp, lat, r * 0.95, [1, 0, 0], r * 0.3, dor, r * 0.15);
     }
-    yield* paintG(b, v1, cleanBone(sd + 200 + nV, 0.25));
+    yield* paintG(b, v1, cleanBone(sd + 200 + nV, 0.25, Pl.K));
     if (!marks.spine || Math.abs(t - 0.3) < Math.abs(marks.spineT - 0.3)) { marks.spine = c.slice(); marks.spineT = t; }
     nV++;
   }
@@ -551,6 +564,26 @@ function* skeletonG(b, ob, Pl, Q, obs) {
   return sp;
 }
 
+// (sunlit) strands of tissue trailing from the cut edges, hanging and drifting a little in the water (sway material;
+// documented under a floating carcass: "strands of whale tissue are hanging beneath it")
+function strandsG(ob, Pl, ring, n) {
+  const rng = mulberry32(Pl.sd + 91), K = Pl.K, nS = ring.length / 8;
+  for (let k = 0, tries = 0; k < n && tries < n * 6; tries++) {
+    const q = Math.floor(rng() * nS) * 8;
+    if (ring[q + 6] < 1 || ring[q + 6] > 2) continue; // (cut edges only)
+    k++;
+    const len = 0.35 + rng() * 0.8, nx = ring[q + 3], ny = ring[q + 4], nz = ring[q + 5];
+    let dx = nx * 0.7 + (rng() - 0.5) * 0.5, dy = ny * 0.3 - 0.75, dz = nz * 0.7 + (rng() - 0.5) * 0.5;
+    const l = Math.hypot(dx, dy, dz) || 1; dx /= l; dy /= l; dz /= l;
+    const pts = [], rr = [], cu = (rng() - 0.5) * 0.5;
+    for (let j = 0; j <= 5; j++) {
+      const t = j / 5, x = ring[q] + dx * len * t + Math.sin(t * 3 + cu * 9) * 0.06, z = ring[q + 2] + dz * len * t + cu * t * t * len;
+      pts.push([x, Math.max(MUD + 0.04, ring[q + 1] + dy * len * t), z]); rr.push((0.03 + 0.015 * rng()) * (1 - 0.7 * t));
+    }
+    const c = set3([0, 0, 0], rng() < 0.45 ? K.STR : rng() < 0.6 ? K.BLUB : K.MUSC);
+    ob.tube(pts, rr, 4, (v, a, x, y, z, o) => { o[3] = c[0]; o[4] = c[1]; o[5] = c[2]; o[6] = 0.1 * v * v; o[7] = 0; }, { tip: true });
+  }
+}
 // ---------------------------------------------------------------- the carcass template
 // mirror a builder's x and / or z (template frame), keeping the triangles front-facing
 function mirror(b, mx, mz) {
@@ -558,15 +591,16 @@ function mirror(b, mx, mz) {
   if (mx !== mz) for (let i = 0; i < b.I.length; i += 3) { const t = b.I[i + 1]; b.I[i + 1] = b.I[i + 2]; b.I[i + 2] = t; }
 }
 export function* carcassG(seed, tier, W) {
-  const Q = resOf(tier), Pl = carcassPlan(seed, W), b = new Builder(), ob = new Builder(), obs = [], spots = [], marks = {};
+  const Q = resOf(tier), Pl = carcassPlan(seed, W), b = new Builder(), ob = new Builder(), obs = [], spots = [], marks = {}, ring = W.deep ? null : [];
   if (W.stage === 0) {
-    yield* freshG(b, Pl, Q, spots);
+    yield* freshG(b, Pl, Q, spots, ring);
     yield* appendagesG(b, Pl, Q, obs);
     yield* bonesG(b, Pl, Q, obs, marks);
     yield* baleenG(b, Pl);
     yield* flapsG(b, Pl);
     { const w = Pl.W[0], tw = w.x / Pl.L + 0.5; marks.flank = bodyPt(Pl, tw, w.p - rhoAt(Pl, tw), 1.05, [0, 0, 0]); }
     bodyObs(Pl, obs);
+    if (ring) strandsG(ob, Pl, ring, tier === 'low' ? 14 : 24);
   } else yield* skeletonG(b, ob, Pl, Q, obs);
   yield;
   const hag = W.stage === 0 && W.deep ? hagPoints(Pl, spots, mulberry32(seed + 5), Math.round(Q.hag * (0.6 + 0.6 * Pl.rng()))) : null;
@@ -577,6 +611,7 @@ export function* carcassG(seed, tier, W) {
     mirror(b, mx, mz); mirror(ob, mx, mz);
     for (const o of obs) { if (mx) { o[0] = -o[0]; o[3] = -o[3]; } if (mz) { o[2] = -o[2]; o[5] = -o[5]; } }
     for (const A of [spots, hag]) if (A) for (let i = 0; i < A.length; i += 7) { if (mx) { A[i] = -A[i]; A[i + 3] = -A[i + 3]; } if (mz) { A[i + 2] = -A[i + 2]; A[i + 5] = -A[i + 5]; } }
+    if (ring) for (let i = 0; i < ring.length; i += 8) { if (mx) { ring[i] = -ring[i]; ring[i + 3] = -ring[i + 3]; } if (mz) { ring[i + 2] = -ring[i + 2]; ring[i + 5] = -ring[i + 5]; } }
     for (const k of ['ribs', 'spine', 'flank']) { const m = marks[k]; if (m) { if (mx) m[0] = -m[0]; if (mz) m[2] = -m[2]; } }
   }
   b.obs = obs;
@@ -589,9 +624,10 @@ export function* carcassG(seed, tier, W) {
   setBase(t, base);
   t.wfStage = W.stage; t.wfL = W.L; t.wfE = Pl.E; t.wfMarks = marks;
   t.spots = Float32Array.from(spots);
+  t.ring = ring ? Float32Array.from(ring) : null; t.wfHead = Pl.flip ? -1 : 1;
   t.hag = hag ? Float32Array.from(hag) : null;
   t.ose = ob.vc ? ob.build() : null;
-  if (t.ose) lab(t.ose, WF.osedax[0], WF.osedax[1]);
+  if (t.ose) lab(t.ose, ...(ring ? WF.scraps : WF.osedax)); // (sunlit: the trailing strands, see strandsG)
   t.label = !W.deep ? WF.sunCarcass[0] : W.stage === 0 ? WF.carcass[0] : WF.skeleton[0];
   t.fact = !W.deep ? WF.sunCarcass[1] : W.stage === 0 ? WF.carcass[1] : WF.skeleton[1];
   t.wfDeep = !!W.deep;
@@ -703,14 +739,14 @@ function hagMesh(it, rng) {
 }
 
 // ---------------------------------------------------------------- small templates
-function scrap(seed, kind) { // 0 flesh lump, 1 blubber strip (skin on one face), 2 bone fragment
+function scrap(seed, kind, K = PAL_DEEP, k0 = 0.4) { // 0 flesh lump, 1 blubber strip (skin on one face), 2 bone fragment
   const rng = mulberry32(seed), b = new Builder(), sx = kind === 1 ? 0.25 + rng() * 0.25 : 0.1 + rng() * 0.14, sz = kind === 1 ? 0.1 + rng() * 0.08 : sx * (0.6 + rng() * 0.4), sy = kind === 1 ? 0.04 : kind === 2 ? 0.05 : sx * 0.45;
   b.blob(kind === 2 ? 1 : 2, (x, y, z, o) => {
     const d = 1 + 0.45 * vn3(x * 2 + seed, y * 2, z * 2, seed % 997);
     o[0] = x * sx * d; o[1] = Math.max(0, sy * 0.6 + y * sy * d); o[2] = z * sz * d;
     // (dirtied by the mud they lie in: darker than the tissue on the carcass)
-    const c = kind === 2 ? set3([0, 0, 0], BONE) : kind === 1 ? (y > 0.3 ? set3([0, 0, 0], SKIN2) : set3([0, 0, 0], BLUB)) : mixIn(set3([0, 0, 0], MUSC), BLUB, sat(vn3(x * 3, y * 3, z * 3, seed % 991) + 0.2) * 0.5);
-    const k = kind === 2 ? 0.8 : 0.4;
+    const c = kind === 2 ? set3([0, 0, 0], K.BONE) : kind === 1 ? (y > 0.3 ? set3([0, 0, 0], K.SKIN2) : set3([0, 0, 0], K.BLUB)) : mixIn(set3([0, 0, 0], K.MUSC), K.BLUB, sat(vn3(x * 3, y * 3, z * 3, seed % 991) + 0.2) * 0.5);
+    const k = kind === 2 ? 0.8 : k0;
     o[3] = c[0] * k; o[4] = c[1] * k; o[5] = c[2] * k; o[6] = kind === 2 ? 0.2 : 0.8; o[7] = 0;
   });
   const t = b.build();
@@ -734,6 +770,7 @@ export function initWhaleFall(tier) {
   H.mat = { flesh: fleshMaterial(), hag: hagMaterial() };
   H.hagGeo = hagTemplate(tier);
   H.scrap = [0, 1, 2, 3, 4, 5].map((k) => scrap(7301 + k, k % 3 === 2 ? 0 : k % 3));
+  H.scrapSun = [0, 1, 2, 3, 4, 5].map((k) => scrap(7301 + k, k % 3 === 2 ? 0 : k % 3, PAL_SUN, 0.7)); // (sunlit: fresh, on clean sand)
   H.bone = [0, 1, 2].map((k) => lab(scrap(7311 + k, 2), WF.ribs[0], WF.ribs[1]));
   H.brittle = [0, 1, 2].map((k) => brittleStar(7321 + k));
   return H;
@@ -747,8 +784,12 @@ export function devCarcass(seed, tier, W) {
   m.userData.tpl = t;
   return m;
 }
+// (sunlit) the lava flat's rocks, fresh per segment: pillow lobes and blocky basalt
+const LAVA = [{ r: 'boulder', litho: 'basalt', kind: 'angular', growth: 0.25, detail: 2 }, { r: 'pillow', growth: 0.25 }, { r: 'boulder', litho: 'basalt', growth: 0.25, detail: 2 }, { r: 'boulder', litho: 'basalt', kind: 'angular', growth: 0.2, detail: 2 }];
 export function whaleFallProviders(provide) {
   for (const k of KEYS) provide(k, 'wfCarcass', 1, (seg, kk, tier) => carcassJob(seg, tier), 0);
+  // (pillow lobes are ~1.6k triangles each: medium and up only)
+  provide(KEYS[0], 'wfLava', 8, (seg, k, tier) => rockJob(tiered(LAVA[tier === 'low' && k % LAVA.length === 1 ? 0 : k % LAVA.length], tier), (seg.seed ^ (k * 0x9e3779b1) ^ 0x1a7a) >>> 0));
 }
 
 // ---------------------------------------------------------------- helpers
@@ -818,11 +859,23 @@ export function* layoutWfA(ctx) {
       const p = toChunk(it, S[i], S[i + 1], S[i + 2]), n = toChunkN(it, S[i + 3], S[i + 4], S[i + 5]);
       spots.push(p[0], p[1], ctx.s0 - p[2], n[0], n[1], -n[2]);
     }
+    // (sunlit) the crowd's feeding spots all around the body (wf_crowd.js): x, y, s, normal, kind, u along the body
+    let ring = null;
+    if (tpl.ring) {
+      const RG = tpl.ring;
+      ring = new Float32Array(RG.length);
+      for (let i = 0; i < RG.length; i += 8) {
+        const p = toChunk(it, RG[i], RG[i + 1], RG[i + 2]), n = toChunkN(it, RG[i + 3], RG[i + 4], RG[i + 5]), s = ctx.s0 - p[2];
+        ring[i] = p[0]; ring[i + 1] = p[1]; ring[i + 2] = s; ring[i + 3] = n[0]; ring[i + 4] = n[1]; ring[i + 5] = -n[2];
+        ring[i + 6] = RG[i + 6]; ring[i + 7] = (p[0] - P[0]) * W.ca + (s - P[2]) * W.sa;
+      }
+    }
     const top = P[1] + (tpl.maxY - tpl.minY) * 0.8, toward = -W.side; // the route side, in x
     const fresh = tpl.wfStage === 0, deep = !!W.deep;
     pois.push({ type: 'whalefall', x: P[0] + toward * 1.2 * W.sa, y: top, s: P[2] - toward * 1.2 * W.ca, r: W.L * 0.5,
       data: { name: tpl.label, fact: tpl.fact, stage: tpl.wfStage, L: W.L, ca: W.ca, sa: W.sa, side: W.side, deep,
-        cx: P[0], cy: P[1], cs: P[2], spots, showpiece: true, E: tpl.wfE ?? 0.5, cam: !!W.cam } });
+        cx: P[0], cy: P[1], cs: P[2], spots, showpiece: true, E: tpl.wfE ?? 0.5, cam: !!W.cam,
+        ring, head: tpl.wfHead || 1, camH: pathCache(ctx).y(P[2]) - P[1], gx: 0, gy: 0, gs: 0, gw: 0 } }); // (gx..gw: the crowd's pull on the camera's gaze)
     // labels on the generated shape: the main tear, the bare ribs (or spine), the body's far end
     const mk = tpl.wfMarks || {}, lab1 = toChunk(it, -0.3 * W.L, 1.4, 0);
     if (!deep) {
@@ -890,7 +943,7 @@ export function* layoutWfB(ctx) {
       const u = (rng() - 0.5) * (W.L + 4), v = (rng() < 0.6 ? -1 : 1) * (2.6 + Math.pow(rng(), 1.6) * 3.5) + (rng() - 0.5);
       const x = W.x + u * W.ca + v * W.sa * W.side, s = W.s + u * W.sa - v * W.ca * W.side;
       if (s < ctx.s0 || s >= ctx.s1) continue;
-      const tpl = fresh && rng() < 0.85 ? pick(rng, H.scrap) : pick(rng, H.bone), sc = 0.7 + rng() * 0.8;
+      const tpl = fresh && rng() < 0.85 ? pick(rng, KEY === KEYS[0] ? H.scrapSun : H.scrap) : pick(rng, H.bone), sc = 0.7 + rng() * 0.8;
       place(st, tpl, x, s, sc, [1, 1, 1], 0.9);
     }
     yield;
@@ -907,6 +960,52 @@ export function* layoutWfB(ctx) {
     }
   }
   yield;
+  // (sunlit) the lava flat: low black basalt and pillow lobes, rubble patches and a few coral heads (lobe and cauliflower
+  // corals, as in Hawaii); small and sparse within ~15 m of the carcass, so nothing hides it, and out of the flight tube
+  const lv = KEY === KEYS[0] ? new Batch(MAT.static, 60000 * bk) : null;
+  if (lv) {
+    const lava = poolOf(g0, 'wfLava', T.rocks, 3), heads = [T.boulder, T.coralMound].filter((l) => l && l.length), occ = [];
+    const Wn = [];
+    for (const g of ctx.segments) { const W = whaleFallOf(g); if (W && !W.deep) Wn.push(W); }
+    const near = (x, s) => { // 0 on the carcass .. 1 from ~15 m out
+      let k = 1;
+      for (const W of Wn) { const uv = whaleFallUV(W, x, s, _uv), eu = uv[0] / (W.L / 2 + 5), ev = uv[1] / 6.5; k = Math.min(k, sstep(1.0, 1.9, Math.sqrt(eu * eu + ev * ev))); }
+      return k;
+    };
+    const putS = (tpl, x, s, sc, sy, col, tilt) => {
+      const k = near(x, s);
+      if (k < 0.08) return false;
+      for (let i = 0; i < occ.length; i += 3) if (Math.hypot(occ[i] - x, occ[i + 1] - s) < occ[i + 2] + tpl.r * sc) return false;
+      fs.at(x, s);
+      const R = upTo(mix3([0, 1, 0], [fs.nx, fs.ny, fs.nz], tilt), rng() * TAU), P = [x, fs.at(x, s), s];
+      seat(fs, tpl, R, sc, sy, sc, P, null, 0.04 + 0.1 * sy);
+      if (!clearBox(pc, P[0], P[2], P[1], P[1] + (tpl.maxY - tpl.minY) * sy, tpl.r * sc, SOLID)) return false;
+      if (!put(ctx, lv, tpl, P[0], P[1], P[2], R, sc, sy, sc, col, 1)) return false;
+      occ.push(x, s, tpl.r * sc);
+      return true;
+    };
+    const side = () => (rng() < 0.5 ? -1 : 1);
+    for (let k = 0, n = Math.round((ctx.tier === 'low' ? 8 : 13) * bk); k < n; k++) { // basalt
+      if (Y.over()) { yield; Y.reset(); }
+      const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + side() * (4.5 + Math.pow(rng(), 0.8) * 30), k1 = near(x, s);
+      const sc = (0.45 + rng() * 1.1) * (0.4 + 0.6 * k1);
+      putS(pick(rng, lava), x, s, sc, sc * (0.4 + 0.3 * rng()), tintOf(rng, [[0.4, 0.38, 0.38], [0.33, 0.31, 0.31], [0.46, 0.42, 0.4]], 0.08), 0.6);
+    }
+    for (let k = 0, n = Math.round((ctx.tier === 'low' ? 2 : 3) * bk); k < n; k++) { // rubble: a patch of small broken rock
+      if (Y.over()) { yield; Y.reset(); }
+      const s0 = ctx.s0 + 4 + rng() * (CHUNK - 8), x0 = pc.x(s0) + side() * (4.5 + rng() * 22);
+      for (let j = 0, m = 5 + Math.floor(rng() * 6); j < m; j++) {
+        if (Y.over()) { yield; Y.reset(); }
+        const a = rng() * TAU, r = Math.sqrt(rng()) * 1.8, sc = 0.1 + rng() * 0.18;
+        putS(pick(rng, lava), x0 + Math.cos(a) * r, s0 + Math.sin(a) * r, sc, sc * (0.5 + 0.4 * rng()), tintOf(rng, [[0.5, 0.47, 0.44], [0.62, 0.58, 0.52], [0.4, 0.38, 0.37]], 0.1), 0.9);
+      }
+    }
+    for (let k = 0, n = heads.length ? Math.round((ctx.tier === 'low' ? 4 : 7) * bk) : 0; k < n; k++) { // coral heads
+      if (Y.over()) { yield; Y.reset(); }
+      const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + side() * (4.5 + Math.pow(rng(), 0.7) * 28), k1 = near(x, s), sc = (0.45 + rng() * 0.8) * (0.5 + 0.5 * k1);
+      putS(pick(rng, pick(rng, heads)), x, s, sc, sc * (0.75 + 0.3 * rng()), tintOf(rng, CORAL_HI, 0.1), 0.3);
+    }
+  }
   // away from the carcass the mud is nearly bare: a few brittle stars (deep only)
   const nB = KEY === KEYS[1] ? Math.round(6 * bk * lk) : 0;
   for (let k = 0; k < nB; k++) {
@@ -919,5 +1018,5 @@ export function* layoutWfB(ctx) {
   const extra = [];
   const dm = dec.vc ? builderMesh(dec, NBMAT.decal, null, 'mid') : null;
   if (dm) { dm.renderOrder = 1; extra.push(dm); }
-  return { batches: [st, ib], extra, labels };
+  return { batches: lv ? [st, ib, lv] : [st, ib], extra, labels };
 }

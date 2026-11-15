@@ -8,6 +8,7 @@ import { eventsTick, eventPiece, eventPrewarm, triggerEvent, eventSkip, eventRar
 import { Pacing } from './pacing.js';
 import { Moments } from './moments.js';
 import { WhaleFeed } from './wf_feed.js';
+import { WhaleCrowd } from './wf_crowd.js'; // --- whalefall --- (sunlit)
 
 // [species key | 'proc:<kind>', weight, cooldown (s)]
 // target = desired simultaneous encounters, lat = max lateral offset from the camera path.
@@ -235,7 +236,7 @@ DEEP_ZONES.add('whalefalldeep');
 // (away from the carcass: open warm water, a passing whitetip or a few mahi-mahi)
 TABLES.whalefall = { cover: 1.4, target: 4, lat: 30, list: [['mahi', 2, 60], ['wfWhitetip', 0.8, 120]] };
 Object.assign(POI_SPECIES, { whalefall: ['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab', 'wfTiger', 'wfWhitetip', 'wfWhite', 'mahi', 'reefCrab', 'bottlenose'] });
-const WF_CAST = new Set(['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab', 'wfTiger', 'wfWhitetip', 'wfWhite', 'mahi', 'reefCrab', 'bottlenose', 'remora', 'proc:reef']); // (the guard spares these)
+const WF_CAST = new Set(['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab', 'wfTiger', 'wfWhitetip', 'wfWhite', 'mahi', 'reefCrab', 'bottlenose', 'remora', 'proc:reef', 'snapper', 'jack', 'bluefinTrevally']); // (the guard spares these)
 const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
@@ -250,6 +251,7 @@ export class Director {
     this.pace = new Pacing(this);
     this.moments = new Moments(this); // signature moments (moments.js)
     this.wfFeed = new WhaleFeed(this); // sleeper sharks feeding at a whale fall (wf_feed.js)
+    this.wfCrowd = new WhaleCrowd(this); // the crowd at a sunlit whale fall (wf_crowd.js)
   }
 
   // Zone jump: forget everything tied to the old place (set pieces done, the blue hole, close-encounter pacing, spawn
@@ -266,6 +268,7 @@ export class Director {
     this.pace.reset();
     this.moments.reset();
     this.wfFeed.reset();
+    this.wfCrowd.reset();
   }
 
   species(key) {
@@ -292,6 +295,7 @@ export class Director {
     }
     this.pace.tick(c);
     this.wfFeed.tick(dt, c);
+    this.wfCrowd.tick(dt, c);
     this.delightTick(c);
     if (this.moments.tick(c, dt)) return;
     if (this.whaleTick(c) || this.holeTick(c) || eventsTick(this, c)) return;
@@ -445,15 +449,11 @@ export class Director {
         this.wfFeed.watch(p, WF_CAST);
         if (!d.deep) {
           // sunlit (Hawaii): tiger sharks and oceanic whitetips, 6 / 9 / 12 by tier (the documented maximum was 12 in the
-          // water at once, 7 whitetips and 5 tigers), 2-4 feeding at once; rarely (never on a dive's first carcass) a very
-          // large white shark among them. Mahi-mahi and smaller fish about the carcass, crabs on the sand by it, now and
-          // then a few dolphins passing (shown, not stated)
-          const ts = this.sys.tierScale, nSh = Math.round(9 * clamp(ts, 0.67, 1.34)), nT = Math.round(nSh * 5 / 12), white = !d.cam && r() < 0.18;
-          this.wfFeed.start(p, nSh, this.rng, (k) => (white && k === 1 ? 'wfWhite' : k % nSh < nT ? 'wfTiger' : 'wfWhitetip'), clamp(Math.ceil(nSh / 2.5), 3, 4), { sun: true });
-          this.spawnAt('mahi', mud(-d.L * 0.2, -4), { n: 3 + Math.floor(r() * 4) });
-          this.spawnAt('proc:reef', mud(d.L * 0.15, -1.5), { kind: 'shoal', homeY: p.y + 0.5, n: 12 + Math.floor(r() * 14), noSeek: true });
-          if (r() < 0.7) this.spawnAt('reefCrab', mud((r() - 0.5) * d.L * 0.6, -2.4 - r()), { n: 2 + Math.floor(r() * 3) });
-          if (!d.cam && r() < 0.3) this.spawnAt('bottlenose', mud(0, -12), { route: 'cross', n: 2 + Math.floor(r() * 3) });
+          // water at once, 7 whitetips and 5 tigers), feeding all around the carcass, coming and going; rarely (never on a
+          // dive's first carcass) a very large white shark arrives among them. Small fish at the wounds, bigeye trevally
+          // wheeling over it, mahi-mahi passes, crabs on the sand, now and then a few dolphins (wf_crowd.js; shown, not stated)
+          const k = this.sys.tierScale;
+          this.wfCrowd.start(p, this.rng, k < 0.7 ? 0 : k < 1 ? 1 : k > 1 ? 3 : 2, !d.cam && r() < 0.18);
           return true;
         }
         if (fresh) {
