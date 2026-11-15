@@ -1975,3 +1975,39 @@ Object.assign(FACTS, {
   wfWhitetip: 'At a whale carcass off Hawaii, when two sharks came in together the smaller one veered away for the larger.',
   wfWhite: 'Off Durban, a white shark and tiger sharks fed on one whale at the same time and did not appear to compete.',
 });
+
+// --- turning ---
+// How big swimmers turn (Encounter, shader crBend), as mot.turn = [max path curvature x body length, max lateral spine
+// curvature x length, max dorso-ventral arch x length, bank at the tightest turn (rad)]; species not listed take their
+// motion mode's default (encounter.js TURN). Flexible: otters, seals, sea lions, eels and most sharks bend into a deep C
+// and turn within about half a length; dolphins in between; stiff: big whales, whale sharks, tuna, turtles and rays turn
+// in wide arcs, banked, on their fins more than their bodies (a path tighter than the spine bends shows as bank).
+{
+  const T = (keys, v) => { for (const k of keys.split(' ')) if (S[k]) S[k].mot = { ...S[k].mot, turn: v }; };
+  T('seaOtter seaOtterUrchin seaOtterMom seaOtterPup', [3.2, 3.0, 2.4, 0.7]);
+  T('harbourSeal leopardSeal weddellSeal ringedSeal harpSeal', [2.2, 2.4, 1.6, 0.7]);
+  T('seaLion', [2.4, 2.2, 1.8, 0.8]);
+  T('emperorPenguin adeliePenguin', [2.2, 0.6, 0.5, 0.7]);
+  T('morayNight cutthroatEel cuskEel hagfish', [3.0, 3.0, 0.5, 0.2]);
+  T('reefShark whitetip blacktip oceanicWhitetip blueShark silkyShark hammerhead hammerheadSchool hammerheadPinnacle lemonShark sandTiger leopardShark nurseShark whitetipNight', [1.5, 2.0, 0.3, 0.4]);
+  T('greatWhite', [1.3, 1.4, 0.25, 0.35]);
+  T('greenlandShark sleeperShark', [1.2, 1.4, 0.2, 0.2]);
+  T('bottlenose commonDolphin', [1.8, 1.3, 1.1, 0.6]);
+  T('orca pilotWhale beluga narwhal narwhalF', [1.2, 0.9, 0.8, 0.5]);
+  T('manatee dugong', [1.0, 0.7, 0.5, 0.3]);
+  T('humpback', [0.8, 0.45, 0.4, 0.5]); // (long flippers: the most agile of the big whales)
+  T('blueWhale bowhead', [0.5, 0.3, 0.3, 0.4]);
+  T('spermWhale spermWhaleRest', [0.6, 0.35, 0.4, 0.4]);
+  T('whaleShark whaleSharkFeed', [0.7, 0.5, 0.15, 0.25]);
+  T('yellowfin bluefin', [1.2, 0.5, 0.15, 0.5]);
+  T('sailfish', [1.4, 0.9, 0.2, 0.5]);
+  T('greenTurtle loggerhead hawksbill turtleRest', [1.4, 0.12, 0.05, 0.45]);
+  T('manta mantaFeed eagleRay batRay devilRay southernRay bluespotRay',[1.2, 0.3, 0.1, 0.75]);
+  T('mola', [0.9, 0.15, 0.05, 0.2]);
+  T('saltwaterCroc', [1.0, 0.8, 0.1, 0.1]);
+  T('giantSquid', [1.2, 0.3, 0.1, 0.3]);
+  T('wfTiger wfWhitetip', [1.5, 2.0, 0.3, 0.4]); // --- whalefall --- (copies of sharks made above: same turning as their kind)
+  T('wfWhite', [1.3, 1.4, 0.25, 0.35]);
+  T('wfSleeper', [1.2, 1.4, 0.2, 0.2]);
+  T('wfHagfish', [3.0, 3.0, 0.5, 0.2]);
+}

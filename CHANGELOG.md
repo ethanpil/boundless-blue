@@ -9,6 +9,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 - New zone: **Deep Whale Fall**. The same idea at 1,675 m off southern California, lit by the lamps: Pacific sleeper sharks, hundreds of hagfish, rattails and crabs; sometimes an old skeleton with bacterial mats and bone-eating worms. Facts and sources for both are in `docs/SOURCES.md`.
 
 ### Changed
+- Big animals swim through their turns instead of rotating like rigid models. The spine bends along an arc with the head leading and the tail following; otters, seals, sea lions and sharks curl into a deep C, while whales, whale sharks, tuna, turtles and rays turn in wide banked arcs. No turning on the spot and no sliding sideways.
 - Sound: the hissy, static-like bed is replaced by a muffled, liquid one, like a head under water with plugged ears: a low rumble, sloshing surges, and bubble trails and glugs in every zone. In the reef, energy above 2 kHz is 34 dB lower at about the same loudness.
 - Animal calls are louder (4-10 dB), heard from further away and more frequent, and up to five nearby animals call on their own timers. 18 new voices, each from a published description: sea otters cracking shells on a stone, harbour, harp and ringed seals, bowhead, manatee, dugong, goliath grouper and giant sea bass booms, clownfish, damselfish, garibaldi, grunts, parrotfish crunching coral, spiny lobster rasps, seahorse clicks, kelp rockfish, and a night chorus of sweepers on reefs.
 

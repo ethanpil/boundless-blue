@@ -42,14 +42,18 @@ function obsBox(o) {
 
 const TAU = Math.PI * 2, PH_WRAP = 200 * Math.PI;
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
-// Maximum path curvature x body length by motion mode (fish / sharks, cetaceans, rays, flipper swimmers, squid, mola):
-// a whale needs over a body length of radius to turn, a turtle or a sea lion much less.
-const KAP = { 0: 1.2, 1: 0.8, 2: 1.2, 3: 1.6, 5: 1.5, 7: 1.0 };
+// Turning of big swimmers by motion mode (fish / sharks, cetaceans, rays, flipper swimmers, squid, mola), unless the
+// species sets mot.turn (species.js): [max path curvature x body length, max lateral body curvature x length (how far
+// the spine bends), max dorso-ventral arch x length, bank at the tightest turn (rad)]. A stiff animal turns wider
+// than a flexible one and turns on its fins and bank more than with its body.
+const TURN = { 0: [1.6, 1.8, 0.3, 0.35], 1: [1.2, 0.9, 0.8, 0.45], 2: [1.2, 0.3, 0.1, 0.7], 3: [1.6, 0.4, 0.3, 0.6], 5: [1.5, 0.4, 0.1, 0.3], 7: [1.0, 0.2, 0.05, 0.2] };
+const TURN0 = [1.2, 1.0, 0.2, 0.35];
 // events 2026-11: brooding octopus (centre height over the rock x size, curl of the arms over the body), resting
 // sperm whales' tilt from horizontal (rad; nearly upright)
 const BROOD_LIFT = 0.33, BROOD_CURL = 0.32, HANG_TH = 1.42;
-// Turn bend for the shader: front (head) and rear (tail) bend, each in -0.5..0.5, packed into one float (exact in fp32)
-const packBend = (b, t) => Math.round((clamp(b, -0.5, 0.5) + 0.5) * 1000) * 1024 + Math.round((clamp(t, -0.5, 0.5) + 0.5) * 1000);
+// Turn bend for the shader (crBend): front (head) and rear (tail) curvature x body length in -pi..pi and the
+// dorso-ventral arch in -2..2, 8 bits each in one float (exact in fp32; steps of pi / 127 and 2 / 127, zero exact)
+const packBend = (b, t, v) => (Math.round(clamp(b * 40.4254, -127, 127)) + 127) * 65536 + (Math.round(clamp(t * 40.4254, -127, 127)) + 127) * 256 + Math.round(clamp(v * 63.5, -127, 127)) + 127;
 
 // ---------- LRU geometry cache (CPU arrays persist; GPU buffers freed when unused) ----------
 const geoKey = (sp, lod) => (lod ? sp.key + '|' + lod : sp.key);
@@ -234,6 +238,7 @@ export class Encounter {
     this.BEND = new Float32Array(n); this.BANK = new Float32Array(n);
     // smooth turning (big animals, see _orient): rear-body bend (lags the front), yaw / pitch rate, heading angle
     this.BT = new Float32Array(n); this.YR = new Float32Array(n); this.PR = new Float32Array(n); this.PSI = new Float32Array(n);
+    this.BV = new Float32Array(n); // dorso-ventral arch (otters, seals, dolphins pitching through a dive)
     this.FLO = new Float32Array(n).fill(-1e4); this.CEI = new Float32Array(n).fill(1e4);
     this.OTP = new Float32Array(n).fill(-1e4); // soft floor over low rocks / coral heads under the agent (obstacle tops)
     this.EXP = kindNeedsExpose(this.kind) ? new Float32Array(n * 2) : null;
@@ -309,11 +314,13 @@ export class Encounter {
     // head to tail (_orient). Small fish keep the quick direct response.
     const swimPlan = sp.plan === 'fish' || sp.plan === 'squid';
     this.smooth = swimPlan && this.elong && this.baseSize >= 0.45 && this.kind !== 'bait' && this.kind !== 'attach' && this.kind !== 'walk';
-    this.kap = mot.mode === 1 && this.baseSize < 4 ? 1.4 : KAP[mot.mode] ?? 1.2; // max curvature x body length (dolphins: agile)
+    const turn = mot.turn || TURN[mot.mode] || TURN0;
+    this.kap = turn[0]; this.flex = turn[1]; this.flexV = turn[2]; this.bankMax = turn[3];
     this.wn = 1.8;                                     // heading spring natural frequency x sqrt(body length)
-    this.w0 = 0.12;                                    // yaw rate (x sqrt length) available with no way on (fin sculling)
+    // yaw rate (x sqrt length) available with no way on: fin sculling for small fish and hoverers; a big swimmer has
+    // next to none (it turned on the spot like a model on a turntable), it swims round in an arc
+    this.w0 = this.baseSize < 1 || this.kind === 'hover' ? 0.12 : 0.03;
     this.slip = clamp(2 + this.baseSize * 0.6, 2.5, 5); // sideslip decay rate (1/s): the body leads, the path follows
-    this.kBank = mot.mode === 2 || mot.mode === 3 ? 0.7 : mot.mode === 1 ? 0.45 : 0.35;
     this.SPIN = beh.corkscrew || sp.mot.mode === 2 ? new Float32Array(n) : null; // barrel rolls / corkscrews
     this.worstPen = 0; this.regCount = -1; this.simSkip = 0; this.simAcc = 0;
     this.event = null; this.threats = null; this.nThreat = 0; this.lookCam = 0;
@@ -903,7 +910,9 @@ export class Encounter {
       }
     }
     P[i3] = tx; P[i3 + 1] = ty; P[i3 + 2] = tz;
-    this.V[i3] = this.Cvx; this.V[i3 + 1] = this.Cvy; this.V[i3 + 2] = this.Cvz;
+    if (this.smooth) { // a big swimmer keeps swimming where it points (it would crab back into line), and turns from there
+      const F = this.F, v = h3(this.Cvx, this.Cvy, this.Cvz); this.V[i3] = F[i3] * v; this.V[i3 + 1] = F[i3 + 1] * v; this.V[i3 + 2] = F[i3 + 2] * v;
+    } else { this.V[i3] = this.Cvx; this.V[i3 + 1] = this.Cvy; this.V[i3 + 2] = this.Cvz; }
     this.CLR[i] = 0; this.TCL[i] = 0; this.STL[i] = 0;
     this._band(i);
     return true;
@@ -1263,7 +1272,8 @@ export class Encounter {
       const ev = this.event; ev.t += dt;
       const ds = this.ls - c.s, side = ev.side, camL = c.x - sh.pathX(this.ls), camH = c.y - sh.pathY(this.ls);
       // pass 2.5-4 m from the lens (groups: their nearest members), never inside the camera bubble
-      const L = Math.max(ev.lat ?? 2.2, this.hardR + 0.4) + (this.R ? this.R * 0.6 : 0);
+      // (outside the hard bubble, hardR + 0.2 length: on its edge a big animal was shoved sideways all along the pass)
+      const L = Math.max(ev.lat ?? 2.2, this.hardR + this.baseSize * 0.2 + 0.4) + (this.R ? this.R * 0.6 : 0);
       if (ev.ph === 0) {
         const want = c.speed + clamp((7 - ds) * 0.35, -1.5, 1.2);
         this.vs += (want - this.vs) * Math.min(1, dt * 0.8);
@@ -1484,7 +1494,8 @@ export class Encounter {
     const sh = this.sys.shape, az = this.anchorZ;
     const kind = this.kind;
     const cx = c.x, cy = c.y, cz = c.z - az;
-    const px2 = cx + c.vx * 1.2, py2 = cy, pz2 = cz + c.vz * 1.2;
+    // (camera avoidance looks further ahead for a big swimmer: it turns away rather than being shoved by the bubble)
+    const steered = this.smooth && kind !== 'mill', ta = steered ? 1.2 + 0.25 * this.baseSize : 1.2, px2 = cx + c.vx * ta, py2 = cy, pz2 = cz + c.vz * ta;
     const sgx = px2 - cx, sgz = pz2 - cz, sgl = sgx * sgx + sgz * sgz;
     const spd0 = this.speed;
     const maxS = flock ? Math.max(spd0 * 2.2, h2(this.Cvx, this.Cvz) * 1.5 + 0.5) : spd0 * 4 + 0.6;
@@ -1644,7 +1655,7 @@ export class Encounter {
       }
       if (ed < avR && ed > 1e-4 && i !== this.inspect) {
         // (a big animal mostly turns away: its push only sets the direction it turns to, see the sideslip below)
-        const push = (avR - ed) / avR * (2.5 + spd0 * 2) * (flock ? 1.6 : 2.4) * (1 + STL[i]) * (this.smooth ? 0.4 : 1);
+        const push = (avR - ed) / avR * (2.5 + spd0 * 2) * (flock ? 1.6 : 2.4) * (1 + STL[i]) * (steered ? 0.8 : this.smooth ? 0.4 : 1);
         dvx += ex / ed * push; dvy += ey / ed * push * 0.7; dvz += ez / ed * push;
         if (ed < avR * 0.75 && this.baseSize < 2) STL[i] = 1; // startle: a quick dart away
       }
@@ -1662,19 +1673,28 @@ export class Encounter {
       if (this.smooth) {
         // A big swimmer is steered like a body, not a point: its heading turns toward the wanted velocity (slot, wander,
         // camera, rocks) at its own pace, it only drives itself along that heading, and sideways motion (pushes) dies
-        // away. With the wanted direction behind it, it keeps way on and swims round in an arc (pressed by the camera it
-        // may slow almost to a stop and turn on the spot). Dodging a rock or a hunter it may still slip sideways.
+        // away. With the wanted direction behind it, it keeps way on and swims round in an arc (it never turns on the
+        // spot).
         // (a hunter's lunge is driven along its heading too, startled or not: it faces where it goes, slows and turns
         // round once past the ball instead of sliding back through it; strikes had 95th-percentile sideslip of 120-140 deg)
-        const free = kind !== 'mill' && OA[i3] === 0 && OA[i3 + 1] === 0 && OA[i3 + 2] === 0 && (STL[i] < 0.3 || strike);
-        if (free) {
-          const cs = h3(V[i3], V[i3 + 1], V[i3 + 2]), dl2 = h3(dvx, dvy, dvz) || 1, k = cs / dl2; // wanted direction, current speed
+        // Dodging a rock or startled, it still turns and swims where its nose points (it used to take the dodge as a
+        // sideways velocity and crab, the heading catching up later); a rock dodge may add a little sideways slip.
+        if (kind !== 'mill') {
+          const oa = OA[i3] !== 0 || OA[i3 + 1] !== 0 || OA[i3 + 2] !== 0;
+          const cs = Math.max(h3(V[i3], V[i3 + 1], V[i3 + 2]), STL[i] * this.speed), dl2 = h3(dvx, dvy, dvz) || 1, k = cs / dl2; // wanted direction, current speed
+          const oh = h2(f0x, f0z) || 1, ox = f0x / oh, oz = f0z / oh;
           this._orientFor(i, dts, dvx * k + V[i3] * 0.2, dvy * k + V[i3 + 1] * 0.2, dvz * k + V[i3 + 2] * 0.2, dt, kind);
           const fh = h2(F[i3], F[i3 + 2]) || 1, ux = F[i3] / fh, uz = F[i3 + 2] / fh;
-          let fw = V[i3] * ux + V[i3 + 2] * uz, lt = V[i3] * uz - V[i3 + 2] * ux;
-          const want = Math.max(dvx * ux + dvz * uz, Math.min(h2(dvx, dvz), this.speed) * 0.45 * (ed < avR ? 0.2 + 0.8 * ed / avR : 1));
+          // the way on turns with the body (the turn is the fins' and the body's lateral force), it is not left behind as
+          // sideways drift: at 35 deg/s that alone was ~10 deg of sideslip
+          const rc = ux * ox + uz * oz, rsn = ux * oz - uz * ox, wx = V[i3] * rc + V[i3 + 2] * rsn, wz = V[i3 + 2] * rc - V[i3] * rsn;
+          let fw = wx * ux + wz * uz, lt = wx * uz - wz * ux;
+          // (it keeps way on while it turns: without it a big animal cannot turn at all, and idling beside the camera it was
+          // shoved sideways by the camera bubble)
+          const want = Math.max(dvx * ux + dvz * uz, (ed < avR ? this.speed * (0.6 + 0.4 * ed / avR) : Math.min(h2(dvx, dvz), this.speed)) * 0.65);
           fw += (want - fw) * ka2;
           lt *= Math.exp(-this.slip * dts);
+          if (oa) lt += ((dvx * uz - dvz * ux) * 0.35 - lt) * ka2;
           vx = ux * fw + uz * lt; vz = uz * fw - ux * lt;
         } else this._orientFor(i, dts, vx, vy, vz, dt, kind);
       }
@@ -1688,7 +1708,7 @@ export class Encounter {
       }
       // hard bubble
       qx = nx - cx; qz = nz - cz;
-      tq = sgl > 1e-6 ? clamp((qx * sgx + qz * sgz) / sgl, 0, 1) * 0.3 : 0;
+      tq = sgl > 1e-6 ? clamp((qx * sgx + qz * sgz) / sgl, 0, 1) * (0.36 / ta) : 0;
       ex = nx - (cx + sgx * tq); ey = ny - cy; ez = nz - (cz + sgz * tq);
       ed = h3(ex, ey, ez);
       const hr = this.hardR + SZ[i] * 0.2;
@@ -1778,7 +1798,7 @@ export class Encounter {
     P[i3] = B[o] + r * sp * hx; P[i3 + 1] = B[o + 1] + r * (1 - cp); P[i3 + 2] = B[o + 2] + r * sp * hz;
     const vw = r * w; V[i3] = vw * cp * hx; V[i3 + 1] = vw * sp; V[i3 + 2] = vw * cp * hz;
     F[i3] = cp * hx; F[i3 + 1] = sp; F[i3 + 2] = cp * hz;
-    this.BANK[i] = 0; this.BEND[i] *= 0.9; this.BT[i] *= 0.9;
+    this.BANK[i] = 0; this.BEND[i] *= 0.9; this.BT[i] *= 0.9; this.BV[i] *= 0.9;
     const m = this.mot, freq = ((m.beat || 0) * vw / this.SZ[i] + (m.idle || 0.5)) * this.FQ[i];
     let p2 = this.PH[i] + TAU * freq * dt; if (p2 > PH_WRAP) p2 -= PH_WRAP; this.PH[i] = p2; this.BF[i] = freq;
     this.AMP[i] += (1.1 - this.AMP[i]) * Math.min(1, dt * 2);
@@ -1817,15 +1837,17 @@ export class Encounter {
       spd = h3(vx, vy, vz);
     }
     const ofx = F[i3], ofz = F[i3 + 2], sz = this.SZ[i];
-    let yaw;
+    let yaw, lead = 0;
     if (this.smooth) {
       // Heading as yaw / pitch angles driven by critically damped springs (eased start and stop, no overshoot), the
-      // rates capped by a minimum turning radius: wMax = kappa v / L + w0 (a big animal can hardly turn without way on).
-      // Whatever moves the body (separation, rocks, terrain, the camera bubble) changes its velocity, never its heading
-      // directly, so nothing snaps it round.
+      // rates capped by a minimum turning radius: wMax = kappa v / L + w0 (a big animal can hardly turn without way on;
+      // a startled one turns faster). Whatever moves the body (separation, rocks, terrain, the camera bubble) changes
+      // its velocity, never its heading directly, so nothing snaps it round.
       const fx = F[i3], fy = F[i3 + 1], fz = F[i3 + 2], hf = h2(fx, fz), rs = 1 / Math.sqrt(sz);
       let psi = hf > 0.15 ? Math.atan2(fx, fz) : this.PSI[i], th = Math.asin(clamp(fy, -1, 1));
-      const wn = this.wn * rs, wMax = Math.min(this.turnRate, this.kap * spd / sz + this.w0 * rs), pMax = wMax * 1.2 + 0.05;
+      // (the yaw radius is horizontal: rising or sinking on the spot is no way on for a turn)
+      const hsp = Math.min(spd, h2(this.V[i3], this.V[i3 + 2]) + 0.05);
+      const wn = this.wn * rs, wMax = Math.min(this.turnRate * (1 + this.STL[i]), this.kap * hsp / sz + this.w0 * rs), pMax = Math.min(this.turnRate, this.kap * spd / sz + 0.12 * rs) * 1.2 + 0.05; // (pitch: it levels out on its fins when slow)
       const mp = Math.min(this.maxPitch, 1);
       let yr = this.YR[i], pr = this.PR[i], thD = this.kind === 'hover' ? th : 0, dpsi = 0;
       if (spd > 0.04) {
@@ -1841,7 +1863,7 @@ export class Encounter {
       const ct = Math.cos(th);
       F[i3] = ct * Math.sin(psi); F[i3 + 1] = Math.sin(th); F[i3 + 2] = ct * Math.cos(psi);
       this.YR[i] = yr; this.PR[i] = pr; this.PSI[i] = psi;
-      yaw = yr;
+      yaw = yr; lead = dpsi - yr * dt;
     } else {
       if (spd > 0.04) {
         const k = Math.min(1, this.turnRate * dt * clamp(spd / (this.speed + 0.1), 0.3, 1.5));
@@ -1857,27 +1879,44 @@ export class Encounter {
       const h = h2(F[i3], F[i3 + 2]) || 1;
       yaw = ((F[i3] - ofx) * (F[i3 + 2] / h) + (F[i3 + 2] - ofz) * (-F[i3] / h)) / Math.max(dt, 1e-3);
     }
-    // body curvature follows the path: bend = kappa * L / 2 (unit-length body coordinates). The head takes it up
-    // first and the rear follows about as long as the body takes to swim through the bend (BT, shader: head leads)
-    const m = this.mot;
-    const bt = clamp((yaw / Math.max(spd, 0.3)) * sz * 0.5, -0.25, 0.25) * (m.mode === 1 ? 0.6 : 1);
-    this.BEND[i] += (bt - this.BEND[i]) * Math.min(1, dt * 4);
-    this.BT[i] += (this.BEND[i] - this.BT[i]) * Math.min(1, dt / clamp(0.35 * sz / Math.max(spd, 0.3), 0.12, 2.5));
+    // Body curvature follows the path (curvature x length = yaw rate / speed x L; unit-length body coordinates). The
+    // head takes it up first and the rear follows about as long as the body takes to swim through the bend (BT, shader
+    // crBend). Big swimmers bend as far as the species can (mot.turn): a stiff one bends less than its path curves (its
+    // fins and bank do the rest), and its head already looks toward where it is going while the body still has to turn
+    // (lead: the heading still to go). Pitching through a dive arches the back (BV).
+    const m = this.mot, smooth = this.smooth;
+    let bt, bv = 0, tf = 0;
+    if (smooth) {
+      // (the steady bend stays within 3/4 of the range, the head's lead into a new turn takes the rest and fades once the
+      // turn is under way; an animal nearly stopped is not held in a deep C)
+      const sp = Math.max(spd, 0.2 + 0.3 * this.speed), fl = this.flex, up = Math.cos(this.BANK[i] - this.bankBase); // (rolled over: sides swap)
+      tf = clamp(yaw * sz / (this.kap * Math.max(spd, 0.2)), -1, 1) * Math.min(1, spd / (0.4 * this.speed + 0.1)); // share of the tightest turn
+      bt = clamp(clamp(yaw / sp * sz * Math.min(1, fl / this.kap), -0.75 * fl, 0.75 * fl) + clamp(lead * 0.5, -0.4, 0.4) * fl * (1 - Math.abs(tf)), -fl, fl) * up;
+      bv = clamp(this.PR[i] / sp * sz, -this.flexV, this.flexV) * up;
+    } else bt = clamp((yaw / Math.max(spd, 0.3)) * sz, -0.5, 0.5) * (m.mode === 1 ? 0.6 : 1);
+    const rb = smooth ? clamp(5 / Math.sqrt(sz), 1, 5) : 4; // (a whale's body takes a turn up over a second or so)
+    this.BEND[i] += (bt - this.BEND[i]) * Math.min(1, dt * rb);
+    this.BT[i] += (this.BEND[i] - this.BT[i]) * Math.min(1, dt / clamp(0.4 * sz / Math.max(spd, 0.3), 0.12, 3));
+    this.BV[i] += (bv - this.BV[i]) * Math.min(1, dt * rb * 0.7);
     if (this.browse && spd < 0.3) { // goatfish & co: nose down, rooting in the sand
       F[i3 + 1] += (-0.5 - F[i3 + 1]) * Math.min(1, dt * 1.5);
       const hh = h2(F[i3], F[i3 + 2]) || 1, sc2 = Math.sqrt(Math.max(0, 1 - F[i3 + 1] * F[i3 + 1])) / hh; F[i3] *= sc2; F[i3 + 2] *= sc2;
     }
-    const bankT = this.bankBase + clamp(yaw * spd * (this.smooth ? this.kBank : 0.35), -0.6, 0.6) * (this.baseSize > 4 ? 0.5 : 1); // rolled into the turn
-    this.BANK[i] += (bankT - this.BANK[i]) * Math.min(1, dt * 2);
-    const freq = ((m.beat || 0) * spd / sz + (m.idle || 0.5) * (0.85 + 0.3 * this.RP[i * 4 + 2])) * this.FQ[i];
+    // rolled into the turn (big swimmers: by the turn's sideways acceleration, up to their bank at the tightest turn at
+    // cruising speed, eased in slowly by the big ones; a slow turn near the sand hardly rolls)
+    const bankT = this.bankBase + (smooth ? this.bankMax * clamp(yaw * spd * sz / (this.kap * this.speed * this.speed + 0.01), -1, 1) : clamp(yaw * spd * 0.35, -0.6, 0.6));
+    this.BANK[i] += (bankT - this.BANK[i]) * Math.min(1, dt * (smooth ? clamp(4 / Math.sqrt(sz), 0.6, 2) : 2));
+    // the tail keeps beating through a turn (it powers it), it does not freeze into a rigid glide
+    const tfa = Math.abs(tf), sw = spd + (smooth ? Math.abs(yaw) * sz * 0.3 : 0);
+    const freq = ((m.beat || 0) * sw / sz + (m.idle || 0.5) * (0.85 + 0.3 * this.RP[i * 4 + 2])) * this.FQ[i];
     let ph = this.PH[i] + TAU * freq * dtPh; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph; this.BF[i] = freq;
     let at = clamp(0.3 + 0.75 * spd / (this.speed + 0.15), 0.3, 1.6);
-    // gliding phases between bursts of propulsion (rays, sharks, turtles, larger fish)
-    if (this.glides && this.baseSize > 0.35 && this.STL[i] < 0.1) {
+    // gliding phases between bursts of propulsion (rays, sharks, turtles, larger fish), not while turning hard
+    if (this.glides && this.baseSize > 0.35 && this.STL[i] < 0.1 && tfa < 0.3) {
       const g = Math.sin(this.age * 0.17 + this.RP[i * 4] * 20) + 0.5 * Math.sin(this.age * 0.41 + this.RP[i * 4 + 1] * 9);
       if (g > 0.7) at *= 0.25;
     }
-    at = Math.max(at, this.STL[i] * 1.6);
+    at = Math.max(at, this.STL[i] * 1.6, smooth && tfa > 0.05 ? 0.4 + 0.6 * tfa : 0);
     this.AMP[i] += (at - this.AMP[i]) * Math.min(1, dt * 1.5);
   }
 
@@ -1929,6 +1968,7 @@ export class Encounter {
       if (this.smooth) { // turn first, then glide where the body points (rays and sharks don't slide sideways off the sand)
         const cs = h3(V[i3], V[i3 + 1], V[i3 + 2]), dl2 = h3(dvx, dvy, dvz) || 1, k = Math.max(cs, 0.05) / dl2;
         this._orient(i, dt, dvx * k, dvy * k, dvz * k);
+        const hb = (py - fl) / (this.SZ[i] * 0.4); if (hb < 1) this.BANK[i] *= Math.max(0, hb); // (no fin tip into the sand)
         const fh = h2(F[i3], F[i3 + 2]) || 1, ux = F[i3] / fh, uz = F[i3 + 2] / fh;
         let fw = V[i3] * ux + V[i3 + 2] * uz, lt = V[i3] * uz - V[i3 + 2] * ux;
         fw += (Math.max(dvx * ux + dvz * uz, Math.min(h2(dvx, dvz), this.speed) * 0.45) - fw) * ka2;
@@ -2242,7 +2282,7 @@ export class Encounter {
       P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
       const psi = SL[o + 3] + 0.12 * Math.sin(a * 0.011 + RP[o + 3] * TAU), th = HANG_TH + 0.025 * Math.sin(a * 0.043 + RP[o] * 9), ct = Math.cos(th);
       F[i3] = ct * Math.sin(psi); F[i3 + 1] = Math.sin(th); F[i3 + 2] = ct * Math.cos(psi);
-      this.PSI[i] = psi; this.BANK[i] = 0; this.BEND[i] *= 1 - k; this.BT[i] *= 1 - k;
+      this.PSI[i] = psi; this.BANK[i] = 0; this.BEND[i] *= 1 - k; this.BT[i] *= 1 - k; this.BV[i] *= 1 - k;
       let ph = this.PH[i] + TAU * 0.05 * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph; this.BF[i] = 0.05;
       this.AMP[i] += (0.06 - this.AMP[i]) * k;
     }
@@ -2585,7 +2625,11 @@ export class Encounter {
       } else {
         swim = true;
         const vn = (V[i3] * dx + V[i3 + 1] * dy + V[i3 + 2] * dz) / dl;
-        if (vn < 0) { V[i3] -= dx / dl * vn; V[i3 + 1] -= dy / dl * vn; V[i3 + 2] -= dz / dl * vn; }
+        if (vn < 0) {
+          // a big swimmer slows down instead (dropping the part into the neighbour left its way on sideways: it crabbed)
+          if (this.smooth && k !== 'mill') { const f = Math.max(0, 1 + vn / (h3(V[i3], V[i3 + 1], V[i3 + 2]) || 1)); V[i3] *= f; V[i3 + 1] *= f; V[i3 + 2] *= f; }
+          else { V[i3] -= dx / dl * vn; V[i3 + 1] -= dy / dl * vn; V[i3 + 2] -= dz / dl * vn; }
+        }
         this._slotShift(i, dx, dy, dz);
         const ex = P[i3] - cx, ey = P[i3 + 1] - cy, ez = P[i3 + 2] - cz, ed = h3(ex, ey, ez), hr = this.hardR + this.SZ[i] * 0.2;
         if (ed < hr && ed > 1e-4) { P[i3] = cx + ex / ed * hr; P[i3 + 1] = cy + ey / ed * hr; P[i3 + 2] = cz + ez / ed * hr; dl += hr - ed; }
@@ -2864,7 +2908,9 @@ export class Encounter {
         V[i3] += (vx - V[i3]) * kv; V[i3 + 1] = 0; V[i3 + 2] += (vz - V[i3 + 2]) * kv;
         P[i3] = px + V[i3] * dt; P[i3 + 2] = pz + V[i3 + 2] * dt;
         P[i3 + 1] += (top + 0.025 * Math.sin(this.age * 1.3 + RP[o + 3] * TAU) - py) * Math.min(1, dt * 3); // riding the swell
-        this.BEND[i] *= 1 - Math.min(1, dt * 2); this.BT[i] *= 1 - Math.min(1, dt * 2);
+        // turning lazily on its back it curls round with the turn (on its back the body's sides are swapped)
+        const cu = clamp(-w / 0.25 * sz, -0.6, 0.6), kc = Math.min(1, dt * 2);
+        this.BEND[i] += (cu - this.BEND[i]) * kc; this.BT[i] += (this.BEND[i] - this.BT[i]) * kc; this.BV[i] *= 1 - kc;
         const freq = (m.idle || 0.3) * 1.6 * this.FQ[i];
         let ph = this.PH[i] + TAU * freq * dt; if (ph > PH_WRAP) ph -= PH_WRAP; this.PH[i] = ph; this.BF[i] = freq;
         this.AMP[i] += (0.15 + scull * 2 - this.AMP[i]) * Math.min(1, dt);
@@ -3003,7 +3049,7 @@ export class Encounter {
         M[o + 12] = px; M[o + 13] = py; M[o + 14] = pz; M[o + 15] = 1;
       }
       const a = i * 4;
-      A[a] = this.PH[i]; A[a + 1] = this.AMP[i]; A[a + 2] = this.mot.mode === 6 ? this.BEND[i] : packBend(this.BEND[i], this.BT[i]); A[a + 3] = this.IFD ? this.fade * this.IFD[i] : this.fade;
+      A[a] = this.PH[i]; A[a + 1] = this.AMP[i]; A[a + 2] = this.mot.mode === 6 ? this.BEND[i] : packBend(this.BEND[i], this.BT[i], this.BV[i]); A[a + 3] = this.IFD ? this.fade * this.IFD[i] : this.fade;
       const px = P[i3], py = P[i3 + 1], pz = P[i3 + 2];
       if (px < mnx) mnx = px; if (px > mxx) mxx = px; if (py < mny) mny = py; if (py > mxy) mxy = py; if (pz < mnz) mnz = pz; if (pz > mxz) mxz = pz;
     }

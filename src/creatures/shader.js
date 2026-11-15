@@ -6,7 +6,7 @@
 //   aPat   pattern1 type, scale, param, pattern2 type
 //   aPat2  pattern2 scale, param, sheen (alpha for jellies), floor(glow*10)+roughness
 //   aMot   animation mode, amplitude, waves per length, envelope base
-//   aAnim  (dynamic) phase, amplitude scale, turn bend, fade
+//   aAnim  (dynamic) phase, amplitude scale, turn bend (head / tail / arch, packed), fade
 import * as THREE from 'three';
 import { applyWater } from '../water.js';
 
@@ -40,6 +40,31 @@ void crRotZ(inout vec3 p, inout vec3 n, float x0, float th) {
   n.xy = vec2(n.x * cs - n.y * sn, n.x * sn + n.y * cs);
 }
 
+// One arc of the spine: a cross-section at distance d (body lengths, + toward the tail) from the anchor, on a spine of
+// curvature k, is moved onto the arc and turned with its tangent. q = (lateral, offset along +z from its station), nq the
+// same components of the normal. Returns (lateral, z relative to the anchor). The ends curl toward +lateral for k > 0.
+vec2 crArc(vec2 q, float k, float d, inout vec2 nq) {
+  float th = k * d, s = sin(th), c = cos(th);
+  bool sm = abs(th) < 1e-3;
+  float f = sm ? 1.0 : s / th, g = sm ? 0.5 * th : (1.0 - c) / th;
+  nq = vec2(c * nq.x - s * nq.y, s * nq.x + c * nq.y);
+  return vec2(d * g + c * q.x - s * q.y, -d * f + s * q.x + c * q.y);
+}
+// Turn bend (encounter.js packs it): the spine follows the path through a turn instead of the body yawing as a rigid
+// rod. kH / kT: lateral curvature x body length of the front / rear (the rear lags, so the bend runs from the head down
+// the body and the head looks into the turn first), kV: dorso-ventral arch (otters, seals, dolphins). Anchored at 0.4 of
+// the length (about where the body pivots); beyond the tail root (tt > 1) the fins carry on straight.
+void crBend(inout vec3 p, inout vec3 n, float tt0, float kH, float kT, float kV) {
+  float ts = clamp(tt0, 0.0, 1.0), d = ts - 0.4;
+  float zo = p.z - (0.5 - ts);   // offset of the vertex from its spine station (snout tip, fins past the tail root)
+  if (kV != 0.0) {
+    vec2 nq = n.yz; vec2 r = crArc(vec2(p.y, zo), kV, d, nq);
+    p.y = r.x; n.yz = nq; zo = r.y + d;
+  }
+  vec2 nq = n.xz; vec2 r = crArc(vec2(p.x, zo), d < 0.0 ? kH : kT, d, nq);
+  p.x = r.x; p.z = 0.1 + r.y; n.xz = nq;
+}
+
 void crDeform(inout vec3 p, inout vec3 n) {
   float mode = aMot.x;
   float part = aG.x;
@@ -48,11 +73,14 @@ void crDeform(inout vec3 p, inout vec3 n) {
   float K = aMot.z * 6.2831853;
   float c0 = aMot.w;
   float tt = clamp(0.5 - p.z, 0.0, 1.4);
-  // turn bend: head (front) and tail (rear) curvature packed by encounter.js (the rear lags, so a turn runs from the
-  // head down the body); the octopus passes its jet factor unpacked
-  float bend = aAnim.z, bendT = aAnim.z;
-  if (mode < 5.5 || mode > 6.5) { float bq = floor(aAnim.z / 1024.0); bend = bq * 0.001 - 0.5; bendT = (aAnim.z - bq * 1024.0) * 0.001 - 0.5; }
-  float bnd = mix(bend, bendT, smoothstep(0.3, 0.95, tt));
+  float tt0 = 0.5 - p.z;
+  // turn bend: head and tail curvature and the arch, 8 bits each (see packBend in encounter.js); the octopus passes
+  // its jet factor unpacked
+  float bend = aAnim.z, bendT = 0.0, bendV = 0.0;
+  if (mode < 5.5 || mode > 6.5) {
+    float q = aAnim.z, qh = floor(q / 65536.0), qt = floor((q - qh * 65536.0) / 256.0), qv = q - qh * 65536.0 - qt * 256.0;
+    bend = (qh - 127.0) * 0.0247369; bendT = (qt - 127.0) * 0.0247369; bendV = (qv - 127.0) * 0.015748;
+  }
   bool isMedian = part > 0.5 && part < 1.5;
   bool isPaired = part > 1.5 && part < 2.5;
   bool isFlipper = part > 6.5 && part < 7.5;
@@ -63,12 +91,11 @@ void crDeform(inout vec3 p, inout vec3 n) {
     float denv = 2.0 * (1.0 - c0) * tt;
     float arg = ph - K * tt;
     float s = sin(arg), c = cos(arg);
-    float tb = tt - 0.3;
-    p.x += A * env * s + bnd * tb * tb;
-    n.z += (A * (denv * s - env * K * c) + 2.0 * bnd * tb) * n.x;
+    p.x += A * env * s;
+    n.z += A * (denv * s - env * K * c) * n.x;
     if (isPaired) p.y += aG.w * 0.035 * sin(ph * 0.7 + 1.3);
     if (isMedian) p.x += aG.w * 0.012 * sin(ph * 1.7 - aG.z * 6.0);
-    if (isFlipper) crRotZ(p, n, aG.z, 0.25 * sin(ph * 0.5) * sign(p.x));
+    if (isFlipper) crRotZ(p, n, aG.z, 0.25 * sin(ph * 0.5) * sign(p.x) - 0.3 * clamp(bend, -1.0, 1.0));
   } else if (mode < 1.5) {
     // vertical wave (cetaceans, sirenians)
     float env = c0 + (1.0 - c0) * tt * tt;
@@ -77,10 +104,8 @@ void crDeform(inout vec3 p, inout vec3 n) {
     float s = sin(arg), c = cos(arg);
     p.y += A * env * s;
     n.z += A * (denv * s - env * K * c) * n.y;
-    float tb = tt - 0.35;
-    p.x += bnd * tb * tb;
-    n.z += 2.0 * bnd * tb * n.x;
-    if (isFlipper) crRotZ(p, n, aG.z, (0.12 * sin(ph * 0.5 + 0.7) - 0.05) * sign(p.x));
+    // flippers steer: tilted against the turn on top of their slow stroke
+    if (isFlipper) crRotZ(p, n, aG.z, (0.12 * sin(ph * 0.5 + 0.7) - 0.05) * sign(p.x) - 0.6 * clamp(bend, -0.8, 0.8));
   } else if (mode < 2.5) {
     // rays: a travelling wave runs front-to-back along each pectoral fin (leading edge leads, trailing
     // edge lags), flex grows smoothly toward the tips; the central disc (half-width c0) stays level.
@@ -92,16 +117,13 @@ void crDeform(inout vec3 p, inout vec3 n) {
     n.x -= A * (df * s - 2.0 * f * c) * sign(p.x) * n.y;
     n.z -= A * f * c * K * n.y;
     float tail = smoothstep(0.35, 1.0, tt);
-    float tb = tt - 0.3;
-    p.x += tail * 0.02 * sin(ph * 0.5 - tt * 6.0) + bnd * tb * tb;
+    p.x += tail * 0.02 * sin(ph * 0.5 - tt * 6.0);
   } else if (mode < 3.5) {
-    // flipper strokes (turtles, penguins, sea lions)
-    float tb = tt - 0.4;
-    p.x += bnd * tb * tb;
+    // flipper strokes (turtles, penguins, sea lions); the stroke leans against the turn
     p.y += 0.006 * sin(ph * 2.0 + 1.0);
     if (isFlipper) {
       float sd = sign(p.x);
-      crRotZ(p, n, aG.z, A * sin(ph) * sd - 0.1 * sd);
+      crRotZ(p, n, aG.z, A * sin(ph) * sd - 0.1 * sd - 0.5 * clamp(bend, -0.8, 0.8));
       p.z += abs(p.x - aG.z) * 0.3 * aMot.y * cos(ph);
     }
     if (isPaired) p.y += aG.w * 0.03 * sin(ph + 1.5);
@@ -136,8 +158,6 @@ void crDeform(inout vec3 p, inout vec3 n) {
       p.x += sin(ph * 0.6 - d * 7.0 + aG.z * 1.3) * d * 0.05;
       p.y += cos(ph * 0.5 - d * 6.0 + aG.z * 2.1) * d * 0.04;
     }
-    float tb = tt - 0.4;
-    p.x += bnd * tb * tb;
   } else if (mode < 6.5) {
     // octopus (local +y up): curling / crawling arms, breathing mantle; J = jet (arms stream behind)
     float J = clamp(bend, 0.0, 1.0);
@@ -161,8 +181,7 @@ void crDeform(inout vec3 p, inout vec3 n) {
     }
   } else if (mode < 7.5) {
     // mola: stiff body, big sculling dorsal + anal fins
-    float tb = tt - 0.4;
-    p.x += 0.012 * sin(ph) * tb + bnd * tb * tb;
+    p.x += 0.012 * sin(ph) * (tt - 0.4);
     if (isMedian) p.x += aG.w * A * sin(ph) * sign(p.y);
     if (isPaired) p.y += aG.w * 0.03 * sin(ph * 2.0);
   } else if (mode < 8.5) {
@@ -180,7 +199,7 @@ void crDeform(inout vec3 p, inout vec3 n) {
     // siphonophore: the long stem undulates slowly in 3D (lateral + vertical travelling waves, uniform along the
     // colony); the feeding tentacles trail back, sway out of phase and hook at the tips
     float arg = ph - K * tt, arg2 = ph * 0.73 - K * 0.8 * tt + 1.3;
-    p.x += A * sin(arg) + bend * (tt - 0.5) * (tt - 0.5);
+    p.x += A * sin(arg) + 0.5 * bend * (tt - 0.5) * (tt - 0.5);
     p.y += A * 0.55 * sin(arg2);
     n.z -= n.x * A * K * cos(arg) + n.y * A * 0.44 * K * cos(arg2);
     if (isArm) {
@@ -205,6 +224,8 @@ void crDeform(inout vec3 p, inout vec3 n) {
       }
     }
   }
+  // swimmers (fish, cetaceans, rays, flipper swimmers, squid, mola): the tail beat rides on the bent spine
+  if (mode < 3.5 || (mode > 4.5 && mode < 5.5) || (mode > 6.5 && mode < 7.5)) crBend(p, n, tt0, bend, bendT, bendV);
 }
 `;
 
