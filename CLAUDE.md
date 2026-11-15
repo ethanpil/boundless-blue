@@ -77,7 +77,12 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
 - **Shader warm-up** (`precompile` in main.js): compile with `post.sceneRT` bound. The scene pass draws into a linear render target, which selects other program variants (output colour space) than no target; the old boot warm-up compiled variants nothing drew. Each chunk is precompiled when built (`terrain.onBuilt`); boot and zone jumps wait until programs are ready. Otherwise each new program stalls the frame that first draws it, 0.3-2 s on an HD 4600 (ANGLE D3D11).
 - **Audio voices:** `_hold` disconnects the voice's whole output chain (`head.chain`: filter, panner, reverb send) when its source ends. Disconnecting only the head left every voice ever played wired to its bus, in the audio thread's graph.
 - **Lamp cap:** a biome's `lampMax` (blended into `P.lampMax`) caps the *auto* lamps. The bioluminescent bay uses 0.08 because lamps drown the glow. The viewer's 'on' setting overrides the cap.
-- **Audio** (`src/audio/`): procedural WebAudio only (no files). It reads `creatures.enc` internals (`sp.key`, `dist`, `bounds`, `anchorZ`, `fade`, `done`) and `surprises.active.divers`; renaming those silences the calls without throwing.
+- **Audio** (`src/audio/`): procedural WebAudio only (no files).
+  - The bed is meant to sound like a head under water with plugged ears (the viewer asked for this over accuracy): a brown-noise rumble, a gurgling `slosh` bandpass (130-500 Hz) with surges, sparse low-passed shrimp pops, bubbles in every zone (trails and low glugs, own voice cap) and a night reef `chorus`. All bed buses pass through two lowpasses (1.5 / 1.8 kHz) and a duck that dips under close calls.
+  - Do not add broadband noise above ~1 kHz to the bed: it reads as hiss or static. The old pink-noise `wash` / `surge` loops and the dense shrimp crackle (~840 snaps/s) were removed for that reason.
+  - Calls come from the nearest 5 callers (3 on low), each with its own timer; ranges and gaps per voice are in `VOICE`. Every voice in `CALLS` is a sound the species is documented to make; list its source in `docs/SOURCES.md` ("Sounds").
+  - It reads `creatures.enc` internals (`sp.key`, `dist`, `bounds`, `anchorZ`, `fade`, `done`, `uid`, `n`, `visible`) and `surprises.active.divers`; renaming those silences the calls without throwing.
+  - `_build()` closes its AudioContext if it throws; before, every later tap leaked another context.
 
 ## Agent-built subsystems (conventions to keep)
 - **Props** (`src/props/`):

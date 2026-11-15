@@ -2,6 +2,15 @@
 
 All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-11-15]
+
+### Changed
+- Sound: the hissy, static-like bed is replaced by a muffled, liquid one, like a head under water with plugged ears: a low rumble, sloshing surges, and bubble trails and glugs in every zone. In the reef, energy above 2 kHz is 34 dB lower at about the same loudness.
+- Animal calls are louder (4-10 dB), heard from further away and more frequent, and up to five nearby animals call on their own timers. 18 new voices, each from a published description: sea otters cracking shells on a stone, harbour, harp and ringed seals, bowhead, manatee, dugong, goliath grouper and giant sea bass booms, clownfish, damselfish, garibaldi, grunts, parrotfish crunching coral, spiny lobster rasps, seahorse clicks, kelp rockfish, and a night chorus of sweepers on reefs.
+
+### Fixed
+- A failed sound start leaked an audio context on every later tap.
+
 ## [2026-11-14]
 
 ### Added
