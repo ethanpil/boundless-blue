@@ -229,9 +229,13 @@ DEEP_ZONES.add('coldcoral');
 Object.assign(POI_SPECIES, { 'coral-summit': ['redfish'], 'trawl-scar': ['tusk'] });
 // --- whalefall --- the mud away from the carcass is nearly empty (a passing rattail); the carcass set piece brings the
 // scavengers (wf_feed.js)
-TABLES.whalefall = { cover: 0.8, target: 2, lat: 16, list: [['wfRattail', 2, 70], ['wfHagfish', 0.6, 120]] };
-DEEP_ZONES.add('whalefall');
-Object.assign(POI_SPECIES, { whalefall: ['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab'] });
+TABLES.whalefalldeep = { cover: 0.8, target: 2, lat: 16, list: [['wfRattail', 2, 70], ['wfHagfish', 0.6, 120]] };
+DEEP_ZONES.add('whalefalldeep');
+// the sunlit whale fall: open blue water away from the carcass (provisional cast, to be set from its sources)
+// (away from the carcass: open warm water, a passing whitetip or a few mahi-mahi)
+TABLES.whalefall = { cover: 1.4, target: 4, lat: 30, list: [['mahi', 2, 60], ['wfWhitetip', 0.8, 120]] };
+Object.assign(POI_SPECIES, { whalefall: ['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab', 'wfTiger', 'wfWhitetip', 'wfWhite', 'mahi', 'reefCrab', 'bottlenose'] });
+const WF_CAST = new Set(['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab', 'wfTiger', 'wfWhitetip', 'wfWhite', 'mahi', 'reefCrab', 'bottlenose', 'remora', 'proc:reef']); // (the guard spares these)
 const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
@@ -438,15 +442,31 @@ export class Director {
         const d = p.data || {}, fresh = d.stage === 0, sp = d.spots || [], nS = sp.length / 6;
         // a point on the mud beside the carcass, u metres along it (+ toward the head), v across (- toward the route)
         const mud = (u, v) => { const x = d.cx + u * d.ca + v * d.sa * d.side, s = d.cs + u * d.sa - v * d.ca * d.side; return { x, s, y: sh.floorAt(x, s), r: 2, type: p.type, data: null }; };
+        this.wfFeed.watch(p, WF_CAST);
+        if (!d.deep) {
+          // sunlit (Hawaii): tiger sharks and oceanic whitetips, 6 / 9 / 12 by tier (the documented maximum was 12 in the
+          // water at once, 7 whitetips and 5 tigers), 2-4 feeding at once; rarely (never on a dive's first carcass) a very
+          // large white shark among them. Mahi-mahi and smaller fish about the carcass, crabs on the sand by it, now and
+          // then a few dolphins passing (shown, not stated)
+          const ts = this.sys.tierScale, nSh = Math.round(9 * clamp(ts, 0.67, 1.34)), nT = Math.round(nSh * 5 / 12), white = !d.cam && r() < 0.18;
+          this.wfFeed.start(p, nSh, this.rng, (k) => (white && k === 1 ? 'wfWhite' : k % nSh < nT ? 'wfTiger' : 'wfWhitetip'), clamp(Math.ceil(nSh / 2.5), 3, 4), { sun: true });
+          this.spawnAt('mahi', mud(-d.L * 0.2, -4), { n: 3 + Math.floor(r() * 4) });
+          this.spawnAt('proc:reef', mud(d.L * 0.15, -1.5), { kind: 'shoal', homeY: p.y + 0.5, n: 12 + Math.floor(r() * 14), noSeek: true });
+          if (r() < 0.7) this.spawnAt('reefCrab', mud((r() - 0.5) * d.L * 0.6, -2.4 - r()), { n: 2 + Math.floor(r() * 3) });
+          if (!d.cam && r() < 0.3) this.spawnAt('bottlenose', mud(0, -12), { route: 'cross', n: 2 + Math.floor(r() * 3) });
+          return true;
+        }
         if (fresh) {
-          // hagfish at the open flank (the hundreds on it are a prop), the sharks taking turns, rattails at the ends
+          // hagfish at the open flank (the hundreds on it are a prop), the sharks feeding (two at once at times),
+          // rattails hovering by the flank
           for (let k = 0; k < 2 && nS; k++) {
             const q = Math.floor((k + 0.3 + 0.4 * r()) / 2 * nS) * 6;
             this.spawnAt('wfHagfish', { x: sp[q], y: sp[q + 1], s: sp[q + 2], r: 1.5, type: p.type, data: null }, { kind: 'hover', homeY: sp[q + 1], n: 12 + Math.floor(r() * 12), noSeek: true });
           }
           // (1-3 sharks; the carcass a dive starts at always has two or three at it)
-          this.wfFeed.start(p, d.cam ? 2 + (r() < 0.5 ? 1 : 0) : 1 + Math.floor(r() * (d.E > 0.75 ? 2 : 3)), this.rng);
-          for (let k = 0, n = Math.floor(r() * 3); k < n; k++) this.spawnAt('wfRattail', mud((k ? 1 : -1) * (d.L / 2 + 1.5), -1.5 - r() * 2), { kind: 'hover', n: 1 });
+          const nSh = d.cam ? 2 + (r() < 0.5 ? 1 : 0) : 1 + Math.floor(r() * (d.E > 0.75 ? 2 : 3));
+          this.wfFeed.start(p, nSh, this.rng, 'wfSleeper', nSh > 2 ? 2 : 1);
+          for (let k = 0, n = 1 + Math.floor(r() * 2); k < n; k++) this.spawnAt('wfRattail', mud((k ? 0.25 : -0.2) * d.L + (r() - 0.5) * 3, -2.6 - r() * 1.5), { kind: 'hover', n: 1 });
           if (r() < 0.7) this.spawnAt('wfCrab', mud((r() - 0.5) * d.L * 0.6, -2.4 - r()), { n: 1 + Math.floor(r() * 3) });
         } else {
           // the old skeleton: a few hagfish still about, crabs on the bones, a rattail
@@ -828,9 +848,9 @@ export class Director {
     return g ? g.seed >>> 0 : 1;
   }
 
-  spawnOne(c, near, allowHl, prime = false, lead = false) {
+  spawnOne(c, near, allowHl, prime = false, lead = false, sAt = -1) {
     const sys = this.sys, rng = this.rng;
-    const sProbe = c.s + (near ? 50 : sys.fogD);
+    const sProbe = sAt >= 0 ? sAt : c.s + (near ? 50 : sys.fogD);
     const ws = sys.seq.weights(sProbe);
     const region = this.region(sProbe);
     const hemi = this.hemi(region);
@@ -839,7 +859,7 @@ export class Director {
     for (const e of sys.enc) activeCount.set(e.sp.key, (activeCount.get(e.sp.key) || 0) + 1);
     const instBudget = sys.maxInstances - sys.instances;
     const triBudget = sys.maxTris - sys.trisTotal;
-    const addCand = (key, w, cd, bw, small) => {
+    const addCand = (key, w, cd, bw, small, zone = null) => {
       let k = key;
       if (key.startsWith('proc:')) k = `${key}:${(region % 100000) * 16 + Math.floor(rng() * 12)}`;
       if (this.forced) k = this.forced;
@@ -858,22 +878,27 @@ export class Director {
       const rd = (sp.size[0] + sp.size[1]) * 0.5 * (sp.beh.n[1] >= 20 ? 75 : 24) * (sp.plan === 'jelly' ? 0.6 : sp.plan === 'siphon' ? 0.12 : 1);
       if (lead && (rd < 7 || sp.beh.loose || ['shoal', 'hover', 'drift', 'colony', 'peek', 'octo', 'mill', 'rest', 'otter'].includes(sp.beh.kind) && !(sp.beh.kind === 'shoal' && rd >= 7))) return;
       const ww = w * bw * novelty * (near ? (rd >= 8 ? 3 : 0.4) : 1) * (cooling ? 0.3 : 1) * (hlc ? this.pace.boost : 1);
-      cands.push({ sp, ck, ww, cd }); tot += ww;
+      cands.push({ sp, ck, ww, cd, zone }); tot += ww;
     };
     const night = sys.U ? sys.U.uNight.value : 0, dusk = clamp(1 - Math.abs(night * 2 - 1) * 1.4, 0, 1);
     let deepW = 0; for (const e of ws) if (DEEP_ZONES.has(e.key)) deepW += e.w;
     for (const e of ws) {
       const T = TABLES[e.key]; if (!T) continue;
       if (deepW >= 0.5 && !DEEP_ZONES.has(e.key)) continue; // no reef / coastal fish over the abyss once it dominates the blend
-      for (const [k, w, cd] of T.list) { const wd = w * dielW(k, night); if (wd > 0.01) addCand(k, wd, T.list.length < 10 ? cd * 0.5 : cd, e.w, T.list.length < 10); }
-      if (night > 0.05 && T.night) for (const [k, w, cd] of T.night) addCand(k, w * night, cd, e.w, false);
-      if (dusk > 0.05 && T.dusk) for (const [k, w, cd] of T.dusk) addCand(k, w * dusk, cd, e.w, false);
+      for (const [k, w, cd] of T.list) { const wd = w * dielW(k, night); if (wd > 0.01) addCand(k, wd, T.list.length < 10 ? cd * 0.5 : cd, e.w, T.list.length < 10, e.key); }
+      if (night > 0.05 && T.night) for (const [k, w, cd] of T.night) addCand(k, w * night, cd, e.w, false, e.key);
+      if (dusk > 0.05 && T.dusk) for (const [k, w, cd] of T.dusk) addCand(k, w * dusk, cd, e.w, false, e.key);
     }
     if (!cands.length) return null;
     let r = rng() * tot, pick = cands[0];
     for (const cd of cands) { r -= cd.ww; if (r <= 0) { pick = cd; break; } }
     const plan = this.plan(pick.sp, c, near, ws, instBudget, triBudget, prime, lead);
     if (!plan) return null;
+    // an animal is placed where its own zone is: the weights are probed up to the fog distance ahead, and a short zone's
+    // neighbour (Jellyfish Lake's golden jellies around a whale fall) otherwise arrived 100+ m short of its boundary
+    // (then one more try with the tables of the place the animal would have appeared at: without it the view thinned
+    // out by a quarter on the approach to every zone boundary)
+    if (pick.zone && !this.forced && sys.seq.weightOf(plan.s0, pick.zone) < 0.4) return sAt < 0 ? this.spawnOne(c, near, allowHl, prime, lead, Math.max(0, plan.s0)) : null;
     const enc = sys.spawn(pick.sp, plan);
     if (!enc) return null;
     this.mixWith(enc, pick.sp, plan, c, ws, region);

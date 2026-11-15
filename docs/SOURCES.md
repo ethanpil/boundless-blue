@@ -117,7 +117,26 @@ Left out because no source we read confirmed them as reef associates: bubblegum 
 Geodia sponge grounds and Primnoa sea fans. No trawl-damage percentage is shown. Colony and fish sizes are picture
 choices and are not stated on screen.
 
-### Whale Fall (`whalefall`)
+### Whale Fall, sunlit (`whalefall`)
+
+Shown as off Hawaii. The carcass on the seabed and the crowd around it are a composite depiction (the documented events
+are at floating or reef-grounded carcasses): no species, length or depth is stated for it, and the facts describe the
+documented events.
+
+| Where it appears | Fact text | Source | URL |
+|---|---|---|---|
+| Zone temperature (deck) | 25 °C | Scott et al. 2025, Frontiers in Fish Science (Kona, 9 April 2024: "the water temperature was 25°C") | https://www.frontiersin.org/journals/fish-science/articles/10.3389/frish.2025.1520995/full |
+| Whale carcass (carcass label, POI) | In Hawaii in 2024, at least nine oceanic whitetips and five tiger sharks fed on one carcass over 8.5 hours. | Scott et al. 2025 | https://www.frontiersin.org/journals/fish-science/articles/10.3389/frish.2025.1520995/full |
+| Whale carcass (tail stock label) | At one site, white sharks fed first on a whale's tail stock and fluke, then along its body. | Fallows et al. 2013, PLOS ONE | https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0060797 |
+| Whale carcass (main wound label) | At one whale carcass, white sharks cut flesh with side-to-side head shakes, in bouts of about 15 to 20 seconds. | Fallows et al. 2013 | https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0060797 |
+| Tiger shark (wfTiger) | Tiger sharks sometimes rolled onto their backs while biting a whale carcass. | Dudley et al. 2000, Fishery Bulletin 98:646 | https://spo.nmfs.noaa.gov/sites/default/files/13_1.pdf |
+| Oceanic whitetip shark (wfWhitetip) | At a whale carcass off Hawaii, when two sharks came in together the smaller one veered away for the larger. | Scott et al. 2025 | https://www.frontiersin.org/journals/fish-science/articles/10.3389/frish.2025.1520995/full |
+| Great white shark (wfWhite) | Off Durban, a white shark and tiger sharks fed on one whale at the same time and did not appear to compete. | Dudley et al. 2000 | https://spo.nmfs.noaa.gov/sites/default/files/13_1.pdf |
+
+Depicted, not stated: the seabed setting, the carcass's species and size, the white shark's size (a news report), the
+dolphins passing and the smaller fish. Mahi-mahi keep their general fact; no carcass claim is made for them.
+
+### Deep Whale Fall (`whalefalldeep`; the sunlit `whalefall` zone has its own section once its sources are in)
 
 The scene is shown as a southern California basin. The carcass is a composite depiction (a rorqual of 17-23 m); no
 species or length is stated for it on screen, and every fact describes the real sites.

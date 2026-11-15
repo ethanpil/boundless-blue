@@ -67,10 +67,10 @@ function speedDial() {
 export const ZONE_GROUPS = [
   { id: 'shallows', label: 'Shallows & shores', keys: ['seagrass', 'mangrove', 'tidepool', 'sandflat', 'otterkelp', 'biobay', 'jellylake'] },
   { id: 'reefs', label: 'Reefs & forests', keys: ['reef', 'softcoral', 'anemone', 'champagne', 'wall', 'kelp', 'sunkenforest'] },
-  { id: 'open', label: 'Open water', keys: ['pelagic', 'sargassum', 'whaleshark', 'seamount'] },
+  { id: 'open', label: 'Open water', keys: ['pelagic', 'sargassum', 'whaleshark', 'seamount', 'whalefall'] },
   { id: 'caves', label: 'Caves, wrecks & ruins', keys: ['cave', 'bluehole', 'wreck', 'ruins'] },
   { id: 'ice', label: 'Polar seas', keys: ['polar', 'iceedge'] },
-  { id: 'deep', label: 'The deep', keys: ['coldcoral', 'vents', 'lostcity', 'whalefall', 'abyss', 'deepplain', 'hadal'] },
+  { id: 'deep', label: 'The deep', keys: ['coldcoral', 'vents', 'lostcity', 'whalefalldeep', 'abyss', 'deepplain', 'hadal'] },
   { id: 'more', label: 'More zones', keys: [] },
 ];
 export function zoneGroup(z) {

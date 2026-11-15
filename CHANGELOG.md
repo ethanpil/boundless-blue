@@ -5,7 +5,8 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 ## [2026-11-15]
 
 ### Added
-- New zone: **Whale Fall**. A short, very slow deep zone (1,675 m, off southern California): a very large whale carcass, different every time, with ribs and spine showing, being eaten by Pacific sleeper sharks, hundreds of hagfish, rattails and crabs; sometimes an old skeleton with bacterial mats and bone-eating worms. Facts and sources are in `docs/SOURCES.md`.
+- New zone: **Whale Fall**, in daylight. A short, slow zone off Hawaii: a very large whale carcass on pale sand, different every time and always showing bone, with tiger sharks and oceanic whitetips feeding side by side (up to twelve sharks at once), mahi-mahi, small fish and crabs, and now and then a very large white shark.
+- New zone: **Deep Whale Fall**. The same idea at 1,675 m off southern California, lit by the lamps: Pacific sleeper sharks, hundreds of hagfish, rattails and crabs; sometimes an old skeleton with bacterial mats and bone-eating worms. Facts and sources for both are in `docs/SOURCES.md`.
 
 ### Changed
 - Sound: the hissy, static-like bed is replaced by a muffled, liquid one, like a head under water with plugged ears: a low rumble, sloshing surges, and bubble trails and glugs in every zone. In the reef, energy above 2 kHz is 34 dB lower at about the same loudness.

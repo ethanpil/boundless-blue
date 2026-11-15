@@ -16,7 +16,7 @@ const qs = typeof location !== 'undefined' ? new URLSearchParams(location.search
 // coastal waters where plankton light up at night / where shrimp eyes shine in the lamp
 const NIGHT_SPARK = new Set(['reef', 'softcoral', 'wall', 'kelp', 'seagrass', 'sandflat', 'mangrove', 'tidepool', 'wreck', 'ruins', 'pelagic', 'cave']);
 const SHRIMPY = new Set(['reef', 'softcoral', 'wall', 'seagrass', 'sandflat', 'mangrove', 'tidepool', 'wreck', 'ruins', 'kelp']);
-const DEEP = new Set(['deepplain', 'abyss', 'vents', 'whalefall']);
+const DEEP = new Set(['deepplain', 'abyss', 'vents', 'whalefalldeep']);
 const BAY_RGB = [0.22, 0.78, 1.0]; // dinoflagellate blue-green (~475 nm)
 
 export class Creatures {

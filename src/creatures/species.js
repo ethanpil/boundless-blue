@@ -1960,3 +1960,18 @@ Object.assign(FACTS, {
   wfRattail: 'Rattails were among the scavengers recorded at a gray whale carcass sunk in the San Diego Trough.',
   wfCrab: 'Small numbers of large lithodid crabs were seen at a gray whale carcass in the San Diego Trough.',
 });
+// --- whalefall (sunlit) --- documented together at whale carcasses off Hawaii: tiger sharks of ~3-4 m and oceanic
+// whitetips of ~1.5-2.5 m; rarely a very large white shark (a news report from Oahu). Own keys: own facts and sizes.
+Object.assign(SPECIES, {
+  wfTiger: merge(SPECIES.greatWhite, { col: { d: 0x6b6555, b: 0xe6e1d2, p: 0x3d372b }, pat2: [3, 14, 0.22], size: [3, 4], interest: 0.85, hl: false }),
+  wfWhitetip: merge(SPECIES.oceanicWhitetip, { size: [1.5, 2.5], interest: 0.75 }),
+  wfWhite: merge(SPECIES.greatWhite, { size: [5.4, 6], interest: 1, hl: false }),
+});
+for (const k of ['wfTiger', 'wfWhitetip', 'wfWhite']) { SPECIES[k].key = k; SPECIES[k].name = k; }
+Object.assign(NAMES, { wfTiger: 'Tiger shark', wfWhitetip: 'Oceanic whitetip shark', wfWhite: 'Great white shark' });
+// facts: checked wordings only (sources: see docs/SOURCES.md)
+Object.assign(FACTS, {
+  wfTiger: 'Tiger sharks sometimes rolled onto their backs while biting a whale carcass.',
+  wfWhitetip: 'At a whale carcass off Hawaii, when two sharks came in together the smaller one veered away for the larger.',
+  wfWhite: 'Off Durban, a white shark and tiger sharks fed on one whale at the same time and did not appear to compete.',
+});

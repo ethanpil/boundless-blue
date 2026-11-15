@@ -196,18 +196,21 @@ export class CameraDirector {
         ax += (sh.pathX(sD) - ax) * k1; ay += (H.y - 25 - ay) * k1; az += (-sD - az) * k1;
         ax += (sh.pathX(sL) - ax) * k2; ay += (sh.pathY(sL) + this.alt.x - ay) * k2; az += (-sL - az) * k2;
       }
-      if (e.wf) { // whale fall: look at the body a few metres ahead of the camera's place along it (tail first,
-        // then sweeping along the open flank to the head), at about the height of its flank
+      let wfK = 1, wfYaw = 0.95;
+      if (e.wf) { // whale fall: look at the body just ahead of the camera's place along it (tail first, then sweeping along
+        // the flank to the head), at the height of its flank; past the head keep looking back at it a while, easing out
+        // (a point 7 m ahead swung the view past the body: on some seeds it sat cut off at the edge, out of focus)
         const W = e.wf.data, u = (cam.position.x - W.cx) * W.ca + (s - W.cs) * W.sa;
-        const ut = clamp(u + 4.5, -W.L / 2 + 1.5, W.L / 2 - 1);
-        ax = W.cx + W.ca * ut; ay = W.cy + 1.1; az = -(W.cs + W.sa * ut);
+        const ut = clamp(u + 3, -W.L / 2 + 1.5, W.L / 2 - 1.5);
+        ax = W.cx + W.ca * ut; ay = W.cy + 1.2; az = -(W.cs + W.sa * ut);
+        wfK = 1 - smoothstep(W.L / 2 + 2, W.L / 2 + 10, u); wfYaw = 1.35;
       }
       const D = this._d.set(ax - cam.position.x, ay - cam.position.y, (az - Oz) - cam.position.z);
       const d = D.length(); D.divideScalar(d);
       const yawS = Math.atan2(F.z * D.x - F.x * D.z, F.x * D.x + F.z * D.z); // signed angle F->D about +Y
       const pitchS = Math.asin(clamp(D.y, -1, 1)) - Math.asin(clamp(F.y, -1, 1));
-      const w = smoothstep(0, 1.2, this.watchTime) * (e.hole || e.light ? 1 : 0.8) * this.curiosity;
-      yawT = yawT * (1 - w) + clamp(yawS, -0.95, 0.95) * w;
+      const w = smoothstep(0, 1.2, this.watchTime) * (e.hole || e.light ? 1 : e.wf ? wfK : 0.8) * this.curiosity;
+      yawT = yawT * (1 - w) + clamp(yawS, -wfYaw, wfYaw) * w;
       pitchT = pitchT * (1 - w) + (e.light ? clamp(pitchS + 0.12, 0, 0.55) : clamp(pitchS, e.hole ? -0.62 : -0.5, 0.45)) * w; // (a sun shaft: up into the light)
       focusT = d;
       this.focusPos.set(e.x, e.y, e.z);
@@ -250,12 +253,12 @@ export class CameraDirector {
     return { x: cam.position.x, y: cam.position.y, gz };
   }
 
-  // Keep watching a whale fall while the camera is alongside it (from 30 m before its tail to 3 m past its head).
+  // Keep watching a whale fall while the camera is alongside it (from 30 m before its tail to 10 m past its head).
   _wfHold(s) {
     const e = this.subject;
     if (!e || !e.wf) return false;
     const W = e.wf.data, u = (this.camera.position.x - W.cx) * W.ca + (s - W.cs) * W.sa;
-    return u > -W.L / 2 - 30 && u < W.L / 2 + 3;
+    return u > -W.L / 2 - 30 && u < W.L / 2 + 10;
   }
 
   // Distance to the seabed along the view heading (for focus when nothing is being watched).

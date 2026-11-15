@@ -48,7 +48,7 @@ The share link reproduces the world (seed and the zone you are in) without your 
 | Param | Meaning |
 | --- | --- |
 | `seed=<int>` | fixed world seed (default: random each load) |
-| `biome=<key>` | starting zone: `reef softcoral wall kelp seagrass mangrove sandflat pelagic cave wreck ruins vents deepplain tidepool abyss polar seamount sargassum champagne jellylake sunkenforest anemone bluehole otterkelp whaleshark biobay iceedge hadal lostcity coldcoral whalefall` (default: random) |
+| `biome=<key>` | starting zone: `reef softcoral wall kelp seagrass mangrove sandflat pelagic cave wreck ruins vents deepplain tidepool abyss polar seamount sargassum champagne jellylake sunkenforest anemone bluehole otterkelp whaleshark biobay iceedge hadal lostcity coldcoral whalefall whalefalldeep` (default: random) |
 | `time=<phase>` | starting time of day: `dawn morning day afternoon dusk night` (default: random) |
 | `weather=<kind>` | lock the weather: `clear crystal overcast rain plankton surge` |
 | `day=<minutes>` | length of a full day/night cycle (default 60) |

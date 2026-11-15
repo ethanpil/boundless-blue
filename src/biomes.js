@@ -652,19 +652,20 @@ BIOMES.coldcoral.floorTint = (x, s, nn, T, g) => {
 // {x, s, side (-1 / 1: which side of the route), ca, sa (axis: unit (x, s) direction of the path there), L (body
 // length), R (footprint half length incl. the stained mud), stage (0 fresh, 2 old skeleton), off}
 export function whaleFallOf(g) {
-  if (!g || g.key !== 'whalefall') return null;
+  if (!g || (g.key !== 'whalefall' && g.key !== 'whalefalldeep')) return null;
   if (g._wf) return g._wf;
   const bend = (s) => pathXAt(s + 20) - 2 * pathXAt(s) + pathXAt(s - 20); // + = bending toward +x
   const cam = g.camStart !== undefined && g.camStart > g.start, Lg = g.end - g.start;
-  let s = cam ? g.camStart + 75 : g.start + Lg * (0.44 + 0.12 * sv(g, 650)), b = bend(s);
-  for (let t = s - 15, s0 = s; t <= s0 + 15; t += 5) { const bt = bend(t); if (Math.abs(bt) > Math.abs(b)) { b = bt; s = t; } }
+  // (in the middle: its neighbours' cross-fades, with their props, stay 50 m or more beyond either end)
+  let s = cam ? g.camStart + 75 : g.start + Lg * (0.48 + 0.04 * sv(g, 650)), b = bend(s);
+  for (let t = s - 10, s0 = s; t <= s0 + 10; t += 5) { const bt = bend(t); if (Math.abs(bt) > Math.abs(b)) { b = bt; s = t; } }
   const side = Math.abs(b) > 0.25 ? -Math.sign(b) : sv(g, 651) < 0.5 ? -1 : 1;
-  const stage = cam || sv(g, 652) < 0.62 ? 0 : 2;
+  const stage = cam || g.key === 'whalefall' || sv(g, 652) < 0.62 ? 0 : 2; // (the old skeleton: deep only)
   // (its heading a little off the path's; the body is up to ~3.8 m wide at the chest: its centre ~2 m beyond the
   // near flank, which runs ~5-6 m from the camera line, also at the end the heading turns toward it)
   const L = 17 + 6 * sv(g, 653), yaw = (sv(g, 655) - 0.5) * 0.26, a = Math.atan2(pathXAt(s + 4) - pathXAt(s - 4), 8) + yaw;
   const off = 7.3 + 0.9 * sv(g, 654) + Math.abs(Math.sin(yaw)) * L * 0.45;
-  g._wf = { x: pathXAt(s) + side * off, s, side, ca: Math.sin(a), sa: Math.cos(a), L, R: L / 2 + 7, stage, off, cam };
+  g._wf = { x: pathXAt(s) + side * off, s, side, ca: Math.sin(a), sa: Math.cos(a), L, R: L / 2 + 7, stage, off, cam, deep: g.key === 'whalefalldeep' };
   return g._wf;
 }
 // carcass frame of (x, s): u along the body (+ toward the head, which points down the route), v across (+ away from
@@ -675,10 +676,15 @@ export function whaleFallUV(W, x, s, out) {
   return out;
 }
 const _wuv = [0, 0];
+// Two variants share the carcass, the floor and the set piece: 'whalefall', sunlit shallows with a crowd of sharks
+// (the user's brief), and 'whalefalldeep', the lamp-lit deep basin with sleeper sharks and hagfish (and old skeletons).
+export const isWhaleFall = (k) => k === 'whalefall' || k === 'whalefalldeep';
 Object.assign(BIOMES, {
-  whalefall: {
-    label: 'Whale Fall', camY: -48, clearance: 3.4, len: [240, 360], weight: 0.5,
-    lenAhead: 200, // a dive that starts here keeps 200 m of this short zone ahead (the carcass sits ~75 m in)
+  whalefalldeep: {
+    // (short, but long enough that the 90 m cross-fades into its neighbours lie 50 m or more beyond the carcass's ends:
+    // at 240-360 m the next zone's jellyfish and algae turf were in view while the camera was still alongside it)
+    label: 'Deep Whale Fall', camY: -48, clearance: 3.4, len: [340, 420], weight: 0.3,
+    lenAhead: 280, // a dive that starts here keeps 280 m of this zone ahead (the carcass sits ~75 m in)
     cruise: 0.45,  // cruise speed factor: a very slow pass (blended by the sequence weights in main.js)
     // (clear, and red absorbed only a little more than green and blue, as at Lost City: the pale belly and the blubber
     // read as a looming pale shape from 25-30 m, and the red muscle stays red instead of going grey-teal)
@@ -709,10 +715,33 @@ Object.assign(BIOMES, {
   },
 });
 // (displayed as the Santa Cruz Basin off southern California: 1,675 m, ~4 degC; deeper, the sharks and hagfish drop out)
-Object.assign(META, { whalefall: { subtitle: 'a whale carcass feeds the deep sea floor', tempC: 4, ripple: 0.08 } });
+Object.assign(META, { whalefalldeep: { subtitle: 'a whale carcass feeds the deep sea floor', tempC: 4, ripple: 0.08 } });
+Object.assign(BIOMES.whalefalldeep, META.whalefalldeep);
+// the sunlit variant: the same carcass on pale sand in clear blue water, ~14 m down, sunlit (caustics, shafts), seen
+// from far off; not slowed as much (the crowd of sharks is the show)
+Object.assign(BIOMES, {
+  whalefall: {
+    label: 'Whale Fall', camY: -14, clearance: 3.4, len: [340, 420], weight: 0.5, lenAhead: 280, cruise: 0.55,
+    sigma: [0.1, 0.03, 0.026], lightSigma: [0.045, 0.016, 0.013],
+    deep: C(0x0c5f8e), up: C(0x5ac6ea), sun: 1.15, caustic: 1.1, shafts: 1.25, ambient: 1.0, glow: 0, snow: 0.7,
+    sand: [0.84, 0.8, 0.68], rock: [0.55, 0.5, 0.44],
+    floor: BIOMES.whalefalldeep.floor,
+  },
+});
+// (shown as off Hawaii: 25 degC water, 40 m+ visibility, as on the day tiger sharks and whitetips were filmed at a carcass)
+Object.assign(META, { whalefall: { subtitle: 'sharks feeding at a whale carcass in warm, clear water', tempC: 25, ripple: 0.9 } });
 Object.assign(BIOMES.whalefall, META.whalefall);
-// the stained mud around the carcass: dark, oily sediment close in, a paler disturbed ring further out
+// the sand around a sunlit carcass: a faint oily stain close in
 BIOMES.whalefall.floorTint = (x, s, nn, T, g) => {
+  const W = whaleFallOf(g);
+  if (!W) return;
+  const uv = whaleFallUV(W, x, s, _wuv), eu = uv[0] / (W.L / 2 + 4), ev = uv[1] / 5.5, e = Math.sqrt(eu * eu + ev * ev);
+  if (e > 1.3) return;
+  const k = smoothstep(1.25, 0.8, e + 0.15 * fbm2(x / 2.2, s / 2.2, 2, 646));
+  T[0] -= 0.1 * k; T[1] -= 0.09 * k; T[2] -= 0.07 * k;
+};
+// the stained mud around the carcass: dark, oily sediment close in, a paler disturbed ring further out
+BIOMES.whalefalldeep.floorTint = (x, s, nn, T, g) => {
   const W = whaleFallOf(g);
   const q = smoothstep(0.35, 0.75, fbm2(x / 6, s / 6, 2, 645)); // patchy mud everywhere: darker drifts
   T[0] -= 0.04 * q; T[1] -= 0.04 * q; T[2] -= 0.03 * q;

@@ -53,7 +53,8 @@ const GRADE = {
 // (Lost City: strong white balance against the water cast, so lamp-lit carbonate reads white, not teal)
 GRADE.lostcity = [1.02, 1.15, 0.45, 0.15, 0, 0.001, 0.003, 1.03, 1.01, 1.0, 0.7]; // (last: subject colour restoration)
 GRADE.coldcoral = [1.14, 1.15, 0.06, 0.3, 0, 0.001, 0.004, 1.02, 1.0, 0.98]; // --- coldcoral --- (lamp-lit: keep the white coral white)
-GRADE.whalefall = [1.1, 1.16, 0.3, 0.2, 0, 0.001, 0.003, 1.03, 1.0, 0.98, 0.6]; // --- whalefall --- (lamp-lit: pale blubber stays pale, red flesh red)
+GRADE.whalefall = [1.14, 1.1, 0.24, 0.24, 0, 0.004, 0.008, 1.03, 1.01, 0.97]; // --- whalefall --- sunlit (as the sand flats)
+GRADE.whalefalldeep = [1.1, 1.16, 0.3, 0.2, 0, 0.001, 0.003, 1.03, 1.0, 0.98, 0.6]; // --- whalefalldeep --- (lamp-lit: pale blubber stays pale, red flesh red)
 const GRADE_DEFAULT = [1.12, 1.1, 0.2, 0.2, 0, 0.003, 0.006, 1.02, 1.0, 0.98];
 const _G = new Float32Array(11);
 
