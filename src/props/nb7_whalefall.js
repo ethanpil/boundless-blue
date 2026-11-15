@@ -41,8 +41,8 @@ export const WF = {
   brittle: ['Brittle star', null],
   // sunlit variant (Hawaii; sources: docs/SOURCES.md): about the documented events, never this carcass
   sunCarcass: ['Whale carcass', 'In Hawaii in 2024, at least nine oceanic whitetips and five tiger sharks fed on one carcass over 8.5 hours.'],
-  sunTail: ['Whale carcass', 'At one site, white sharks fed first on a whale\'s tail stock and fluke, then along its body.'],
-  sunBite: ['Whale carcass', 'At one whale carcass, white sharks cut flesh with side-to-side head shakes, in bouts of about 15 to 20 seconds.'],
+  sunTail: ['Whale carcass', 'At False Bay, white sharks generally started on a whale\'s tail stock and fluke, then moved along the body.'],
+  sunBite: ['Whale carcass', 'At False Bay, white sharks cut whale flesh with side-to-side head shakes; a bout typically lasted 15 to 20 seconds.'],
 };
 
 // ---------------------------------------------------------------- resolution per tier

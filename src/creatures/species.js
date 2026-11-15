@@ -1972,8 +1972,8 @@ Object.assign(NAMES, { wfTiger: 'Tiger shark', wfWhitetip: 'Oceanic whitetip sha
 // facts: checked wordings only (sources: see docs/SOURCES.md)
 Object.assign(FACTS, {
   wfTiger: 'Tiger sharks sometimes rolled onto their backs while biting a whale carcass.',
-  wfWhitetip: 'At a whale carcass off Hawaii, when two sharks came in together the smaller one veered away for the larger.',
-  wfWhite: 'Off Durban, a white shark and tiger sharks fed on one whale at the same time and did not appear to compete.',
+  wfWhitetip: 'Off Hawaii, at a carcass thought to be a whale, a smaller tiger or whitetip shark sometimes veered away for a larger one.',
+  wfWhite: 'Off KwaZulu-Natal, South Africa, a white shark and tiger sharks fed on one floating whale together and did not appear to compete.',
 });
 
 // --- turning ---
