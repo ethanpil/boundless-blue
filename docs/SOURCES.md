@@ -117,6 +117,33 @@ Left out because no source we read confirmed them as reef associates: bubblegum 
 Geodia sponge grounds and Primnoa sea fans. No trawl-damage percentage is shown. Colony and fish sizes are picture
 choices and are not stated on screen.
 
+### Whale Fall (`whalefall`)
+
+The scene is shown as a southern California basin. The carcass is a composite depiction (a rorqual of 17-23 m); no
+species or length is stated for it on screen, and every fact describes the real sites.
+
+| Where it appears | Fact text | Source | URL |
+|---|---|---|---|
+| Zone depth and temperature (deck) | 1,675 m, about 4 °C (Santa Cruz Basin whale fall) | Treude et al. 2009, Biogeochemistry of a deep-sea whale fall, MEPS 382:1 | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf |
+| Whale fall (fresh carcass) | At a gray whale sunk off California, an estimated 400-800 hagfish were feeding 1.5 months later. | Smith & Baco 2003, Ecology of whale falls at the deep-sea floor, Table 2 (Santa Cruz Basin, 1.5 months) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Whale fall (second label) | The seabed under a sunken whale gets organic carbon equal to about 2,000 years of the normal supply. | Treude et al. 2009 (introduction); Smith & Baco 2003 | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf ; https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Whale carcass (the main tear) | Off California, scavengers remove whale soft tissue at roughly 40 to 60 kg per day. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Scraps of whale | At one whale fall off California, 90% of the soft tissue had been removed after 18 months. | Smith & Baco 2003 (Santa Cruz Basin carcass) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Whale bones | Fresh bones of large whales can be more than 60% lipid (fat) by weight. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Whale skeleton (old stage) | One whale skeleton off California still hosted a sulfide-fed community an estimated 50 years after it sank. | Smith & Baco 2003 (Santa Catalina Basin, arrival estimated 1948) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Bacterial mats | Sediment by old whale bones turns black with metal sulfides; white and yellow bacterial mats grow on the bones. | Treude et al. 2009; Smith et al. 2015, Annu. Rev. Mar. Sci. 7:571, Fig. 2 caption | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf ; https://typeset.io/pdf/whale-fall-ecosystems-recent-insights-into-ecology-1lojnpo18h.pdf |
+| Bone-eating worms (Osedax) | Osedax worms have no mouth or stomach; bacteria in their roots break down oil in whale bone. | MBARI, Whale carcass yields bone-devouring worms (2004) | https://www.mbari.org/whale-carcass-yields-bone-devouring-worms/ |
+| Bone-eating worms (Osedax) | The name Osedax means "bone devourer". | MBARI (same page) | https://www.mbari.org/whale-carcass-yields-bone-devouring-worms/ |
+| Pacific sleeper shark (wfSleeper) | A researcher described a sleeper shark gripping whale flesh and twisting its whole body back and forth to tear off a piece. | Science News, Decades of Dinner, 2 May 2005 (A. Baco-Taylor) | https://sciencenews.org/?p=29266 |
+| Hagfish (wfHagfish) | One researcher saw a hagfish grip a whale, tie itself in a knot and knock loose a chunk of meat. | Science News, Decades of Dinner, 2 May 2005 | https://sciencenews.org/?p=29266 |
+| Rattail (wfRattail) | Rattails were among the scavengers recorded at a gray whale carcass sunk in the San Diego Trough. | Smith & Baco 2003, Table 2 (Nezumia stelgidolepis) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Lithodid crab (wfCrab) | Small numbers of large lithodid crabs were seen at a gray whale carcass in the San Diego Trough. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Pacific sleeper shark (older fact, corrected: it said "near-freezing") | Pacific sleeper sharks scavenge whale carcasses in cold deep water, around 4 °C. | Treude et al. 2009 (Santa Cruz Basin whale fall: 1675 m, bottom temperature ~4 °C); Smith & Baco 2003, Table 2 (1-3 Somniosus pacificus at that carcass) | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf |
+
+Depicted but not stated: the carcass's species, length and pose (one documented skeleton lay on its back), the colour
+of fresh blubber, how a carcass is opened, and "crater" bite wounds; sleeper-shark sizes (1.5-3.5 m) and the cast
+(1-3 sharks, hundreds of hagfish, amphipod swarms) follow Smith & Baco 2003. Brittle stars are named without a fact.
+
 ## New events
 
 | Where it appears | Fact text | Source | URL |

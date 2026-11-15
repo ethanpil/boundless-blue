@@ -12,6 +12,7 @@ const { registerNewBiomeProps3 } = await import(SRC + 'props/newbiomes3.js');
 const { registerNewBiomeProps4 } = await import(SRC + 'props/newbiomes4.js');
 const { registerNewBiomeProps5 } = await import(SRC + 'props/newbiomes5.js');
 const { registerNewBiomeProps6 } = await import(SRC + 'props/newbiomes6.js'); // coldcoral
+const { registerNewBiomeProps7 } = await import(SRC + 'props/newbiomes7.js'); // whalefall
 const NB = await import(SRC + 'props/nb_common.js');
 const { mulberry32 } = await import(SRC + 'noise.js');
 
@@ -36,6 +37,7 @@ registerNewBiomeProps3(term, env);
 registerNewBiomeProps4(term, env);
 registerNewBiomeProps5(term, env);
 registerNewBiomeProps6(term, env); // coldcoral
+registerNewBiomeProps7(term, env); // whalefall
 console.log(`init: old props ${tOld.toFixed(0)} ms, new biomes ${(performance.now() - t0).toFixed(0)} ms; populators ${nOld} old + ${term.populators.length - nOld} new`);
 const popNames = Object.keys(NB.NBSTATS.pops || {});
 

@@ -643,6 +643,86 @@ BIOMES.coldcoral.floorTint = (x, s, nn, T, g) => {
   T[6] = 1 - k; T[7] = 0.9 * k;
 };
 
+// --- whalefall ---
+// A whale fall: one very large rorqual carcass on a dark, muddy deep slope, lamp-lit (props: nb7_whalefall.js). A short
+// zone flown very slowly (cruise 0.45), sparse on purpose: the carcass is the event. One carcass per segment, lying on
+// the mud beside the route on the outside of the sharpest bend of the segment's middle (so it opens up dead ahead and
+// the camera curves along it), its long axis along the path, its near flank ~5-6 m from the camera line. A segment the
+// camera starts in (page load, zone jump) has it ~75 m ahead, and always the fresh stage.
+// {x, s, side (-1 / 1: which side of the route), ca, sa (axis: unit (x, s) direction of the path there), L (body
+// length), R (footprint half length incl. the stained mud), stage (0 fresh, 2 old skeleton), off}
+export function whaleFallOf(g) {
+  if (!g || g.key !== 'whalefall') return null;
+  if (g._wf) return g._wf;
+  const bend = (s) => pathXAt(s + 20) - 2 * pathXAt(s) + pathXAt(s - 20); // + = bending toward +x
+  const cam = g.camStart !== undefined && g.camStart > g.start, Lg = g.end - g.start;
+  let s = cam ? g.camStart + 75 : g.start + Lg * (0.44 + 0.12 * sv(g, 650)), b = bend(s);
+  for (let t = s - 15, s0 = s; t <= s0 + 15; t += 5) { const bt = bend(t); if (Math.abs(bt) > Math.abs(b)) { b = bt; s = t; } }
+  const side = Math.abs(b) > 0.25 ? -Math.sign(b) : sv(g, 651) < 0.5 ? -1 : 1;
+  const stage = cam || sv(g, 652) < 0.62 ? 0 : 2;
+  // (its heading a little off the path's; the body is up to ~3.8 m wide at the chest: its centre ~2 m beyond the
+  // near flank, which runs ~5-6 m from the camera line, also at the end the heading turns toward it)
+  const L = 17 + 6 * sv(g, 653), yaw = (sv(g, 655) - 0.5) * 0.26, a = Math.atan2(pathXAt(s + 4) - pathXAt(s - 4), 8) + yaw;
+  const off = 7.3 + 0.9 * sv(g, 654) + Math.abs(Math.sin(yaw)) * L * 0.45;
+  g._wf = { x: pathXAt(s) + side * off, s, side, ca: Math.sin(a), sa: Math.cos(a), L, R: L / 2 + 7, stage, off, cam };
+  return g._wf;
+}
+// carcass frame of (x, s): u along the body (+ toward the head, which points down the route), v across (+ away from
+// the route); out = [u, v]
+export function whaleFallUV(W, x, s, out) {
+  const dx = x - W.x, ds = s - W.s;
+  out[0] = dx * W.ca + ds * W.sa; out[1] = (dx * W.sa - ds * W.ca) * W.side;
+  return out;
+}
+const _wuv = [0, 0];
+Object.assign(BIOMES, {
+  whalefall: {
+    label: 'Whale Fall', camY: -48, clearance: 3.4, len: [240, 360], weight: 0.5,
+    lenAhead: 200, // a dive that starts here keeps 200 m of this short zone ahead (the carcass sits ~75 m in)
+    cruise: 0.45,  // cruise speed factor: a very slow pass (blended by the sequence weights in main.js)
+    // (clear, and red absorbed only a little more than green and blue, as at Lost City: the pale belly and the blubber
+    // read as a looming pale shape from 25-30 m, and the red muscle stays red instead of going grey-teal)
+    sigma: [0.042, 0.03, 0.026], lightSigma: [0.05, 0.02, 0.015],
+    deep: C(0x01060b), up: C(0x03111b), sun: 0.03, caustic: 0, shafts: 0, ambient: 0.42, glow: 0.35, snow: 1.9,
+    // dark grey-brown mud, so the pale carcass carries the frame
+    sand: [0.33, 0.31, 0.28], rock: [0.25, 0.24, 0.23],
+    // a gentle muddy slope: rising on the side of the route away from the carcass and falling away behind it (the
+    // lamps light the carcass against dark water); a level bench under the carcass, pressed a little into the mud
+    floor(x, s, ad, g, dx) {
+      const W = whaleFallOf(g), side = W ? -W.side : sv(g, 1) < 0.5 ? -1 : 1, t = dx * side;
+      const base = (xx, ss, tt) => fbm2(xx / 45, ss / 45, 3, 641) * 1.5 + fbm2(xx / 9, ss / 9, 2, 642) * 0.22 + tt * 0.05
+        + smoothstep(20, 80, tt) * 6 - smoothstep(18, 70, -tt) * 4;
+      let h = base(x, s, t);
+      if (W) {
+        const uv = whaleFallUV(W, x, s, _wuv), eu = uv[0] / (W.L / 2 + 6), ev = uv[1] / 8.5, e = Math.sqrt(eu * eu + ev * ev);
+        if (e < 1.6) {
+          const hc = base(W.x, W.s, -W.off) + 0.15;
+          h += (hc - h) * smoothstep(1.6, 0.9, e);
+          // the body's own shallow hollow (it lies pressed into the mud: not under the flukes and flippers, which
+          // lie on it) and the mud churned up along its sides
+          const bu = uv[0] / (W.L / 2 - 1.5), bv = Math.abs(uv[1]) / 2.8;
+          h -= 0.16 * smoothstep(1.05, 0.8, bv) * smoothstep(1.0, 0.85, Math.abs(bu)) - 0.08 * Math.exp(-(((bv - 1.2) / 0.18) ** 2)) * smoothstep(1.1, 0.8, Math.abs(bu)) * (0.6 + 0.4 * noise2(x / 1.7, s / 1.7, 643));
+        }
+      }
+      return h;
+    },
+  },
+});
+// (displayed as the Santa Cruz Basin off southern California: 1,675 m, ~4 degC; deeper, the sharks and hagfish drop out)
+Object.assign(META, { whalefall: { subtitle: 'a whale carcass feeds the deep sea floor', tempC: 4, ripple: 0.08 } });
+Object.assign(BIOMES.whalefall, META.whalefall);
+// the stained mud around the carcass: dark, oily sediment close in, a paler disturbed ring further out
+BIOMES.whalefall.floorTint = (x, s, nn, T, g) => {
+  const W = whaleFallOf(g);
+  const q = smoothstep(0.35, 0.75, fbm2(x / 6, s / 6, 2, 645)); // patchy mud everywhere: darker drifts
+  T[0] -= 0.04 * q; T[1] -= 0.04 * q; T[2] -= 0.03 * q;
+  if (!W) return;
+  const uv = whaleFallUV(W, x, s, _wuv), eu = uv[0] / (W.L / 2 + 5), ev = uv[1] / 6.5, e = Math.sqrt(eu * eu + ev * ev);
+  if (e > 1.4) return;
+  const n = fbm2(x / 2.2, s / 2.2, 2, 646), k = smoothstep(1.3, 0.75, e + 0.18 * n);
+  T[0] -= 0.13 * k; T[1] -= 0.13 * k; T[2] -= 0.11 * k; T[6] = 1 - 0.8 * k;
+};
+
 // Colours above are authored in sRGB; shaders work in linear light.
 const toLin = (c) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
 for (const b of Object.values(BIOMES)) for (const k of ['deep', 'up', 'sand', 'rock']) b[k] = b[k].map(toLin);
@@ -793,7 +873,10 @@ export class BiomeSequence {
     this.nextId = 0; // segment ids are never reused (pruning old segments must not recycle ids)
     this._push(BIOMES[startKey] ? startKey : 'reef');
     this.segs[0].camStart = startS; // where the camera starts (set pieces can be placed in view of it)
+    this._ahead();
   }
+  // a short zone (lenAhead) keeps that much of itself ahead of where the camera starts in it
+  _ahead() { const g = this.segs[0], a = BIOMES[g.key].lenAhead; if (a) g.end = Math.max(g.end, this.startS + a); }
   // Start again in place (zone jump without a page reload): a new sequence from startKey at startS.
   restart(startKey, startS) {
     this.startS = startS;
@@ -802,6 +885,7 @@ export class BiomeSequence {
     this.recent = [];
     this._push(BIOMES[startKey] ? startKey : 'reef');
     this.segs[0].camStart = startS;
+    this._ahead();
   }
   _push(key) {
     const start = this.segs.length ? this.segs[this.segs.length - 1].end : this.startS - 200;

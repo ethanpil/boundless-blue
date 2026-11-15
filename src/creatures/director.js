@@ -7,6 +7,7 @@ import { sargassumCover, blueHoleOf } from '../biomes.js';
 import { eventsTick, eventPiece, eventPrewarm, triggerEvent, eventSkip, eventRare, EVENT_POI_SPECIES } from './events.js';
 import { Pacing } from './pacing.js';
 import { Moments } from './moments.js';
+import { WhaleFeed } from './wf_feed.js';
 
 // [species key | 'proc:<kind>', weight, cooldown (s)]
 // target = desired simultaneous encounters, lat = max lateral offset from the camera path.
@@ -226,6 +227,11 @@ Object.assign(POI_SPECIES, { 'lc-tower': ['wreckfish'], 'lc-flange': ['lcCrab'] 
 TABLES.coldcoral = { cover: 2.2, target: 7, lat: 22, list: [['redfish', 5, 25], ['tusk', 2.5, 60], ['ling', 1.8, 80]] };
 DEEP_ZONES.add('coldcoral');
 Object.assign(POI_SPECIES, { 'coral-summit': ['redfish'], 'trawl-scar': ['tusk'] });
+// --- whalefall --- the mud away from the carcass is nearly empty (a passing rattail); the carcass set piece brings the
+// scavengers (wf_feed.js)
+TABLES.whalefall = { cover: 0.8, target: 2, lat: 16, list: [['wfRattail', 2, 70], ['wfHagfish', 0.6, 120]] };
+DEEP_ZONES.add('whalefall');
+Object.assign(POI_SPECIES, { whalefall: ['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab'] });
 const CLOWNS = ['clownfish', 'pinkSkunkClown', 'tomatoClown', 'blackClown', 'clarkClown'];
 const pickW = (rng, obj) => { let t = 0; for (const k in obj) t += obj[k]; let r = rng() * t; for (const k in obj) { r -= obj[k]; if (r <= 0) return k; } return Object.keys(obj)[0]; };
 
@@ -239,6 +245,7 @@ export class Director {
     this.forced = sys.forceSpecies || null;
     this.pace = new Pacing(this);
     this.moments = new Moments(this); // signature moments (moments.js)
+    this.wfFeed = new WhaleFeed(this); // sleeper sharks feeding at a whale fall (wf_feed.js)
   }
 
   // Zone jump: forget everything tied to the old place (set pieces done, the blue hole, close-encounter pacing, spawn
@@ -254,6 +261,7 @@ export class Director {
     if (this._ppw) this._ppw.length = 0;
     this.pace.reset();
     this.moments.reset();
+    this.wfFeed.reset();
   }
 
   species(key) {
@@ -279,6 +287,7 @@ export class Director {
       if (this.closeSeen) for (const [k, t] of this.closeSeen) if (this.clock - t > 300) this.closeSeen.delete(k);
     }
     this.pace.tick(c);
+    this.wfFeed.tick(dt, c);
     this.delightTick(c);
     if (this.moments.tick(c, dt)) return;
     if (this.whaleTick(c) || this.holeTick(c) || eventsTick(this, c)) return;
@@ -425,6 +434,28 @@ export class Director {
         return !!this.spawnAt('wreckfish', p, { kind: 'hover', homeY: p.data && p.data.yh !== undefined ? p.data.yh : p.y - 6, n: 1 + (r() < 0.3 ? 1 : 0) });
       case 'lc-flange': // now and then a geryonid crab on the rock below a flange tower
         return r() < 0.45 && !!this.spawnAt('lcCrab', p, { n: 1 });
+      case 'whalefall': { // --- whalefall --- the scavengers at the carcass (props/nb7_whalefall.js)
+        const d = p.data || {}, fresh = d.stage === 0, sp = d.spots || [], nS = sp.length / 6;
+        // a point on the mud beside the carcass, u metres along it (+ toward the head), v across (- toward the route)
+        const mud = (u, v) => { const x = d.cx + u * d.ca + v * d.sa * d.side, s = d.cs + u * d.sa - v * d.ca * d.side; return { x, s, y: sh.floorAt(x, s), r: 2, type: p.type, data: null }; };
+        if (fresh) {
+          // hagfish at the open flank (the hundreds on it are a prop), the sharks taking turns, rattails at the ends
+          for (let k = 0; k < 2 && nS; k++) {
+            const q = Math.floor((k + 0.3 + 0.4 * r()) / 2 * nS) * 6;
+            this.spawnAt('wfHagfish', { x: sp[q], y: sp[q + 1], s: sp[q + 2], r: 1.5, type: p.type, data: null }, { kind: 'hover', homeY: sp[q + 1], n: 12 + Math.floor(r() * 12), noSeek: true });
+          }
+          // (1-3 sharks; the carcass a dive starts at always has two or three at it)
+          this.wfFeed.start(p, d.cam ? 2 + (r() < 0.5 ? 1 : 0) : 1 + Math.floor(r() * (d.E > 0.75 ? 2 : 3)), this.rng);
+          for (let k = 0, n = Math.floor(r() * 3); k < n; k++) this.spawnAt('wfRattail', mud((k ? 1 : -1) * (d.L / 2 + 1.5), -1.5 - r() * 2), { kind: 'hover', n: 1 });
+          if (r() < 0.7) this.spawnAt('wfCrab', mud((r() - 0.5) * d.L * 0.6, -2.4 - r()), { n: 1 + Math.floor(r() * 3) });
+        } else {
+          // the old skeleton: a few hagfish still about, crabs on the bones, a rattail
+          this.spawnAt('wfCrab', mud((r() - 0.5) * d.L * 0.5, -1.8), { n: 2 + Math.floor(r() * 2) });
+          this.spawnAt('wfHagfish', mud(0, -1), { kind: 'hover', n: 2 + Math.floor(r() * 3) });
+          if (r() < 0.7) this.spawnAt('wfRattail', mud(d.L * 0.3, -2), { kind: 'hover', n: 1 });
+        }
+        return true;
+      }
       default: return eventPiece(this, p, c); // rare wildlife events at pinnacles and the octopus garden (events.js)
     }
   }

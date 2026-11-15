@@ -19,6 +19,8 @@ Object.assign(POI_INTEREST, { 'octopus-garden': 0.95 });
 // Lost City: the landmark tower (its POI sits ~11 m above the route, so watching it tilts the view up the tower)
 Object.assign(POI_INTEREST, { 'lc-tower': 0.85, 'lc-flange': 0.55 });
 Object.assign(POI_INTEREST, { 'coral-summit': 0.85, 'trawl-scar': 0.6 }); // --- coldcoral ---
+// --- whalefall --- the carcass: once picked it is held for the whole pass (see wfHold), the gaze travelling along it
+Object.assign(POI_INTEREST, { whalefall: 1 });
 // --- moments 2026-11 --- a strong sun shaft beside the route (kelp canopy gaps, cenote skylights, beams between drowned
 // trunks or into a blue hole; the POI sits high in the beam): the camera slows to half speed and tilts up into it for
 // 6-8 s, by day in clear weather only (lightOK, set by main.js) and at most once every 2.5-4.5 min
@@ -85,7 +87,7 @@ export class CameraDirector {
         const light = p.type === 'light-shaft';
         const interest = light && this.forceLight ? 1.6 : base >= 0.7 && !this.seen.has(id) ? Math.min(1.6, base * 1.7) : base;
         c.push({ id, x: p.x, y: p.y + Math.min(2.5, (p.r || 3) * 0.3), z: -p.s, vx: 0, vy: 0, vz: 0, r: p.r || 3, interest, poi: true,
-          hole: p.type === 'bluehole' ? p : null, light });
+          hole: p.type === 'bluehole' ? p : null, light, wf: p.type === 'whalefall' ? p : null });
       }
     }
     const maxD = Math.min(60, 2.6 / Math.max(0.01, sigmaG));
@@ -156,7 +158,8 @@ export class CameraDirector {
       const decay = Math.exp(-0.4 / 150); // (fatigue fades with a ~2.5 min time constant)
       for (const [k, v] of this.fatigue) { if (v < 0.1) this.fatigue.delete(k); else this.fatigue.set(k, v * decay); }
       if (this.subject && this.subject.key) { const k = famKey(this.subject.key); this.fatigue.set(k, (this.fatigue.get(k) || 0) + 0.4); }
-      const pick = this._choose(cam.position, sigmaG, subjectsFn, poisFn, s, Oz);
+      // (a whale fall, once picked, is kept until the camera has passed its head: nothing else takes the view)
+      const pick = this._wfHold(s) ? this.subject : this._choose(cam.position, sigmaG, subjectsFn, poisFn, s, Oz);
       if (!pick || !this.subject || pick.id !== this.subject.id) this.watchTime = 0;
       this.subject = pick ? Object.assign(this.subject && this.subject.id === pick.id ? this.subject : {}, pick) : null;
     }
@@ -170,7 +173,7 @@ export class CameraDirector {
       }
       // a blue hole is watched until the camera is over its middle (it leaves the POI window there)
       // (a highlight, e.g. a whale or a pod at play, is followed for up to 24 s rather than dropped mid-pass)
-      if (this.watchTime > (this.subject.hole ? 60 : this.subject.light ? LIGHT_HOLD : this.subject.interest >= 0.9 ? 24 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
+      if (this.watchTime > (this.subject.hole ? 60 : this.subject.wf ? 150 : this.subject.light ? LIGHT_HOLD : this.subject.interest >= 0.9 ? 24 : 14)) { this.cooldown.set(this.subject.id, 35); this.subject = null; this.watchTime = 0; }
     }
 
     // ---- gaze: blend the path heading with the subject direction ----
@@ -193,6 +196,12 @@ export class CameraDirector {
         ax += (sh.pathX(sD) - ax) * k1; ay += (H.y - 25 - ay) * k1; az += (-sD - az) * k1;
         ax += (sh.pathX(sL) - ax) * k2; ay += (sh.pathY(sL) + this.alt.x - ay) * k2; az += (-sL - az) * k2;
       }
+      if (e.wf) { // whale fall: look at the body a few metres ahead of the camera's place along it (tail first,
+        // then sweeping along the open flank to the head), at about the height of its flank
+        const W = e.wf.data, u = (cam.position.x - W.cx) * W.ca + (s - W.cs) * W.sa;
+        const ut = clamp(u + 4.5, -W.L / 2 + 1.5, W.L / 2 - 1);
+        ax = W.cx + W.ca * ut; ay = W.cy + 1.1; az = -(W.cs + W.sa * ut);
+      }
       const D = this._d.set(ax - cam.position.x, ay - cam.position.y, (az - Oz) - cam.position.z);
       const d = D.length(); D.divideScalar(d);
       const yawS = Math.atan2(F.z * D.x - F.x * D.z, F.x * D.x + F.z * D.z); // signed angle F->D about +Y
@@ -202,7 +211,8 @@ export class CameraDirector {
       pitchT = pitchT * (1 - w) + (e.light ? clamp(pitchS + 0.12, 0, 0.55) : clamp(pitchS, e.hole ? -0.62 : -0.5, 0.45)) * w; // (a sun shaft: up into the light)
       focusT = d;
       this.focusPos.set(e.x, e.y, e.z);
-      if (e.interest >= 0.7 && dS < 45) speedT = 1 - 0.5 * this.curiosity;            // linger on highlights
+      // (a whale fall: only once the lamps reach it; further out it is a shadow, and the zone is slow already)
+      if (e.interest >= 0.7 && dS < (e.wf ? 24 : 45)) speedT = 1 - 0.5 * this.curiosity;            // linger on highlights
       else if (e.interest >= 0.5 && dS < 30) speedT = 1 - 0.25 * this.curiosity;
     }
     if (mo) { // a signature moment (creatures/moments.js) takes the gaze and the pace by its weight
@@ -238,6 +248,14 @@ export class CameraDirector {
     cam.quaternion.setFromEuler(e);
     cam.updateMatrixWorld();
     return { x: cam.position.x, y: cam.position.y, gz };
+  }
+
+  // Keep watching a whale fall while the camera is alongside it (from 30 m before its tail to 3 m past its head).
+  _wfHold(s) {
+    const e = this.subject;
+    if (!e || !e.wf) return false;
+    const W = e.wf.data, u = (this.camera.position.x - W.cx) * W.ca + (s - W.cs) * W.sa;
+    return u > -W.L / 2 - 30 && u < W.L / 2 + 3;
   }
 
   // Distance to the seabed along the view heading (for focus when nothing is being watched).

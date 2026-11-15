@@ -4,6 +4,9 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 
 ## [2026-11-15]
 
+### Added
+- New zone: **Whale Fall**. A short, very slow deep zone (1,675 m, off southern California): a very large whale carcass, different every time, with ribs and spine showing, being eaten by Pacific sleeper sharks, hundreds of hagfish, rattails and crabs; sometimes an old skeleton with bacterial mats and bone-eating worms. Facts and sources are in `docs/SOURCES.md`.
+
 ### Changed
 - Sound: the hissy, static-like bed is replaced by a muffled, liquid one, like a head under water with plugged ears: a low rumble, sloshing surges, and bubble trails and glugs in every zone. In the reef, energy above 2 kHz is 34 dB lower at about the same loudness.
 - Animal calls are louder (4-10 dB), heard from further away and more frequent, and up to five nearby animals call on their own timers. 18 new voices, each from a published description: sea otters cracking shells on a stone, harbour, harp and ringed seals, bowhead, manatee, dugong, goliath grouper and giant sea bass booms, clownfish, damselfish, garibaldi, grunts, parrotfish crunching coral, spiny lobster rasps, seahorse clicks, kelp rockfish, and a night chorus of sweepers on reefs.

@@ -13,6 +13,7 @@ import { registerNewBiomeProps3 } from './props/newbiomes3.js';
 import { registerNewBiomeProps4 } from './props/newbiomes4.js';
 import { registerNewBiomeProps5 } from './props/newbiomes5.js'; // Lost City
 import { registerNewBiomeProps6 } from './props/newbiomes6.js'; // coldcoral
+import { registerNewBiomeProps7 } from './props/newbiomes7.js'; // whalefall
 import { Ambience } from './audio/index.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
@@ -110,10 +111,10 @@ post = new Post(renderer, scene, camera, { msaa: Q.msaa, shaftDiv: Q.shaftDiv, s
 window.__ocean = { scene, camera, terrain, shape, seq, creatures, surprises, post, U, obstacles, labels, conditions, director, renderer, tier, world };
 
 // ---------- blended environment parameters ----------
-const P = { sigma: [0, 0, 0], lightSigma: [0, 0, 0], deep: [0, 0, 0], up: [0, 0, 0], sun: 0, caustic: 0, shafts: 0, ambient: 0, glow: 0, snow: 0, cave: 0, tempC: 0 };
+const P = { sigma: [0, 0, 0], lightSigma: [0, 0, 0], deep: [0, 0, 0], up: [0, 0, 0], sun: 0, caustic: 0, shafts: 0, ambient: 0, glow: 0, snow: 0, cave: 0, tempC: 0, cruise: 1 };
 function blendParams(s) {
   for (const k of ['sigma', 'lightSigma', 'deep', 'up']) P[k].fill(0);
-  P.sun = P.caustic = P.shafts = P.ambient = P.glow = P.snow = P.cave = P.tempC = P.lampMax = 0;
+  P.sun = P.caustic = P.shafts = P.ambient = P.glow = P.snow = P.cave = P.tempC = P.lampMax = P.cruise = 0;
   for (const e of seq.weights(s)) {
     const b = BIOMES[e.key];
     // every segment has its own water: clarity and a slight green/blue shift
@@ -129,6 +130,7 @@ function blendParams(s) {
     P.tempC += (b.tempC ?? 20) * e.w;
     if (e.key === 'cave') P.cave += e.w;
     P.lampMax += (b.lampMax ?? 1) * e.w;
+    P.cruise += (b.cruise ?? 1) * e.w; // a zone's own cruise speed (the whale fall is flown very slowly)
   }
   // drifting turbidity: patches of clearer and murkier water as we travel
   const turb = 1 + 0.16 * noise1(s / 240, 31);
@@ -283,7 +285,7 @@ const app = {
   weathers: WEATHER_KEYS, times: TIME_KEYS,
   // Instrument depth: the deep zones are rendered ~40-55 m down but depict the deep sea, so the deck's
   // depth gauge adds a nominal offset (blended across zone cross-fades) to read like the real thing.
-  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736, coldcoral: 260 }, // (Lost City: ~800 m; cold-water coral: ~300 m)
+  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736, coldcoral: 260, whalefall: 1627 }, // (Lost City: ~800 m; cold-water coral: ~300 m; whale fall: 1,675 m)
   _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
@@ -512,7 +514,7 @@ function updateEnvironment(C) {
   const spawnNight = ((dayIndex * 2654435761) >>> 0) % 100 < 40 ? 1 : 0;
   const reefy = seq.weightOf(s + 10, 'reef') + seq.weightOf(s + 10, 'softcoral');
   const spawn = spawnNight * reefy * C.night * (conditions.phase < 0.9 ? 1 : 0);
-  snow.setDensity(Math.min(2.5, p.snow * C.snowMul), U.uGlow.value, spawn, speed * director.speedMul.x);
+  snow.setDensity(Math.min(2.5, p.snow * C.snowMul), U.uGlow.value, spawn, speed * P.cruise * director.speedMul.x);
   envSpawn = spawn;
   post.params.aperture = 1.6 + 0.8 * C.night;
 }
@@ -672,6 +674,7 @@ async function boot() {
   await bootStep(0.57, 750, () => registerNewBiomeProps4(terrain, env));
   await bootStep(0.58, 150, () => registerNewBiomeProps5(terrain, env)); // Lost City
   await bootStep(0.57, 120, () => registerNewBiomeProps6(terrain, env)); // coldcoral
+  await bootStep(0.58, 120, () => registerNewBiomeProps7(terrain, env)); // whalefall
   bootProgress(0.57, 'waking the sea life');
   await bootStep(0.6, 300, () => {
     creatures = new Creatures(world, env);
@@ -733,7 +736,7 @@ function tick(dt, draw) {
   lastV = 0;
   if (!paused) {
     simTime += dt;
-    lastV = speed * (1 + 0.12 * noise1(simTime / 40, 77)) * director.speedMul.x;
+    lastV = speed * P.cruise * (1 + 0.12 * noise1(simTime / 40, 77)) * director.speedMul.x;
     s += lastV * dt;
   }
   time = simTime % 4096; // shader time wraps to keep float precision

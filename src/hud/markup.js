@@ -70,7 +70,7 @@ export const ZONE_GROUPS = [
   { id: 'open', label: 'Open water', keys: ['pelagic', 'sargassum', 'whaleshark', 'seamount'] },
   { id: 'caves', label: 'Caves, wrecks & ruins', keys: ['cave', 'bluehole', 'wreck', 'ruins'] },
   { id: 'ice', label: 'Polar seas', keys: ['polar', 'iceedge'] },
-  { id: 'deep', label: 'The deep', keys: ['coldcoral', 'vents', 'lostcity', 'abyss', 'deepplain', 'hadal'] },
+  { id: 'deep', label: 'The deep', keys: ['coldcoral', 'vents', 'lostcity', 'whalefall', 'abyss', 'deepplain', 'hadal'] },
   { id: 'more', label: 'More zones', keys: [] },
 ];
 export function zoneGroup(z) {

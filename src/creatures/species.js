@@ -1640,7 +1640,7 @@ export const FACTS = {
   hammerheadSchool: 'Scalloped hammerheads school by the hundred by day and hunt alone at night.',
   sandTiger: 'Sand tiger sharks gulp air at the surface to hover without effort.',
   greenlandShark: 'Greenland sharks may live for centuries, longer than any other vertebrate.',
-  sleeperShark: 'Pacific sleeper sharks scavenge whale carcasses in near-freezing deep water.',
+  sleeperShark: 'Pacific sleeper sharks scavenge whale carcasses in cold deep water, around 4 \u00b0C.',
   mola: 'The ocean sunfish is the heaviest bony fish, at over 2 tonnes.',
   humpback: 'Humpbacks blow spiralling nets of bubbles to trap schools of fish.',
   blueWhale: 'The blue whale is the largest animal known to have ever lived.',
@@ -1940,3 +1940,23 @@ Object.assign(FACTS, {
   broodOctopus: 'Thousands of octopuses (Muusoctopus robustus) brood their eggs near warm springs on a hillock by Davidson Seamount.',
 });
 Object.assign(DIEL, { hammerheadPinnacle: 'day' });
+// --- whalefall --- the scavengers at a fresh whale carcass off California (~1,200-1,700 m): Pacific sleeper sharks of
+// 1.5-3.5 m, hagfish in the hundreds, rattails, lithodid crabs. Own keys, so the facts are the checked ones and the
+// tables of the existing species are untouched. (The writhing mass on the carcass is a prop: nb7_whalefall.js.)
+Object.assign(SPECIES, {
+  wfSleeper: merge(SPECIES.sleeperShark, { beh: { speed: [0.3, 0.5], dist: [6, 18] }, size: [2.2, 3.4], interest: 0.85, hl: false }),
+  wfHagfish: merge(SPECIES.hagfish, { beh: { n: [10, 30], spread: 2.5, alt: [0.05, 0.6] }, interest: 0.5 }),
+  wfRattail: merge(SPECIES.rattail, { beh: { n: [1, 2], alt: [0.2, 1.0], speed: [0.08, 0.2] }, interest: 0.4 }),
+  // lithodid: a broad, spiny, long-legged red crab
+  wfCrab: merge(SPECIES.deepCrab, { crab: { w: 0.34, l: 0.3, span: 1.05 }, col: C(0xb04a2a, 0xe0a080, 0xd06a40, 0xa04020, 0, 0x2a1008), pat: [25, 18, 0.7],
+    beh: { n: [1, 3], spread: 4 }, size: [0.35, 0.5] }),
+});
+for (const k of ['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab']) { SPECIES[k].key = k; SPECIES[k].name = k; }
+Object.assign(NAMES, { wfSleeper: 'Pacific sleeper shark', wfHagfish: 'Hagfish', wfRattail: 'Rattail (grenadier)', wfCrab: 'Lithodid crab' });
+// facts: checked wordings only (sources: see docs/SOURCES.md)
+Object.assign(FACTS, {
+  wfSleeper: 'A researcher described a sleeper shark gripping whale flesh and twisting its whole body back and forth to tear off a piece.',
+  wfHagfish: 'One researcher saw a hagfish grip a whale, tie itself in a knot and knock loose a chunk of meat.',
+  wfRattail: 'Rattails were among the scavengers recorded at a gray whale carcass sunk in the San Diego Trough.',
+  wfCrab: 'Small numbers of large lithodid crabs were seen at a gray whale carcass in the San Diego Trough.',
+});
