@@ -5,8 +5,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 ## [2026-11-15]
 
 ### Added
-- New zone: **Whale Fall**, in daylight. A short, slow zone off Hawaii: a very large whale carcass on a lava flat, different every time and always showing bone, with a feeding crowd all around it. Tiger sharks and oceanic whitetips (6 to 12 at once) bite with their snouts on the flesh and shake for 15-20 seconds, chunks come free in a cloud of scraps, bigger sharks displace smaller ones, new sharks arrive from the blue and sweep through clouds of snapper; trevally, mahi-mahi and crabs; now and then a very large white shark.
-- New zone: **Deep Whale Fall**. The same idea at 1,675 m off southern California, lit by the lamps: Pacific sleeper sharks, hundreds of hagfish, rattails and crabs; sometimes an old skeleton with bacterial mats and bone-eating worms. Facts and sources for both are in `docs/SOURCES.md`.
+- New zone: **Whale Fall**, in daylight. A short, slow zone off Hawaii: a very large whale carcass on a lava flat, different every time and always showing bone, with a feeding crowd all around it. Tiger sharks and oceanic whitetips (6 to 12 at once) bite with their snouts on the flesh and shake for 15-20 seconds, chunks come free in a cloud of scraps, bigger sharks displace smaller ones, new sharks arrive from the blue and sweep through clouds of snapper; trevally, mahi-mahi and crabs; now and then a very large white shark. Facts and sources are in `docs/SOURCES.md`.
 
 ### Changed
 - Big animals swim through their turns instead of rotating like rigid models. The spine bends along an arc with the head leading and the tail following; otters, seals, sea lions and sharks curl into a deep C, while whales, whale sharks, tuna, turtles and rays turn in wide banked arcs. No turning on the spot and no sliding sideways.
