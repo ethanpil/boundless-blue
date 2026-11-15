@@ -201,9 +201,9 @@ export class CameraDirector {
         // the flank to the head), at the height of its flank; past the head keep looking back at it a while, easing out
         // (a point 7 m ahead swung the view past the body: on some seeds it sat cut off at the edge, out of focus)
         const W = e.wf.data, u = (cam.position.x - W.cx) * W.ca + (s - W.cs) * W.sa;
-        // (sunlit: from 55 m out the whole body, its middle; closer in, the part just ahead; drawn a little toward where a
-        // shark is biting, tearing free or arriving: the crowd's pull, gw, eased in and out by wf_crowd.js)
-        const nr = W.ring ? smoothstep(-W.L / 2 - 30, -W.L / 2 - 8, u) : 1, ut = clamp(u + 3, -W.L / 2 + 1.5, W.L / 2 - 1.5) * nr;
+        // (from 55 m out the whole body, its middle; closer in, the part just ahead; drawn a little toward where a shark
+        // is biting, tearing free or arriving: the crowd's pull, gw, eased in and out by wf_crowd.js)
+        const nr = smoothstep(-W.L / 2 - 30, -W.L / 2 - 8, u), ut = clamp(u + 3, -W.L / 2 + 1.5, W.L / 2 - 1.5) * nr;
         ax = W.cx + W.ca * ut; ay = W.cy + 1.2; az = -(W.cs + W.sa * ut);
         if (W.gw > 0.01) {
           let gx = W.gx - ax, gy = W.gy - ay, gz = -W.gs - az;
@@ -221,9 +221,8 @@ export class CameraDirector {
       pitchT = pitchT * (1 - w) + (e.light ? clamp(pitchS + 0.12, 0, 0.55) : clamp(pitchS, e.hole ? -0.62 : -0.5, 0.45)) * w; // (a sun shaft: up into the light)
       focusT = d;
       this.focusPos.set(e.x, e.y, e.z);
-      // (a whale fall: only once the lamps reach it; further out it is a shadow, and the zone is slow already)
-      if (e.wf && e.wf.data.ring && dS < 30) speedT = 1 - 0.6 * this.curiosity;                     // (sunlit whale fall: the crowd is the show)
-      else if (e.interest >= 0.7 && dS < (e.wf ? 24 : 45)) speedT = 1 - 0.5 * this.curiosity;       // linger on highlights
+      if (e.wf) { if (dS < 30) speedT = 1 - 0.6 * this.curiosity; }                                  // (whale fall: the crowd is the show)
+      else if (e.interest >= 0.7 && dS < 45) speedT = 1 - 0.5 * this.curiosity;                      // linger on highlights
       else if (e.interest >= 0.5 && dS < 30) speedT = 1 - 0.25 * this.curiosity;
     }
     if (mo) { // a signature moment (creatures/moments.js) takes the gaze and the pace by its weight
@@ -261,13 +260,13 @@ export class CameraDirector {
     return { x: cam.position.x, y: cam.position.y, gz };
   }
 
-  // Keep watching a whale fall while the camera is alongside it (from 30 m before its tail to 10 m past its head; the
-  // sunlit one from 55 m out: the crowd wheeling round it is the approach).
+  // Keep watching a whale fall while the camera is alongside it (from 55 m before its tail, the crowd wheeling round it
+  // is the approach, to 10 m past its head).
   _wfHold(s) {
     const e = this.subject;
     if (!e || !e.wf) return false;
     const W = e.wf.data, u = (this.camera.position.x - W.cx) * W.ca + (s - W.cs) * W.sa;
-    return u > -W.L / 2 - (W.ring ? 55 : 30) && u < W.L / 2 + 10;
+    return u > -W.L / 2 - 55 && u < W.L / 2 + 10;
   }
 
   // Distance to the seabed along the view heading (for focus when nothing is being watched).

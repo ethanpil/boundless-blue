@@ -1,9 +1,9 @@
 // Whale fall in daylight (the sunlit 'whalefall' POI of props/nb7_whalefall.js): a crowd of tiger sharks and oceanic
 // whitetips feeding all around the carcass, a cloud of small fish at the wounds, a school wheeling over it, mahi-mahi
-// passes. The lamp-lit deep variant keeps its own, quieter controller (wf_feed.js).
+// passes. A guard (watch, _guard) keeps other zones' animals away from the carcass.
 //
-// Sharks are solo 'circle' encounters with a zero-radius orbit whose centre this controller moves every frame (as in
-// wf_feed.js). Swimming (loops round the body, the run-in, sweeps, arrivals, departures) is left to their own smooth
+// Sharks are solo 'circle' encounters with a zero-radius orbit whose centre this controller moves every frame.
+// Swimming (loops round the body, the run-in, sweeps, arrivals, departures) is left to their own smooth
 // steering; the bite itself is posed here (Encounter.HOLD, _holdPose in encounter.js): a curve from wherever the
 // shark is to its snout on the flesh, the clamp and 6-22 s of shaking about the snout (a tiger may roll onto its
 // back), then the chunk comes free and it backs off and turns away along the body with the piece in its jaws, scraps
@@ -41,8 +41,26 @@ export class WhaleCrowd {
     this.mt = 0; this.mph = 0; this.mahiT = 0; this.mdir = 1; // mahi passes
     this.hazeAcc = 0; this.camD = 1e9; this.camU = -1e9;
     this._t = [0, 0, 0]; this._ex = new Int32Array(4); this._nex = 0; // (spots ruled out for the pick being made)
+    this.guard = null; this.own = null; this.guT = 0; // the guard: the carcass POI, the cast's species keys, its timer
   }
-  reset() { this.release(); this.p = null; }
+  reset() { this.release(); this.p = null; this.guard = null; }
+  // keep other zones' animals away from carcass POI p while the camera is near it (own: the cast's species keys)
+  watch(p, own) { this.guard = p; this.own = own; this.guT = 0; }
+  // the guard: once a second, animals of other zones within reach of the carcass fade away (a short zone's neighbours
+  // arrived while the carcass was still in view; spawning is also kept to each zone's own ground, see spawnOne)
+  _guard(dt, c) {
+    const g = this.guard, d = g && g.data;
+    if (!d) return;
+    if (c.s > d.cs + d.L / 2 + 60 || c.s < d.cs - 260) { this.guard = null; return; }
+    this.guT -= dt;
+    if (this.guT > 0 || c.s < d.cs - d.L / 2 - 90) return;
+    this.guT = 1;
+    for (const e of this.dir.sys.enc) {
+      if (e.done || e.dying || (this.own && this.own.has(e.sp.key))) continue;
+      const es = -(e.anchorZ + e.bounds.z);
+      if (Math.abs(es - d.cs) < d.L / 2 + 70 && Math.abs(e.bounds.x - d.cx) < 60) e.dying = true;
+    }
+  }
   release() {
     for (const S of this.sharks) this._free(S);
     this.sharks.length = 0;
@@ -240,6 +258,7 @@ export class WhaleCrowd {
   // ---------------------------------------------------------------- tick
   tick(dt, c) {
     this.clock += dt;
+    this._guard(dt, c);
     if (!this.p) return;
     const d = this.p.data, r = this.rng;
     // the camera has gone on: let them go

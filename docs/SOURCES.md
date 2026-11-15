@@ -30,6 +30,7 @@ Rules for new facts: one sentence, at most 140 characters, plain language. Prefe
 | Floatplane "Main float" (wreck_air.js) | Some floatplanes, like the Kingfisher, sat on one central float with small stabilising floats under the wings. | Wikipedia, Vought OS2U Kingfisher | https://en.wikipedia.org/wiki/Vought_OS2U_Kingfisher |
 | Catalina "Parasol wing" (wreck_air.js) | The Catalina's wing sat on a pylon high above the hull, well clear of the water. | Military Aviation Museum, PBY Catalina | https://www.militaryaviationmuseum.org/aircraft/consolidated-pby-catalina/ |
 | Message in a bottle (features.js) | The oldest known one was found in 2018 on an Australian beach, 131 years after it was thrown overboard. | Guinness World Records, Oldest message in a bottle | https://www.guinnessworldrecords.com/world-records/oldest-message-in-a-bottle |
+| sleeperShark (corrected: it said "near-freezing") | Pacific sleeper sharks scavenge whale carcasses in cold deep water, around 4 °C. | Treude et al. 2009 (Santa Cruz Basin whale fall: 1675 m, bottom temperature ~4 °C); Smith & Baco 2003, Table 2 (1-3 Somniosus pacificus at that carcass) | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf |
 
 ## Batch 2026-11 (new species facts)
 
@@ -117,11 +118,11 @@ Left out because no source we read confirmed them as reef associates: bubblegum 
 Geodia sponge grounds and Primnoa sea fans. No trawl-damage percentage is shown. Colony and fish sizes are picture
 choices and are not stated on screen.
 
-### Whale Fall, sunlit (`whalefall`)
+### Whale Fall (`whalefall`)
 
 Shown as off Hawaii. The carcass on the seabed and the crowd around it are a composite depiction (the documented events
 are at floating or reef-grounded carcasses): no species, length or depth is stated for it, and the facts describe the
-documented events.
+documented events. The scraps and bone labels describe the documented deep whale falls off California.
 
 | Where it appears | Fact text | Source | URL |
 |---|---|---|---|
@@ -132,36 +133,12 @@ documented events.
 | Tiger shark (wfTiger) | Tiger sharks sometimes rolled onto their backs while biting a whale carcass. | Dudley et al. 2000, Fishery Bulletin 98:646 | https://spo.nmfs.noaa.gov/sites/default/files/13_1.pdf |
 | Oceanic whitetip shark (wfWhitetip) | Off Hawaii, at a carcass thought to be a whale, a smaller tiger or whitetip shark sometimes veered away for a larger one. | Scott et al. 2025 | https://www.frontiersin.org/journals/fish-science/articles/10.3389/frish.2025.1520995/full |
 | Great white shark (wfWhite) | Off KwaZulu-Natal, South Africa, a white shark and tiger sharks fed on one floating whale together and did not appear to compete. | Dudley et al. 2000 | https://spo.nmfs.noaa.gov/sites/default/files/13_1.pdf |
+| Scraps of whale (scraps on the sand, trailing strands) | At one whale fall off California, 90% of the soft tissue had been removed after 18 months. | Smith & Baco 2003, Ecology of whale falls at the deep-sea floor (Santa Cruz Basin carcass) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
+| Whale bones (bone label, bone fragments) | Fresh bones of large whales can be more than 60% lipid (fat) by weight. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
 
 Depicted, not stated: the seabed setting, the carcass's species and size, the white shark's size (a news report), the
-dolphins passing and the smaller fish. Mahi-mahi keep their general fact; no carcass claim is made for them.
-
-### Deep Whale Fall (`whalefalldeep`; the sunlit `whalefall` zone has its own section once its sources are in)
-
-The scene is shown as a southern California basin. The carcass is a composite depiction (a rorqual of 17-23 m); no
-species or length is stated for it on screen, and every fact describes the real sites.
-
-| Where it appears | Fact text | Source | URL |
-|---|---|---|---|
-| Zone depth and temperature (deck) | 1,675 m, about 4 °C (Santa Cruz Basin whale fall) | Treude et al. 2009, Biogeochemistry of a deep-sea whale fall, MEPS 382:1 | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf |
-| Whale fall (fresh carcass) | At a gray whale sunk off California, an estimated 400-800 hagfish were feeding 1.5 months later. | Smith & Baco 2003, Ecology of whale falls at the deep-sea floor, Table 2 (Santa Cruz Basin, 1.5 months) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Whale fall (second label) | The seabed under a sunken whale gets organic carbon equal to about 2,000 years of the normal supply. | Treude et al. 2009 (introduction); Smith & Baco 2003 | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf ; https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Whale carcass (the main tear) | Off California, scavengers remove whale soft tissue at roughly 40 to 60 kg per day. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Scraps of whale | At one whale fall off California, 90% of the soft tissue had been removed after 18 months. | Smith & Baco 2003 (Santa Cruz Basin carcass) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Whale bones | Fresh bones of large whales can be more than 60% lipid (fat) by weight. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Whale skeleton (old stage) | One whale skeleton off California still hosted a sulfide-fed community an estimated 50 years after it sank. | Smith & Baco 2003 (Santa Catalina Basin, arrival estimated 1948) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Bacterial mats | Sediment by old whale bones turns black with metal sulfides; white and yellow bacterial mats grow on the bones. | Treude et al. 2009; Smith et al. 2015, Annu. Rev. Mar. Sci. 7:571, Fig. 2 caption | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf ; https://typeset.io/pdf/whale-fall-ecosystems-recent-insights-into-ecology-1lojnpo18h.pdf |
-| Bone-eating worms (Osedax) | Osedax worms have no mouth or stomach; bacteria in their roots break down oil in whale bone. | MBARI, Whale carcass yields bone-devouring worms (2004) | https://www.mbari.org/whale-carcass-yields-bone-devouring-worms/ |
-| Bone-eating worms (Osedax) | The name Osedax means "bone devourer". | MBARI (same page) | https://www.mbari.org/whale-carcass-yields-bone-devouring-worms/ |
-| Pacific sleeper shark (wfSleeper) | A researcher described a sleeper shark gripping whale flesh and twisting its whole body back and forth to tear off a piece. | Science News, Decades of Dinner, 2 May 2005 (A. Baco-Taylor) | https://sciencenews.org/?p=29266 |
-| Hagfish (wfHagfish) | One researcher saw a hagfish grip a whale, tie itself in a knot and knock loose a chunk of meat. | Science News, Decades of Dinner, 2 May 2005 | https://sciencenews.org/?p=29266 |
-| Rattail (wfRattail) | Rattails were among the scavengers recorded at a gray whale carcass sunk in the San Diego Trough. | Smith & Baco 2003, Table 2 (Nezumia stelgidolepis) | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Lithodid crab (wfCrab) | Small numbers of large lithodid crabs were seen at a gray whale carcass in the San Diego Trough. | Smith & Baco 2003 | https://typeset.io/pdf/ecology-of-whale-falls-at-the-deep-sea-floor-3hwqjc34sq.pdf |
-| Pacific sleeper shark (older fact, corrected: it said "near-freezing") | Pacific sleeper sharks scavenge whale carcasses in cold deep water, around 4 °C. | Treude et al. 2009 (Santa Cruz Basin whale fall: 1675 m, bottom temperature ~4 °C); Smith & Baco 2003, Table 2 (1-3 Somniosus pacificus at that carcass) | https://www.vliz.be/imisdocs/publications/ocrd/148212.pdf |
-
-Depicted but not stated: the carcass's species, length and pose (one documented skeleton lay on its back), the colour
-of fresh blubber, how a carcass is opened, and "crater" bite wounds; sleeper-shark sizes (1.5-3.5 m) and the cast
-(1-3 sharks, hundreds of hagfish, amphipod swarms) follow Smith & Baco 2003. Brittle stars are named without a fact.
+dolphins passing and the smaller fish. Mahi-mahi keep their general fact; no carcass claim is made for them. Also
+depicted but not stated: the colour of fresh blubber, how a carcass is opened, and "crater" bite wounds.
 
 ## New events
 

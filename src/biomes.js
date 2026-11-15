@@ -644,13 +644,12 @@ BIOMES.coldcoral.floorTint = (x, s, nn, T, g) => {
 };
 
 // --- whalefall ---
-// A whale fall: one very large rorqual carcass on a dark, muddy deep slope, lamp-lit (props: nb7_whalefall.js). A short
-// zone flown very slowly (cruise 0.45), sparse on purpose: the carcass is the event. One carcass per segment, lying on
-// the mud beside the route on the outside of the sharpest bend of the segment's middle (so it opens up dead ahead and
-// the camera curves along it), its long axis along the path, its near flank ~5-6 m from the camera line. A segment the
-// camera starts in (page load, zone jump) has it ~75 m ahead, and always the fresh stage.
+// A whale fall: one very large rorqual carcass on the seabed (props: nb7_whalefall.js). A short zone flown slowly, sparse
+// on purpose: the carcass is the event. One carcass per segment, lying beside the route on the outside of the sharpest
+// bend of the segment's middle (so it opens up dead ahead and the camera curves along it), its long axis along the path,
+// its near flank ~5-6 m from the camera line. A segment the camera starts in (page load, zone jump) has it ~75 m ahead.
 // {x, s, side (-1 / 1: which side of the route), ca, sa (axis: unit (x, s) direction of the path there), L (body
-// length), R (footprint half length incl. the stained mud), stage (0 fresh, 2 old skeleton), off}
+// length), R (footprint half length incl. the stained sand), off, cam}
 export function whaleFallOf(g) {
   if (!g || g.key !== 'whalefall') return null;
   if (g._wf) return g._wf;
@@ -660,12 +659,11 @@ export function whaleFallOf(g) {
   let s = cam ? g.camStart + 75 : g.start + Lg * (0.48 + 0.04 * sv(g, 650)), b = bend(s);
   for (let t = s - 10, s0 = s; t <= s0 + 10; t += 5) { const bt = bend(t); if (Math.abs(bt) > Math.abs(b)) { b = bt; s = t; } }
   const side = Math.abs(b) > 0.25 ? -Math.sign(b) : sv(g, 651) < 0.5 ? -1 : 1;
-  const stage = cam || g.key === 'whalefall' || sv(g, 652) < 0.62 ? 0 : 2; // (the old skeleton: deep only)
   // (its heading a little off the path's; the body is up to ~3.8 m wide at the chest: its centre ~2 m beyond the
   // near flank, which runs ~5-6 m from the camera line, also at the end the heading turns toward it)
   const L = 17 + 6 * sv(g, 653), yaw = (sv(g, 655) - 0.5) * 0.26, a = Math.atan2(pathXAt(s + 4) - pathXAt(s - 4), 8) + yaw;
   const off = 7.3 + 0.9 * sv(g, 654) + Math.abs(Math.sin(yaw)) * L * 0.45;
-  g._wf = { x: pathXAt(s) + side * off, s, side, ca: Math.sin(a), sa: Math.cos(a), L, R: L / 2 + 7, stage, off, cam, deep: false };
+  g._wf = { x: pathXAt(s) + side * off, s, side, ca: Math.sin(a), sa: Math.cos(a), L, R: L / 2 + 7, off, cam };
   return g._wf;
 }
 // carcass frame of (x, s): u along the body (+ toward the head, which points down the route), v across (+ away from
@@ -677,8 +675,8 @@ export function whaleFallUV(W, x, s, out) {
 }
 const _wuv = [0, 0];
 export const isWhaleFall = (k) => k === 'whalefall';
-// the sunlit variant: the same carcass on pale sand in clear blue water, ~14 m down, sunlit (caustics, shafts), seen
-// from far off; not slowed as much (the crowd of sharks is the show)
+// the carcass on pale sand in clear blue water, ~14 m down, sunlit (caustics, shafts), seen from far off; slowed a
+// little (the crowd of sharks is the show)
 Object.assign(BIOMES, {
   whalefall: {
     label: 'Whale Fall', camY: -14, clearance: 3.4, len: [340, 420], weight: 0.5, lenAhead: 280, cruise: 0.55,
@@ -691,9 +689,9 @@ Object.assign(BIOMES, {
 // (shown as off Hawaii: 25 degC water, 40 m+ visibility, as on the day tiger sharks and whitetips were filmed at a carcass)
 Object.assign(META, { whalefall: { subtitle: 'sharks feeding at a whale carcass in warm, clear water', tempC: 25, ripple: 0.9 } });
 Object.assign(BIOMES.whalefall, META.whalefall);
-// The sunlit carcass has come to rest on a lava flat (a carcass off Kona was moved onto one in 2026: DLNR): pale rippled
+// The carcass has come to rest on a lava flat (a carcass off Kona was moved onto one in 2026: DLNR): pale rippled
 // sand between low, ropy flows of black basalt ridged a few tens of centimetres, kept back from the carcass so nothing
-// hides it; a level bench under the body as in the deep variant (props: nb7_whalefall.js, layoutWfB)
+// hides it; a level bench under the body (props: nb7_whalefall.js, layoutWfB)
 export function wfLavaAt(x, s, W) {
   // (patches, kept off the corridor under the camera: there they read as dark smudges filling the foreground)
   let m = smoothstep(0.04, 0.26, fbm2(x / 13, s / 13, 3, 664)) * smoothstep(5, 13, Math.abs(x - pathXAt(s)));
@@ -704,7 +702,7 @@ export function wfLavaAt(x, s, W) {
   return m;
 }
 BIOMES.whalefall.floor = (x, s, ad, g) => {
-  // (a flat: the large swells of the deep variant hid the carcass behind them from 30-50 m out)
+  // (a flat: large swells hid the carcass behind them from 30-50 m out)
   const W = whaleFallOf(g), base = (xx, ss) => fbm2(xx / 40, ss / 40, 3, 661) * 0.55 + fbm2(xx / 9, ss / 9, 2, 662) * 0.12;
   let h = base(x, s);
   const m = wfLavaAt(x, s, W);
@@ -719,7 +717,7 @@ BIOMES.whalefall.floor = (x, s, ad, g) => {
   }
   return h;
 };
-// the sand around a sunlit carcass: a faint oily stain close in; black basalt on the lava, no ripples there
+// the sand around the carcass: a faint oily stain close in; black basalt on the lava, no ripples there
 BIOMES.whalefall.floorTint = (x, s, nn, T, g) => {
   const W = whaleFallOf(g), m = wfLavaAt(x, s, W);
   if (m > 0) { T[3] = 0.085; T[4] = 0.075; T[5] = 0.07; T[7] = 0.85 * m; T[6] = 1 - m; }

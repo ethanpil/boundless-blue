@@ -1940,27 +1940,7 @@ Object.assign(FACTS, {
   broodOctopus: 'Thousands of octopuses (Muusoctopus robustus) brood their eggs near warm springs on a hillock by Davidson Seamount.',
 });
 Object.assign(DIEL, { hammerheadPinnacle: 'day' });
-// --- whalefall --- the scavengers at a fresh whale carcass off California (~1,200-1,700 m): Pacific sleeper sharks of
-// 1.5-3.5 m, hagfish in the hundreds, rattails, lithodid crabs. Own keys, so the facts are the checked ones and the
-// tables of the existing species are untouched. (The writhing mass on the carcass is a prop: nb7_whalefall.js.)
-Object.assign(SPECIES, {
-  wfSleeper: merge(SPECIES.sleeperShark, { beh: { speed: [0.3, 0.5], dist: [6, 18] }, size: [2.2, 3.4], interest: 0.85, hl: false }),
-  wfHagfish: merge(SPECIES.hagfish, { beh: { n: [10, 30], spread: 2.5, alt: [0.05, 0.6] }, interest: 0.5 }),
-  wfRattail: merge(SPECIES.rattail, { beh: { n: [1, 2], alt: [0.2, 1.0], speed: [0.08, 0.2] }, interest: 0.4 }),
-  // lithodid: a broad, spiny, long-legged red crab
-  wfCrab: merge(SPECIES.deepCrab, { crab: { w: 0.34, l: 0.3, span: 1.05 }, col: C(0xb04a2a, 0xe0a080, 0xd06a40, 0xa04020, 0, 0x2a1008), pat: [25, 18, 0.7],
-    beh: { n: [1, 3], spread: 4 }, size: [0.35, 0.5] }),
-});
-for (const k of ['wfSleeper', 'wfHagfish', 'wfRattail', 'wfCrab']) { SPECIES[k].key = k; SPECIES[k].name = k; }
-Object.assign(NAMES, { wfSleeper: 'Pacific sleeper shark', wfHagfish: 'Hagfish', wfRattail: 'Rattail (grenadier)', wfCrab: 'Lithodid crab' });
-// facts: checked wordings only (sources: see docs/SOURCES.md)
-Object.assign(FACTS, {
-  wfSleeper: 'A researcher described a sleeper shark gripping whale flesh and twisting its whole body back and forth to tear off a piece.',
-  wfHagfish: 'One researcher saw a hagfish grip a whale, tie itself in a knot and knock loose a chunk of meat.',
-  wfRattail: 'Rattails were among the scavengers recorded at a gray whale carcass sunk in the San Diego Trough.',
-  wfCrab: 'Small numbers of large lithodid crabs were seen at a gray whale carcass in the San Diego Trough.',
-});
-// --- whalefall (sunlit) --- documented together at whale carcasses off Hawaii: tiger sharks of ~3-4 m and oceanic
+// --- whalefall --- documented together at whale carcasses off Hawaii: tiger sharks of ~3-4 m and oceanic
 // whitetips of ~1.5-2.5 m; rarely a very large white shark (a news report from Oahu). Own keys: own facts and sizes.
 Object.assign(SPECIES, {
   wfTiger: merge(SPECIES.greatWhite, { col: { d: 0x6b6555, b: 0xe6e1d2, p: 0x3d372b }, pat2: [3, 14, 0.22], size: [3, 4], interest: 0.85, hl: false }),
@@ -2009,6 +1989,4 @@ Object.assign(FACTS, {
   T('giantSquid', [1.2, 0.3, 0.1, 0.3]);
   T('wfTiger wfWhitetip', [1.5, 2.0, 0.3, 0.4]); // --- whalefall --- (copies of sharks made above: same turning as their kind)
   T('wfWhite', [1.3, 1.4, 0.25, 0.35]);
-  T('wfSleeper', [1.2, 1.4, 0.2, 0.2]);
-  T('wfHagfish', [3.0, 3.0, 0.5, 0.2]);
 }

@@ -23,7 +23,6 @@ const LIFE = {
 LIFE.lostcity = [0.06, 0.85]; // Lost City: bare serpentinite, a trace of pale microbial film
 LIFE.coldcoral = [0.25, 0.75]; // --- coldcoral --- (sparse temperate/bacterial film on silt and rubble)
 LIFE.whalefall = [0.15, 0.1]; // --- whalefall --- (sunlit sand: a little algal film)
-LIFE.whalefalldeep = [0.05, 0.9]; // --- whalefalldeep --- (bare mud; a trace of bacterial film)
 const TINT = new Float32Array(8); // sand rgb, rock rgb, ripple multiplier, rockiness added (see floorTint)
 
 // Travel distance of row j (-1 .. NZ) of chunk idx: the rows a chunk build samples.

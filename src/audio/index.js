@@ -48,7 +48,6 @@ const PROFILE = {
 };
 PROFILE.coldcoral = { hum: 0.55, shrimp: 0.15 }; // --- coldcoral --- (deep hum, a faint crackle from the reef)
 PROFILE.whalefall = { song: 0.5 }; // --- whalefall --- (sunlit open water)
-PROFILE.whalefalldeep = { hum: 0.7 }; // --- whalefalldeep --- (the deep hum, nothing else: a quiet place)
 for (const k in PROFILE) PROFILE[k] = { ...Z0, ...PROFILE[k] };
 // species key -> call voice. Every voice is a sound the species is documented to make (docs/SOURCES.md, "Sounds").
 const CALLS = {

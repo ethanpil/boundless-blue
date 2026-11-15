@@ -1,70 +1,53 @@
-// Whale fall: one very large rorqual carcass per segment on a dark muddy slope, lit only by the camera's lamps
-// (biomes.whaleFallOf places it beside the route on the outside of a bend). Two stages, per segment:
-//  0 fresh (the mobile-scavenger stage; always the first one after a zone jump): the whole whale lying on its side,
-//    dark mottled skin with pale sloughed patches, the throat pleats and the mouth line, a flipper raised, the flukes
-//    twisted half onto the mud; torn open along the upper flank toward the route (a pale rim of blubber around red
-//    muscle, the rib cage arching over the dark cavity, the spine at its back), bite marks scattered over the body.
-//    Hundreds of hagfish writhe on the open flank and the mud beside it (one instanced mesh, animated in its vertex
-//    shader: a few triangles each), amphipod swarms hang at the wounds, scraps of flesh and blubber lie around it.
-//  2 old skeleton (the sulfophilic stage): skull, jaws, the vertebral chain and collapsed ribs on black sediment,
-//    white and yellow bacterial mats on the bones and the mud, red fringes of bone-eating Osedax worms.
-// The depiction is a composite (a ~21 m rorqual); on-screen text describes the real California sites (see
+// Whale fall: one very large rorqual carcass per segment on a sunlit lava flat in clear water (biomes.whaleFallOf places
+// it beside the route on the outside of a bend; the crowd of sharks feeding at it is creatures/wf_crowd.js). The whole
+// whale lying on its side or back: mottled skin with pale sloughed patches, a cream belly, the throat pleats and the
+// mouth line, the flippers and the flukes (parts missing on some); torn open toward the route (a pale rim of blubber
+// around red muscle, the rib cage arching over the dark cavity, the spine at its back), opened at the tail stock where
+// the sharks begin, bite marks scattered over the body, strands of tissue trailing from the cuts, scraps and bone
+// fragments on the sand around it.
+// The depiction is a composite (a ~21 m rorqual); on-screen text describes the documented events (see
 // docs/SOURCES.md), never this carcass. The carcass template is generated per segment through the rock_gen providers
 // (<= 2 ms slices ahead of the camera; a layout that finds none builds it itself in slices).
 import * as THREE from 'three';
-import { Builder, Batch, TAU, CHUNK, T, vn3, sat, sstep, lerp, rotY, pointsClear, placedPoints, presence, budgetK, releaseAfterUpload } from './core.js';
+import { Builder, Batch, TAU, CHUNK, T, vn3, sat, sstep, lerp, rotY, pointsClear, placedPoints, presence, budgetK } from './core.js';
 import { MAT } from './materials.js';
-import { applyWater } from '../water.js';
 import { whaleFallOf, whaleFallUV } from '../biomes.js';
-import { pathCache, clearBox, SOFT, SOLID, seat, put, segFor, lowK, slice, nbFloor, decalDisc, builderMesh, NBMAT, lab, setBase, upTo, mix3 } from './nb_common.js';
+import { pathCache, clearBox, SOFT, SOLID, seat, put, segFor, lowK, slice, nbFloor, lab, setBase, upTo, mix3 } from './nb_common.js';
 import { poolOf, tintOf } from './nb2_common.js';
 import { gridG, paintG, blobG, drain, rockJob, tiered } from './rock_recipes.js';
-import { pick, chunkRng, segSeed, planktonMeshG, IBatch, iput } from './nb4_common.js';
+import { pick, chunkRng, segSeed, planktonMeshG, IBatch } from './nb4_common.js';
 import { mulberry32 } from '../noise.js';
 
-// the two variants (biomes.isWhaleFall): sunlit 'whalefall' and the deep, lamp-lit 'whalefalldeep'
-const KEYS = ['whalefall', 'whalefalldeep'];
-const presenceWF = (ctx) => Math.max(presence(ctx, KEYS[0]), presence(ctx, KEYS[1]));
+const KEY = 'whalefall';
 const H = {};
 
 // ---------------------------------------------------------------- on-screen text (sourced: docs/SOURCES.md)
+// (scraps and ribs describe the documented California sites; the rest the documented events off Hawaii and at False
+// Bay; never this carcass)
 export const WF = {
-  carcass: ['Whale fall', 'At a gray whale sunk off California, an estimated 400-800 hagfish were feeding 1.5 months later.'],
-  carcass2: ['Whale fall', 'The seabed under a sunken whale gets organic carbon equal to about 2,000 years of the normal supply.'],
-  flank: ['Whale carcass', 'Off California, scavengers remove whale soft tissue at roughly 40 to 60 kg per day.'],
   scraps: ['Scraps of whale', 'At one whale fall off California, 90% of the soft tissue had been removed after 18 months.'],
   ribs: ['Whale bones', 'Fresh bones of large whales can be more than 60% lipid (fat) by weight.'],
-  skeleton: ['Whale skeleton', 'One whale skeleton off California still hosted a sulfide-fed community an estimated 50 years after it sank.'],
-  osedax: ['Bone-eating worms (Osedax)', 'Osedax worms have no mouth or stomach; bacteria in their roots break down oil in whale bone.'],
-  osedax2: ['Bone-eating worms (Osedax)', 'The name Osedax means "bone devourer".'],
-  mats: ['Bacterial mats', 'Sediment by old whale bones turns black with metal sulfides; white and yellow bacterial mats grow on the bones.'],
-  brittle: ['Brittle star', null],
-  // sunlit variant (Hawaii; sources: docs/SOURCES.md): about the documented events, never this carcass
   sunCarcass: ['Whale carcass', 'In Hawaii in 2024, at least nine oceanic whitetips and five tiger sharks fed on one carcass over 8.5 hours.'],
   sunTail: ['Whale carcass', 'At False Bay, white sharks generally started on a whale\'s tail stock and fluke, then moved along the body.'],
   sunBite: ['Whale carcass', 'At False Bay, white sharks cut whale flesh with side-to-side head shakes; a bout typically lasted 15 to 20 seconds.'],
 };
 
 // ---------------------------------------------------------------- resolution per tier
-// du: ring spacing along the body (m); nu: vertices around it; hag: hagfish in the writhing mass; ost: Osedax tufts
+// du: ring spacing along the body (m); nu: vertices around it
 const RES = {
-  low: { du: 0.34, nu: 48, rib: 6, vd: 1, hag: 380, ost: 50, nv: 30 }, medium: { du: 0.27, nu: 60, rib: 7, vd: 2, hag: 480, ost: 90, nv: 40 },
-  high: { du: 0.2, nu: 76, rib: 8, vd: 2, hag: 650, ost: 140, nv: 52 }, ultra: { du: 0.17, nu: 88, rib: 9, vd: 2, hag: 800, ost: 180, nv: 60 },
+  low: { du: 0.34, nu: 48, rib: 6, vd: 1 }, medium: { du: 0.27, nu: 60, rib: 7, vd: 2 },
+  high: { du: 0.2, nu: 76, rib: 8, vd: 2 }, ultra: { du: 0.17, nu: 88, rib: 9, vd: 2 },
 };
 const resOf = (tier) => RES[tier] || RES.high;
 
 // ---------------------------------------------------------------- colours (linear)
-// (linear: the back near-black slate, the belly cream-white (countershaded: half the body is pale and catches the
-// lamps), peeling patches grey-pink; blubber cream, muscle red to maroon, bone ivory)
-const SKIN = [0.018, 0.022, 0.03], SKIN2 = [0.045, 0.05, 0.062], BELLY = [0.38, 0.355, 0.3], SLOUGH = [0.3, 0.25, 0.23];
-const BLUB = [0.78, 0.68, 0.52], BLUB2 = [0.8, 0.58, 0.48], MUSC = [0.42, 0.06, 0.05], MAROON = [0.17, 0.022, 0.028], DEEP = [0.06, 0.012, 0.016];
-const BONE = [0.82, 0.76, 0.6], MAT_W = [0.88, 0.88, 0.82], MAT_Y = [0.85, 0.7, 0.28], OSE = [0.75, 0.06, 0.05];
-// the sunlit carcass (whalefall): the same body as it looks in air, then +35 % red for the light path through the water,
-// as the reef palettes (reef.js RL): mid-grey hide with pale sloughed patches, a cream belly, a cream band of blubber
-// at the cuts, bright red muscle, ivory bone. In sunlight these are the most colourful things in the frame.
-const PAL_DEEP = { SKIN, SKIN2, BELLY, SLOUGH, BLUB, BLUB2, MUSC, MAROON, DEEP, BONE, STR: [0.55, 0.42, 0.36] };
+// the carcass: the body as it looks in air, then +35 % red for the light path through the water, as the reef palettes
+// (reef.js RL): mid-grey hide with pale sloughed patches, a cream belly, a cream band of blubber at the cuts, bright
+// red muscle, ivory bone. In sunlight these are the most colourful things in the frame.
 const PAL_SUN = { SKIN: [0.055, 0.058, 0.066], SKIN2: [0.1, 0.1, 0.108], BELLY: [0.86, 0.74, 0.6], SLOUGH: [0.66, 0.52, 0.48], BLUB: [1.12, 0.9, 0.62],
   BLUB2: [1.12, 0.74, 0.6], MUSC: [1.0, 0.15, 0.11], MAROON: [0.6, 0.06, 0.06], DEEP: [0.24, 0.035, 0.04], BONE: [1.06, 0.98, 0.84], STR: [1.05, 0.72, 0.64] };
+// the bone fragments on the sand (H.bone): a drier, duller ivory than the bone in the wounds
+const PAL_FRAG = { BONE: [0.82, 0.76, 0.6] };
 const mixIn = (c, b, t) => { c[0] += (b[0] - c[0]) * t; c[1] += (b[1] - c[1]) * t; c[2] += (b[2] - c[2]) * t; return c; };
 const set3 = (c, a) => { c[0] = a[0]; c[1] = a[1]; c[2] = a[2]; return c; };
 
@@ -85,21 +68,21 @@ function prof(K, t) {
 const angD = (a, b) => { let d = a - b; d -= TAU * Math.round(d / TAU); return d; };
 const HP = Math.PI / 2;
 // height of the mud beside the body in template space: the body lies in a 0.16 m hollow (biomes.js) and is seated
-// 0.1 m into it; flukes, flippers, fallen ribs and the hagfish beside it rest on the level mud
+// 0.1 m into it; flukes, flippers and fallen ribs rest on the level mud
 const MUD = 0.26;
 
 // One carcass, all from its segment's seed: pose, proportions, how far it has been eaten and where, what is missing.
 // cam: the carcass a dive starts at (page load, zone jump): always fresh, partly eaten, the sharks at it.
 function carcassPlan(seed, W) {
   const rng = mulberry32(seed), r = (a, b) => a + (b - a) * rng(), L = W.L, cam = W.cam;
-  const Pl = { L, rng, seed, sd: (seed % 99991) + 7, Rr: 0.065 * L, W: [], sc: L / 21, K: W.deep ? PAL_DEEP : PAL_SUN };
+  const Pl = { L, rng, seed, sd: (seed % 99991) + 7, Rr: 0.065 * L, W: [], sc: L / 21, K: PAL_SUN };
   Pl.gk = r(0.9, 1.1); Pl.bloat = rng() < 0.4 ? r(0.05, 0.16) : 0;
   // skin: how much has peeled off (pale grey-pink), and its cast (blue-grey .. brownish)
-  Pl.slough = (cam ? r(0.05, 0.35) : r(0.05, 0.6)) + (W.deep ? 0 : 0.2); Pl.tint = [r(0.85, 1.25), r(0.9, 1.05), r(0.75, 1.1)];
+  Pl.slough = (cam ? r(0.05, 0.35) : r(0.05, 0.6)) + 0.2; Pl.tint = [r(0.85, 1.25), r(0.9, 1.05), r(0.75, 1.1)];
   const u = rng();
-  // (the first carcass of a dive shows its pale belly to the camera: belly up or turned toward the route)
-  // (sunlit: mostly the pale belly up or toward the route, where the sun and the camera find it)
-  Pl.rho0 = (cam ? (u < 0.55 ? HP : 0.35) : !W.deep ? (u < 0.42 ? HP : u < 0.82 ? 0.3 : Math.PI * 0.8) : u < 0.36 ? HP : u < 0.58 ? 0 : u < 0.78 ? Math.PI : -HP) + r(-0.3, 0.3);
+  // (the first carcass of a dive shows its pale belly to the camera: belly up or turned toward the route; the others
+  // mostly the pale belly up or toward the route, where the sun and the camera find it)
+  Pl.rho0 = (cam ? (u < 0.55 ? HP : 0.35) : u < 0.42 ? HP : u < 0.82 ? 0.3 : Math.PI * 0.8) + r(-0.3, 0.3);
   Pl.twist = rng() < 0.4 ? r(-0.9, 0.9) : r(-0.2, 0.2);
   Pl.curl = rng() < 0.45 ? r(-1.8, 1.8) : 0;      // the tail stock bent sideways (m at the flukes)
   Pl.jaw = rng() < 0.45 ? r(0.5, 1) : 0;          // jaw agape
@@ -114,22 +97,19 @@ function carcassPlan(seed, W) {
   add(tm, cam ? r(0.15, 0.95) : r(-0.05, 1.5), L * r(0.09, 0.16) * (0.85 + 0.6 * E), r(1.3, 2.4), r(0.52, 0.64), 0, 1.2);
   if (rng() < 0.35) add(tm < 0.53 ? r(0.64, 0.74) : r(0.36, 0.44), r(0, 1.8), L * r(0.05, 0.09), r(0.9, 1.6), r(0.4, 0.52), 0, 1.2); // a second tear
   // other opened parts (belly, back down to the spine, the head down to the skull, the tail stock down to the
-  // vertebrae, the far flank); always at least one laid down to bone
+  // vertebrae, the far flank)
   const parts = ['belly', 'back', 'head', 'tail', 'far'], n2 = 1 + Math.floor(rng() * (1.5 + 2 * E));
-  let bone = false;
   for (let k = 0; k < n2; k++) {
     const pt = parts[Math.floor(rng() * parts.length)], rho = (t) => Pl.rho0 + Pl.twist * (t - 0.5);
     if (pt === 'belly') { const t = r(0.28, 0.46); add(t, rho(t) + r(-0.4, 0.4), r(1, 2), r(0.6, 1), r(0.3, 0.42)); }
-    else if (pt === 'back') { const t = r(0.22, 0.55); add(t, rho(t) + Math.PI + r(-0.3, 0.3), r(1.5, 3), r(0.6, 1), 0.58, 1); bone = true; }
-    else if (pt === 'head') { add(r(0.88, 0.95), r(0.1, 1.8), r(0.7, 1.3), r(0.5, 0.9), 0.5, 1); bone = true; }
-    else if (pt === 'tail') { add(r(0.04, 0.11), r(-0.2, 2.2), r(0.6, 1.1), r(0.4, 0.7), 0.6, 1); bone = true; }
+    else if (pt === 'back') { const t = r(0.22, 0.55); add(t, rho(t) + Math.PI + r(-0.3, 0.3), r(1.5, 3), r(0.6, 1), 0.58, 1); }
+    else if (pt === 'head') { add(r(0.88, 0.95), r(0.1, 1.8), r(0.7, 1.3), r(0.5, 0.9), 0.5, 1); }
+    else if (pt === 'tail') { add(r(0.04, 0.11), r(-0.2, 2.2), r(0.6, 1.1), r(0.4, 0.7), 0.6, 1); }
     else { const t = r(0.3, 0.7); add(t, r(2.3, 3.3), r(1, 2.5), r(0.7, 1.3), r(0.35, 0.5)); }
   }
-  if (!W.deep) { // (sharks begin at the tail stock and flukes: the sunlit carcasses are eaten there first)
-    add(r(0.03, 0.09), r(0, 2.2), r(1.0, 1.6), r(0.6, 1.0), 0.6, 1); add(r(0.1, 0.2), r(-0.2, 2.4), r(0.9, 1.5), r(0.6, 1.0), r(0.4, 0.55)); bone = true;
-    if (!Pl.fluke && rng() < 0.45) Pl.fluke = { side: rng() < 0.5 ? -1 : 1, k: r(0.3, 0.6) };
-  }
-  if (!bone) { if (rng() < 0.5) add(r(0.04, 0.1), r(0, 2), r(0.6, 1), 0.5, 0.6, 1); else add(r(0.88, 0.94), r(0.2, 1.6), r(0.7, 1.2), 0.6, 0.5, 1); }
+  // the tail stock and flukes, opened down to bone (sharks begin there: the carcasses are eaten there first)
+  add(r(0.03, 0.09), r(0, 2.2), r(1.0, 1.6), r(0.6, 1.0), 0.6, 1); add(r(0.1, 0.2), r(-0.2, 2.4), r(0.9, 1.5), r(0.6, 1.0), r(0.4, 0.55));
+  if (!Pl.fluke && rng() < 0.45) Pl.fluke = { side: rng() < 0.5 ? -1 : 1, k: r(0.3, 0.6) };
   // bite marks: more and bigger the further it has been eaten
   for (let k = 0, nb = Math.round(r(5, 10) + 6 * E); k < nb; k++) {
     const rr = r(0.25, 0.55) * (0.9 + 0.4 * E);
@@ -199,7 +179,7 @@ const pleat = (Pl, t, a) => { const da = angD(a, 0); return t > 0.48 && t < 0.97
 // the mouth line along each side of the head (1 = in the gape); wider and deeper with the jaw agape
 const mouthAt = (Pl, t, a) => { const w = 0.07 + 0.07 * Pl.jaw; return sstep(0.78 - 0.05 * Pl.jaw, 0.84, t) * Math.max(Math.exp(-((angD(a, 1.15) / w) ** 2)), Math.exp(-((angD(a, -1.15) / w) ** 2))); };
 
-// ---------------------------------------------------------------- the fresh carcass (stage 0)
+// ---------------------------------------------------------------- the carcass
 function* freshG(b, Pl, Q, spots, ring) {
   const L = Pl.L, nv = Math.max(24, Math.round(L / Q.du)), nu = Q.nu, sd = Pl.sd, P3 = [0, 0, 0];
   const Dv = [], PV = new Float32Array((nv + 1) * nu * 3);
@@ -258,9 +238,9 @@ function* freshG(b, Pl, Q, spots, ring) {
     }
     const ao = 0.5 + 0.5 * sat(y / 0.5);                                         // dark where it meets the mud
     o[0] = C[0] * ao; o[1] = C[1] * ao; o[2] = C[2] * ao; o[3] = wet; o[4] = 0;
-    // spots: where scavengers feed (rims of the wounds) and hagfish crowd
+    // spots: the rims of the wounds (the faint cloud of scraps over them, layoutWfA)
     if (M > 0.35 && M < 0.85 && ny > -0.3 && y > 0.3 && ((i - v0) & 1) === 0 && (Math.floor((i - v0) / nu) & 1) === 0) spots.push(x, y, z, nx, ny, nz, M);
-    // (sunlit: feeding spots all around the body for the crowd, wf_crowd.js: skin, wound rims, deep wounds, the tail stock)
+    // (feeding spots all around the body for the crowd, wf_crowd.js: skin, wound rims, deep wounds, the tail stock)
     if (ring && (i - v0) < (nv + 1) * nu && ((i - v0) % nu) % 4 === 0 && Math.floor((i - v0) / nu) % 4 === 0 && y > MUD + 0.3 && ny > -0.25)
       ring.push(x, y, z, nx, ny, nz, t < 0.14 ? 3 : D > 0.25 ? 2 : M > 0.3 ? 1 : 0, t);
   });
@@ -318,7 +298,7 @@ function* bladeG(b, n, m, at, paint) {
 }
 const nrm3 = (v) => { const l = Math.hypot(v[0], v[1], v[2]) || 1; return [v[0] / l, v[1] / l, v[2] / l]; };
 const cross = (a, c) => [a[1] * c[2] - a[2] * c[1], a[2] * c[0] - a[0] * c[2], a[0] * c[1] - a[1] * c[0]];
-function skinPaint(sd, pale = 0.5, K = PAL_DEEP) {
+function skinPaint(sd, pale, K) {
   return (i, x, y, z, nx, ny, nz, o) => {
     const n2 = vn3(x * 1.4, y * 1.4, z * 1.4, sd), n1 = vn3(x * 0.4, y * 0.4, z * 0.4, sd + 1), c = set3([0, 0, 0], K.SKIN);
     mixIn(c, K.SKIN2, sstep(0.1, 0.5, n2) * 0.7); mixIn(c, K.BELLY, pale * sat(ny)); mixIn(c, K.SLOUGH, sstep(0.3, 0.6, n1) * 0.6);
@@ -326,8 +306,8 @@ function skinPaint(sd, pale = 0.5, K = PAL_DEEP) {
     o[0] = c[0] * ao; o[1] = c[1] * ao; o[2] = c[2] * ao; o[3] = 0.3; o[4] = 0;
   };
 }
-// bone: ivory, a little glossy, a faint stain of tissue (stage 2 has its own: bonePaint)
-function cleanBone(sd, stain = 0.2, K = PAL_DEEP) {
+// bone: ivory, a little glossy, a faint stain of tissue
+function cleanBone(sd, stain, K) {
   return (i, x, y, z, nx, ny, nz, o) => {
     const c = set3([0, 0, 0], K.BONE), n = vn3(x * 2.2, y * 2.2, z * 2.2, sd);
     mixIn(c, K.MUSC, sstep(0.25, 0.7, n) * stain); mixIn(c, [0.95, 0.9, 0.74], sat(ny) * 0.25);
@@ -443,23 +423,6 @@ function* bonesG(b, Pl, Q, obs, marks) {
   }
   marks.nRib = nRib; marks.nV = nV;
 }
-// hagfish crowding points: the open wounds (feeding spots) and the mud along the near side of the body
-function hagPoints(Pl, spots, rng, n) {
-  const L = Pl.L, out = [], A = [0, 0, 0];
-  const nS = spots.length / 7;
-  for (let k = 0; k < n; k++) {
-    if (nS && rng() < 0.7) {
-      const q = Math.floor(rng() * nS) * 7;
-      out.push(spots[q] + (rng() - 0.5) * 0.3, spots[q + 1], spots[q + 2] + (rng() - 0.5) * 0.3, spots[q + 3], spots[q + 4], spots[q + 5], rng() < 0.4 ? 1 : 0);
-    } else { // on the mud beside the near flank: just outside its widest point
-      const t = 0.18 + rng() * 0.68;
-      let zm = 0;
-      for (let a = 0; a < TAU; a += 0.5) zm = Math.max(zm, bodyPt(Pl, t, a, 1, A)[2]);
-      out.push((t - 0.5) * L, MUD, zm + 0.15 + rng() * rng() * 1.6, 0, 1, 0, 0);
-    }
-  }
-  return out;
-}
 // obstacle capsules along the body (an authored chain: a fitted chain would wrap the flippers and flukes into the
 // body's own capsules and reach toward the route); thinner where the middle has been stripped
 function bodyObs(Pl, obs) {
@@ -474,97 +437,7 @@ function bodyObs(Pl, obs) {
   }
 }
 
-// ---------------------------------------------------------------- the old skeleton (stage 2)
-function bonePaint(sd, mats) {
-  return (i, x, y, z, nx, ny, nz, o) => {
-    // old bone: stained grey-brown (oily), paler on top; white and yellow mat patches; red Osedax fuzz in places
-    const c = set3([0, 0, 0], [0.2, 0.17, 0.13]), m = vn3(x * 1.7, y * 1.7, z * 1.7, sd), n = vn3(x * 5, y * 5, z * 5, sd + 1);
-    mixIn(c, [0.34, 0.3, 0.23], sat(ny) * 0.5 + 0.2 * n);
-    const up = sat(ny * 0.8 + 0.4);
-    mixIn(c, [0.7, 0.7, 0.65], sstep(0.3, 0.45, m) * up * mats);
-    mixIn(c, [0.62, 0.5, 0.2], sstep(0.4, 0.58, vn3(x * 2.3, y * 2.3, z * 2.3, sd + 4)) * up * mats * 0.8);
-    mixIn(c, [0.45, 0.04, 0.03], sstep(0.5, 0.62, vn3(x * 4, y * 4, z * 4, sd + 7)) * up * 0.75);
-    const ao = 0.6 + 0.4 * sat(0.5 + 0.5 * ny);
-    o[0] = c[0] * ao; o[1] = c[1] * ao; o[2] = c[2] * ao; o[3] = 0.2; o[4] = 0;
-  };
-}
-function* skeletonG(b, ob, Pl, Q, obs) {
-  const L = Pl.L, sd = Pl.sd, sc = L / 21, rng = mulberry32(sd + 77), ost = [], curl = Pl.curl * 0.8;
-  // a baleen-whale skull lying on the mud (head toward +x): a tall, blocky braincase at the back with the eye-socket
-  // arches flaring out sideways in front of it, a long, narrow rostrum (upper jaw) arched along its length with a ridge
-  // and real thickness, and the two lower jaws: separate, round, strongly bowed bones lying outside it like calipers
-  // (a flat plate with a low dome read as a surfboard)
-  const xs = 0.22 * L, Lr = 0.26 * L, sq = (u, e) => Math.sign(u) * Math.pow(Math.abs(u), e);
-  let v = yield* blobG(b, Q.vd + 1, (ux, uy, uz, o) => { // braincase: a squarish block, highest at the back
-    const d = 1 + 0.05 * vn3(ux * 2, uy * 2, uz * 2, sd), qx = sq(ux, 0.55), qy = sq(uy, 0.6), qz = sq(uz, 0.55);
-    o[0] = xs + qx * 0.95 * sc * d; o[2] = qz * (1.35 - 0.25 * ux) * sc * d;
-    o[1] = Math.max(0.02, 0.55 * sc + qy * (0.55 + 0.25 * Math.max(0, -ux)) * sc * d);
-  });
-  yield* paintG(b, v, bonePaint(sd + 1, 1));
-  for (const s of [1, -1]) { // supraorbital arches: flat wings flaring sideways, sloping down to the eye sockets
-    v = yield* blobG(b, 1, (ux, uy, uz, o) => { o[0] = xs + 0.75 * sc + ux * 0.45 * sc; o[1] = Math.max(0.02, 0.6 * sc - Math.abs(uz) * 0.25 * sc + uy * 0.12 * sc); o[2] = s * (1.55 * sc + uz * 0.75 * sc); });
-    yield* paintG(b, v, bonePaint(sd + 5 + s, 1));
-  }
-  v = yield* gridG(b, 12, 16, (u, w, i, j, o) => { // the rostrum: narrow, tapering, arched, with a ridge on top
-    const t = w, a = u * TAU, ca = Math.cos(a), sa = Math.sin(a), hw = 0.6 * sc * Math.pow(1 - t, 0.6) + 0.05;
-    const th = (0.3 * sc * (1 - 0.65 * t) + 0.04) * (sa > 0 ? 1 + 0.5 * (1 - Math.abs(ca)) : 0.7);
-    o[0] = xs + 0.8 * sc + t * Lr; o[2] = ca * hw; o[1] = 0.32 * sc + 0.45 * sc * Math.sin(t * Math.PI * 0.9) * (1 - t * 0.2) + sa * th;
-  });
-  { const P = b.P; for (let i = v; i < b.vc; i++) if (P[i * 3 + 1] < 0.02) P[i * 3 + 1] = 0.02; }
-  yield* paintG(b, v, bonePaint(sd + 2, 1));
-  obs.push([xs - 0.6 * sc, 0.6 * sc, 0, xs + Lr * 0.7, 0.45 * sc, 0, 1.2 * sc]);
-  for (const s of [1, -1]) {
-    const pts = [], rr = [], len = 0.28 * L, rot = (rng() - 0.5) * 0.15;
-    for (let k = 0; k <= 12; k++) { const t = k / 12; pts.push([xs - 0.4 * sc + t * len, (0.24 - 0.1 * t) * sc, s * (1.3 * sc + 1.6 * sc * Math.sin(t * Math.PI) - t * 1.0 * sc) + rot * t * len]); rr.push((0.24 - 0.11 * t) * sc); }
-    v = b.vc; b.tube(pts, rr, Q.rib + 2, null, { cap: true });
-    for (let i = v; i < b.vc; i++) b.P[i * 3 + 1] = Math.max(0.02, b.P[i * 3 + 1]);
-    yield* paintG(b, v, bonePaint(sd + 3 + s, 0.8));
-  }
-  yield;
-  // the vertebral chain, half sunk, the tail vertebrae smaller; a gap here and there
-  const nV = Math.round(Q.nv), xa = xs - 1.5 * sc, xb = -0.48 * L, sp = [];
-  for (let k = 0; k < nV; k++) {
-    const t = k / (nV - 1), x = lerp(xa, xb, t) + (rng() - 0.5) * 0.08, r = (0.24 - 0.14 * t) * sc, zz = 0.25 * sc * Math.sin(t * 5 + sd) + curl * t * t;
-    if (rng() < 0.06) continue;
-    const yaw = (rng() - 0.5) * 0.4;
-    v = yield* blobG(b, Q.vd, (ux, uy, uz, o) => { const lx = ux * r * 1.1, lz = uz * r; o[0] = x + lx * Math.cos(yaw) - lz * Math.sin(yaw); o[1] = r * 0.55 + uy * r; o[2] = zz + lx * Math.sin(yaw) + lz * Math.cos(yaw); });
-    if (t < 0.75) { // transverse processes and the neural spine (the skeleton lies on its side: the spine points -z)
-      yield* blobG(b, 1, (ux, uy, uz, o) => { o[0] = x + ux * r * 0.3; o[1] = r * 0.6 + uy * r * 1.6; o[2] = zz + uz * r * 0.35; });
-      yield* blobG(b, 1, (ux, uy, uz, o) => { o[0] = x + ux * r * 0.3; o[1] = r * 0.7 + uy * r * 0.35; o[2] = zz - r * 1.5 + uz * r * 1.3; });
-    }
-    yield* paintG(b, v, bonePaint(sd + 9 + k, 1));
-    sp.push([x, r * 0.55, zz]);
-    if (k % 3 === 0) ost.push(x, r * 1.4, zz, 0, 1, 0);
-  }
-  obs.push([xa, 0.3 * sc, 0, xb * 0.5, 0.3 * sc, 0, 0.45 * sc], [xb * 0.5, 0.2 * sc, 0, xb, 0.15 * sc, 0, 0.3 * sc]);
-  yield;
-  // ribs: most fallen flat toward the route, a few still arching
-  for (let k = 0; k < 14; k++) {
-    const x = xa - 0.5 * sc - k * 0.95 * sc;
-    for (const s of [1, -1]) {
-      if (rng() < 0.2) continue;
-      const up = s > 0 && rng() < 0.3, len = (2.6 - Math.abs(k - 5) * 0.12) * sc, pts = [], rr = [], a0 = s * (0.25 + rng() * 0.5);
-      for (let q = 0; q <= 8; q++) {
-        const t = q / 8, rx = x - t * 0.6 * sc + Math.sin(a0) * 0.2, h = up ? Math.sin(t * Math.PI * 0.9) * len * 0.45 : 0.07 * sc;
-        pts.push([rx + Math.sin(a0) * t * len * 0.3, h + 0.06 * sc, s * (0.3 * sc + t * len * Math.cos(a0 * 0.4))]); rr.push((0.08 - 0.03 * t) * sc);
-      }
-      v = b.vc; b.tube(pts, rr.map((q) => q * 1.25), Q.rib, null, { tip: true }); yield* paintG(b, v, bonePaint(sd + 40 + k * 2 + s, 0.9));
-      if (up || rng() < 0.4) ost.push(pts[4][0], pts[4][1] + rr[4], pts[4][2], 0, 1, 0);
-    }
-  }
-  yield;
-  // Osedax: tufts of small red plumes on pink trunks rooted in the bone (a sway template: they wave)
-  const nO = Q.ost;
-  for (let k = 0; k < nO && ost.length; k++) {
-    const q = Math.floor(rng() * (ost.length / 6)) * 6, bx = ost[q] + (rng() - 0.5) * 0.5 * sc, by = ost[q + 1] - 0.02, bz = ost[q + 2] + (rng() - 0.5) * 0.4 * sc;
-    const h = 0.03 + rng() * 0.05;
-    ob.tube([[bx, by, bz], [bx + (rng() - 0.5) * 0.02, by + h * 0.5, bz], [bx + (rng() - 0.5) * 0.04, by + h, bz + (rng() - 0.5) * 0.04]], [0.007, 0.006, 0.012], 4,
-      (vv, a, x, y, z, o) => { o[3] = lerp(0.85, 0.8, vv); o[4] = lerp(0.45, 0.06, vv); o[5] = lerp(0.42, 0.05, vv); o[6] = vv * 0.015; o[7] = 3; }, { tip: true });
-  }
-  return sp;
-}
-
-// (sunlit) strands of tissue trailing from the cut edges, hanging and drifting a little in the water (sway material;
+// strands of tissue trailing from the cut edges, hanging and drifting a little in the water (sway material;
 // documented under a floating carcass: "strands of whale tissue are hanging beneath it")
 function strandsG(ob, Pl, ring, n) {
   const rng = mulberry32(Pl.sd + 91), K = Pl.K, nS = ring.length / 8;
@@ -591,27 +464,24 @@ function mirror(b, mx, mz) {
   if (mx !== mz) for (let i = 0; i < b.I.length; i += 3) { const t = b.I[i + 1]; b.I[i + 1] = b.I[i + 2]; b.I[i + 2] = t; }
 }
 export function* carcassG(seed, tier, W) {
-  const Q = resOf(tier), Pl = carcassPlan(seed, W), b = new Builder(), ob = new Builder(), obs = [], spots = [], marks = {}, ring = W.deep ? null : [];
-  if (W.stage === 0) {
-    yield* freshG(b, Pl, Q, spots, ring);
-    yield* appendagesG(b, Pl, Q, obs);
-    yield* bonesG(b, Pl, Q, obs, marks);
-    yield* baleenG(b, Pl);
-    yield* flapsG(b, Pl);
-    { const w = Pl.W[0], tw = w.x / Pl.L + 0.5; marks.flank = bodyPt(Pl, tw, w.p - rhoAt(Pl, tw), 1.05, [0, 0, 0]); }
-    bodyObs(Pl, obs);
-    if (ring) strandsG(ob, Pl, ring, tier === 'low' ? 14 : 24);
-  } else yield* skeletonG(b, ob, Pl, Q, obs);
+  const Q = resOf(tier), Pl = carcassPlan(seed, W), b = new Builder(), ob = new Builder(), obs = [], spots = [], marks = {}, ring = [];
+  yield* freshG(b, Pl, Q, spots, ring);
+  yield* appendagesG(b, Pl, Q, obs);
+  yield* bonesG(b, Pl, Q, obs, marks);
+  yield* baleenG(b, Pl);
+  yield* flapsG(b, Pl);
+  { const w = Pl.W[0], tw = w.x / Pl.L + 0.5; marks.flank = bodyPt(Pl, tw, w.p - rhoAt(Pl, tw), 1.05, [0, 0, 0]); }
+  bodyObs(Pl, obs);
+  strandsG(ob, Pl, ring, tier === 'low' ? 14 : 24);
   yield;
-  const hag = W.stage === 0 && W.deep ? hagPoints(Pl, spots, mulberry32(seed + 5), Math.round(Q.hag * (0.6 + 0.6 * Pl.rng()))) : null;
   // template frame: +z toward the route (mirrored when the carcass lies on the +x side of the route, see layout);
   // the head toward +x, or toward -x on half of them
   const mx = Pl.flip, mz = W.side > 0;
   if (mx || mz) {
     mirror(b, mx, mz); mirror(ob, mx, mz);
     for (const o of obs) { if (mx) { o[0] = -o[0]; o[3] = -o[3]; } if (mz) { o[2] = -o[2]; o[5] = -o[5]; } }
-    for (const A of [spots, hag]) if (A) for (let i = 0; i < A.length; i += 7) { if (mx) { A[i] = -A[i]; A[i + 3] = -A[i + 3]; } if (mz) { A[i + 2] = -A[i + 2]; A[i + 5] = -A[i + 5]; } }
-    if (ring) for (let i = 0; i < ring.length; i += 8) { if (mx) { ring[i] = -ring[i]; ring[i + 3] = -ring[i + 3]; } if (mz) { ring[i + 2] = -ring[i + 2]; ring[i + 5] = -ring[i + 5]; } }
+    for (let i = 0; i < spots.length; i += 7) { if (mx) { spots[i] = -spots[i]; spots[i + 3] = -spots[i + 3]; } if (mz) { spots[i + 2] = -spots[i + 2]; spots[i + 5] = -spots[i + 5]; } }
+    for (let i = 0; i < ring.length; i += 8) { if (mx) { ring[i] = -ring[i]; ring[i + 3] = -ring[i + 3]; } if (mz) { ring[i + 2] = -ring[i + 2]; ring[i + 5] = -ring[i + 5]; } }
     for (const k of ['ribs', 'spine', 'flank']) { const m = marks[k]; if (m) { if (mx) m[0] = -m[0]; if (mz) m[2] = -m[2]; } }
   }
   b.obs = obs;
@@ -622,15 +492,13 @@ export function* carcassG(seed, tier, W) {
   const base = [];
   for (let k = 0; k <= 8; k++) { const tt = 0.06 + 0.88 * k / 8; base.push((tt - 0.5) * W.L, 0, 0); }
   setBase(t, base);
-  t.wfStage = W.stage; t.wfL = W.L; t.wfE = Pl.E; t.wfMarks = marks;
+  t.wfL = W.L; t.wfE = Pl.E; t.wfMarks = marks;
   t.spots = Float32Array.from(spots);
-  t.ring = ring ? Float32Array.from(ring) : null; t.wfHead = Pl.flip ? -1 : 1;
-  t.hag = hag ? Float32Array.from(hag) : null;
-  t.ose = ob.vc ? ob.build() : null;
-  if (t.ose) lab(t.ose, ...(ring ? WF.scraps : WF.osedax)); // (sunlit: the trailing strands, see strandsG)
-  t.label = !W.deep ? WF.sunCarcass[0] : W.stage === 0 ? WF.carcass[0] : WF.skeleton[0];
-  t.fact = !W.deep ? WF.sunCarcass[1] : W.stage === 0 ? WF.carcass[1] : WF.skeleton[1];
-  t.wfDeep = !!W.deep;
+  t.ring = Float32Array.from(ring); t.wfHead = Pl.flip ? -1 : 1;
+  t.strands = ob.vc ? ob.build() : null; // (the trailing strands, see strandsG)
+  if (t.strands) lab(t.strands, ...WF.scraps);
+  t.label = WF.sunCarcass[0];
+  t.fact = WF.sunCarcass[1];
   return t;
 }
 function* carcassJob(seg, tier) {
@@ -666,80 +534,8 @@ function fleshMaterial() {
   m.customProgramCacheKey = () => 'water:nb7-wf-flesh:' + base.customProgramCacheKey();
   return m;
 }
-// Hagfish: one instanced tube per animal (head at x = 0, tail at x = 1), writhing in the vertex shader (no CPU
-// work). aHag = (phase, rate, lying 0 / burrowed 1). Only time and the instance's own coordinates feed the motion.
-function hagMaterial() {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0 });
-  return applyWater(m, {
-    key: 'nb7-wf-hag', vertexHead: 'attribute vec3 aHag; uniform float uTime;',
-    patch(sh) {
-      sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', /* glsl */`#include <begin_vertex>
-        {
-          float u = transformed.x, ph = aHag.x * 6.2831853, sp = aHag.y;
-          float burrow = aHag.z;
-          float amp = mix(0.07, 0.11, burrow) * (0.25 + 0.75 * u);
-          float w = sin(u * 8.0 - uTime * sp + ph) * amp + sin(uTime * 0.31 * sp + ph * 1.7) * u * u * mix(0.1, 0.2, burrow);
-          transformed.z += w;
-          transformed.y += (1.0 - burrow) * abs(sin(u * 4.0 - uTime * sp * 0.5 + ph)) * 0.03 * u;
-        }`);
-    },
-  });
-}
-function hagTemplate(tier) {
-  const b = new Builder(), n = tier === 'low' ? 6 : 9, rad = tier === 'low' ? 4 : 5, pts = [], rr = [];
-  for (let k = 0; k <= n; k++) { const t = k / n; pts.push([t, 0, 0]); rr.push(0.045 * (t < 0.15 ? 0.75 + t * 1.6 : 1 - 0.55 * (t - 0.15) ** 1.5)); }
-  b.tube(pts, rr, rad, (v, a, x, y, z, o) => { const belly = sat(-Math.sin(a)); o[3] = 0.42 + 0.12 * belly; o[4] = 0.28 + 0.1 * belly; o[5] = 0.28 + 0.08 * belly; }, { tip: true, cap: false });
-  const g = new THREE.BufferGeometry();
-  g.setAttribute('position', new THREE.BufferAttribute(Float32Array.from(b.P), 3));
-  g.setAttribute('normal', new THREE.BufferAttribute(Float32Array.from(b.N), 3));
-  g.setAttribute('color', new THREE.BufferAttribute(Float32Array.from(b.C), 3));
-  g.setIndex(new THREE.BufferAttribute(Uint16Array.from(b.I), 1));
-  return g;
-}
-const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(), _v = new THREE.Vector3(), _s = new THREE.Vector3(), _bx = new THREE.Vector3(), _by = new THREE.Vector3(), _bz = new THREE.Vector3();
-// the writhing mass for a placed carcass item (chunk-local transform of its template points)
-function hagMesh(it, rng) {
-  const P = it.tpl.hag;
-  if (!P || !P.length) return null;
-  const n = P.length / 7, g = H.hagGeo.clone(), ap = new Float32Array(n * 3), R = it.R;
-  const m = new THREE.InstancedMesh(g, H.mat.hag, n);
-  for (let k = 0; k < n; k++) {
-    const q = k * 7, lx = P[q], ly = P[q + 1], lz = P[q + 2];
-    const px = R[0] * lx + R[1] * ly + R[2] * lz + it.x, py = R[3] * lx + R[4] * ly + R[5] * lz + it.y, pz = R[6] * lx + R[7] * ly + R[8] * lz + it.z;
-    const nx = R[0] * P[q + 3] + R[1] * P[q + 4] + R[2] * P[q + 5], ny = R[3] * P[q + 3] + R[4] * P[q + 4] + R[5] * P[q + 5], nz = R[6] * P[q + 3] + R[7] * P[q + 4] + R[8] * P[q + 5];
-    const bur = P[q + 6] > 0.5, len = 0.4 + rng() * 0.2;
-    _bz.set(nx, ny, nz).normalize(); // up = the surface normal
-    if (bur) { // head buried in the flesh, the body sticking out along the normal, bent over
-      _bx.set(nx, ny, nz).normalize().multiplyScalar(0.7).add(_v.set(rng() - 0.5, 0.4, rng() - 0.5)).normalize();
-      _by.set(rng() - 0.5, 0, rng() - 0.5).cross(_bx).normalize();
-      _bz.crossVectors(_bx, _by).normalize();
-      _m4.makeBasis(_bx, _bz, _by.negate());
-      _m4.setPosition(px - _bx.x * len * 0.35, py - _bx.y * len * 0.35, pz - _bx.z * len * 0.35);
-    } else { // lying on the surface, heading anywhere in its plane
-      const a = rng() * TAU;
-      _v.set(Math.cos(a), 0, Math.sin(a));
-      _bx.copy(_v).addScaledVector(_bz, -_v.dot(_bz)).normalize();
-      _by.crossVectors(_bz, _bx);
-      _m4.makeBasis(_bx, _bz, _by.negate());
-      _m4.setPosition(px + nx * 0.03, py + ny * 0.03, pz + nz * 0.03);
-    }
-    _s.set(len, len, len); _m4.scale(_s);
-    m.setMatrixAt(k, _m4);
-    ap[k * 3] = rng(); ap[k * 3 + 1] = 2.2 + rng() * 2.4; ap[k * 3 + 2] = bur ? 1 : 0;
-  }
-  g.setAttribute('aHag', new THREE.InstancedBufferAttribute(ap, 3));
-  m.computeBoundingSphere();
-  if (m.boundingSphere) m.boundingSphere.radius += 0.5;
-  const gd = g.dispose.bind(g);
-  g.dispose = () => { gd(); m.dispose(); };
-  releaseAfterUpload(g);
-  m.matrixAutoUpdate = false;
-  m.userData.lod = 'mid';
-  return m;
-}
-
 // ---------------------------------------------------------------- small templates
-function scrap(seed, kind, K = PAL_DEEP, k0 = 0.4) { // 0 flesh lump, 1 blubber strip (skin on one face), 2 bone fragment
+function scrap(seed, kind, K, k0 = 0.4) { // 0 flesh lump, 1 blubber strip (skin on one face), 2 bone fragment
   const rng = mulberry32(seed), b = new Builder(), sx = kind === 1 ? 0.25 + rng() * 0.25 : 0.1 + rng() * 0.14, sz = kind === 1 ? 0.1 + rng() * 0.08 : sx * (0.6 + rng() * 0.4), sy = kind === 1 ? 0.04 : kind === 2 ? 0.05 : sx * 0.45;
   b.blob(kind === 2 ? 1 : 2, (x, y, z, o) => {
     const d = 1 + 0.45 * vn3(x * 2 + seed, y * 2, z * 2, seed % 997);
@@ -752,44 +548,27 @@ function scrap(seed, kind, K = PAL_DEEP, k0 = 0.4) { // 0 flesh lump, 1 blubber 
   const t = b.build();
   return lab(t, WF.scraps[0], WF.scraps[1]);
 }
-function brittleStar(seed) {
-  const rng = mulberry32(seed), b = new Builder(), col = [0.62, 0.55, 0.48];
-  b.blob(1, (x, y, z, o) => { o[0] = x * 0.03; o[1] = 0.012 + y * 0.012; o[2] = z * 0.03; o[3] = col[0]; o[4] = col[1]; o[5] = col[2]; });
-  for (let k = 0; k < 5; k++) {
-    const a = k * TAU / 5 + rng() * 0.3, pts = [], rr = [];
-    for (let q = 0; q <= 5; q++) { const t = q / 5, cu = Math.sin(t * 2.5 + k) * 0.25 * t; pts.push([Math.cos(a + cu) * (0.025 + t * 0.13), 0.008, Math.sin(a + cu) * (0.025 + t * 0.13)]); rr.push(0.006 * (1 - 0.7 * t)); }
-    b.tube(pts, rr, 3, (v, aa, x, y, z, o) => { o[3] = col[0]; o[4] = col[1]; o[5] = col[2]; }, { tip: true });
-  }
-  const t = b.build(); t.solid = false;
-  return lab(t, WF.brittle[0], WF.brittle[1]);
-}
-
 // ---------------------------------------------------------------- init, providers
 export function initWhaleFall(tier) {
   if (H.mat) return H;
-  H.mat = { flesh: fleshMaterial(), hag: hagMaterial() };
-  H.hagGeo = hagTemplate(tier);
-  H.scrap = [0, 1, 2, 3, 4, 5].map((k) => scrap(7301 + k, k % 3 === 2 ? 0 : k % 3));
-  H.scrapSun = [0, 1, 2, 3, 4, 5].map((k) => scrap(7301 + k, k % 3 === 2 ? 0 : k % 3, PAL_SUN, 0.7)); // (sunlit: fresh, on clean sand)
-  H.bone = [0, 1, 2].map((k) => lab(scrap(7311 + k, 2), WF.ribs[0], WF.ribs[1]));
-  H.brittle = [0, 1, 2].map((k) => brittleStar(7321 + k));
+  H.mat = { flesh: fleshMaterial() };
+  H.scrap = [0, 1, 2, 3, 4, 5].map((k) => scrap(7301 + k, k % 3 === 2 ? 0 : k % 3, PAL_SUN, 0.7)); // (fresh, on clean sand)
+  H.bone = [0, 1, 2].map((k) => lab(scrap(7311 + k, 2, PAL_FRAG), WF.ribs[0], WF.ribs[1]));
   return H;
 }
-// (dev tools: one carcass as a mesh in template space, with its hagfish and Osedax, e.g. for a contact sheet)
+// (dev tools: one carcass as a mesh in template space, with its trailing strands, e.g. for a contact sheet)
 export function devCarcass(seed, tier, W) {
   const t = drain(carcassG(seed, tier, W)), m = new THREE.Mesh(t.geometry(), H.mat.flesh);
-  const hm = hagMesh({ tpl: t, R: [1, 0, 0, 0, 1, 0, 0, 0, 1], x: 0, y: 0, z: 0, sx: 1, sy: 1, sz: 1 }, mulberry32(seed));
-  if (hm) m.add(hm);
-  if (t.ose) m.add(new THREE.Mesh(t.ose.geometry(), MAT.sway));
+  if (t.strands) m.add(new THREE.Mesh(t.strands.geometry(), MAT.sway));
   m.userData.tpl = t;
   return m;
 }
-// (sunlit) the lava flat's rocks, fresh per segment: pillow lobes and blocky basalt
+// the lava flat's rocks, fresh per segment: pillow lobes and blocky basalt
 const LAVA = [{ r: 'boulder', litho: 'basalt', kind: 'angular', growth: 0.25, detail: 2 }, { r: 'pillow', growth: 0.25 }, { r: 'boulder', litho: 'basalt', growth: 0.25, detail: 2 }, { r: 'boulder', litho: 'basalt', kind: 'angular', growth: 0.2, detail: 2 }];
 export function whaleFallProviders(provide) {
-  for (const k of KEYS) provide(k, 'wfCarcass', 1, (seg, kk, tier) => carcassJob(seg, tier), 0);
+  provide(KEY, 'wfCarcass', 1, (seg, kk, tier) => carcassJob(seg, tier), 0);
   // (pillow lobes are ~1.6k triangles each: medium and up only)
-  provide(KEYS[0], 'wfLava', 8, (seg, k, tier) => rockJob(tiered(LAVA[tier === 'low' && k % LAVA.length === 1 ? 0 : k % LAVA.length], tier), (seg.seed ^ (k * 0x9e3779b1) ^ 0x1a7a) >>> 0));
+  provide(KEY, 'wfLava', 8, (seg, k, tier) => rockJob(tiered(LAVA[tier === 'low' && k % LAVA.length === 1 ? 0 : k % LAVA.length], tier), (seg.seed ^ (k * 0x9e3779b1) ^ 0x1a7a) >>> 0));
 }
 
 // ---------------------------------------------------------------- helpers
@@ -813,14 +592,14 @@ function itemMesh(it) {
 }
 // registration-only batch for the staged merge: its items are registered (registerNB) but drawn by itemMesh
 class OneMesh extends IBatch {
-  constructor(b) { super(H.brittle[0], MAT.static, 1); this.items = b.items; }
+  constructor(b) { super(H.bone[0], MAT.static, 1); this.items = b.items; }
   build() { return null; }
 }
 
-// ---------------------------------------------------------------- chain A: the carcass, its hagfish, the POI
+// ---------------------------------------------------------------- chain A: the carcass, its strands, the POI
 export function* layoutWfA(ctx) {
   const Y = slice(2);
-  if (presenceWF(ctx) <= 0) return null;
+  if (presence(ctx, KEY) <= 0) return null;
   const fs = nbFloor(ctx), rng = chunkRng(ctx, 0x7f01);
   const st = new Batch(H.mat.flesh, 200000);
   const sw = new Batch(MAT.sway, 30000); sw.lod = 'near'; sw.soft = true;
@@ -848,65 +627,33 @@ export function* layoutWfA(ctx) {
     yield;
     if (!ok || !put(ctx, st, tpl, P[0], P[1], P[2], R, 1, 1, 1, [1, 1, 1], 1)) continue;
     const it = st.last;
-    if (tpl.ose) sw.add(tpl.ose, it.x, it.y, it.z, R, 1, 1, 1, 1, 1, 1, 1);
+    if (tpl.strands) sw.add(tpl.strands, it.x, it.y, it.z, R, 1, 1, 1, 1, 1, 1, 1);
     yield;
-    const hm = hagMesh(it, rng);
-    if (hm) extra.push(hm);
-    yield;
-    // feeding spots (world): along the open flank, facing the route
-    const S = tpl.spots, spots = [];
-    for (let i = 0; i < S.length && spots.length < 32 * 6; i += 7 * 2) {
-      const p = toChunk(it, S[i], S[i + 1], S[i + 2]), n = toChunkN(it, S[i + 3], S[i + 4], S[i + 5]);
-      spots.push(p[0], p[1], ctx.s0 - p[2], n[0], n[1], -n[2]);
-    }
-    // (sunlit) the crowd's feeding spots all around the body (wf_crowd.js): x, y, s, normal, kind, u along the body
-    let ring = null;
-    if (tpl.ring) {
-      const RG = tpl.ring;
-      ring = new Float32Array(RG.length);
-      for (let i = 0; i < RG.length; i += 8) {
-        const p = toChunk(it, RG[i], RG[i + 1], RG[i + 2]), n = toChunkN(it, RG[i + 3], RG[i + 4], RG[i + 5]), s = ctx.s0 - p[2];
-        ring[i] = p[0]; ring[i + 1] = p[1]; ring[i + 2] = s; ring[i + 3] = n[0]; ring[i + 4] = n[1]; ring[i + 5] = -n[2];
-        ring[i + 6] = RG[i + 6]; ring[i + 7] = (p[0] - P[0]) * W.ca + (s - P[2]) * W.sa;
-      }
+    // the crowd's feeding spots all around the body (wf_crowd.js): x, y, s, normal, kind, u along the body
+    const RG = tpl.ring, ring = new Float32Array(RG.length);
+    for (let i = 0; i < RG.length; i += 8) {
+      const p = toChunk(it, RG[i], RG[i + 1], RG[i + 2]), n = toChunkN(it, RG[i + 3], RG[i + 4], RG[i + 5]), s = ctx.s0 - p[2];
+      ring[i] = p[0]; ring[i + 1] = p[1]; ring[i + 2] = s; ring[i + 3] = n[0]; ring[i + 4] = n[1]; ring[i + 5] = -n[2];
+      ring[i + 6] = RG[i + 6]; ring[i + 7] = (p[0] - P[0]) * W.ca + (s - P[2]) * W.sa;
     }
     const top = P[1] + (tpl.maxY - tpl.minY) * 0.8, toward = -W.side; // the route side, in x
-    const fresh = tpl.wfStage === 0, deep = !!W.deep;
     pois.push({ type: 'whalefall', x: P[0] + toward * 1.2 * W.sa, y: top, s: P[2] - toward * 1.2 * W.ca, r: W.L * 0.5,
-      data: { name: tpl.label, fact: tpl.fact, stage: tpl.wfStage, L: W.L, ca: W.ca, sa: W.sa, side: W.side, deep,
-        cx: P[0], cy: P[1], cs: P[2], spots, showpiece: true, E: tpl.wfE ?? 0.5, cam: !!W.cam,
+      data: { name: tpl.label, fact: tpl.fact, L: W.L, ca: W.ca, sa: W.sa, side: W.side,
+        cx: P[0], cy: P[1], cs: P[2], showpiece: true, E: tpl.wfE ?? 0.5, cam: !!W.cam,
         ring, head: tpl.wfHead || 1, camH: pathCache(ctx).y(P[2]) - P[1], gx: 0, gy: 0, gs: 0, gw: 0 } }); // (gx..gw: the crowd's pull on the camera's gaze)
-    // labels on the generated shape: the main tear, the bare ribs (or spine), the body's far end
-    const mk = tpl.wfMarks || {}, lab1 = toChunk(it, -0.3 * W.L, 1.4, 0);
-    if (!deep) {
-      if (mk.flank) { const q = toChunk(it, mk.flank[0], mk.flank[1], mk.flank[2]); labels.push([WF.sunBite[0], q[0], q[1] + 0.3, ctx.s0 - q[2], WF.sunBite[1]]); }
-      { const q = toChunk(it, -0.42 * W.L, 1.0, 0); labels.push([WF.sunTail[0], q[0], q[1], ctx.s0 - q[2], WF.sunTail[1]]); }
-      const bm = mk.ribs || mk.spine;
-      if (bm) { const rb = toChunk(it, bm[0], bm[1], bm[2]); labels.push([WF.ribs[0], rb[0], rb[1] + 0.15, ctx.s0 - rb[2], WF.ribs[1]]); }
-      // a faint cloud of scraps and oil in the water over the wounds (sunlit specks)
-      const clouds = [];
-      for (let i = 0; i < S.length && clouds.length < 5; i += 7 * 9) {
-        const p = toChunk(it, S[i], S[i + 1], S[i + 2]);
-        clouds.push({ x: p[0], y: p[1] + 0.8, s: ctx.s0 - p[2], rx: 1.6, ry: 0.9, rz: 1.6, n: Math.round((ctx.tier === 'low' ? 160 : 320) * (0.6 + rng() * 0.8)), size: 0.018 });
-      }
-      if (clouds.length) { const pm = yield* planktonMeshG(ctx, clouds, rng); if (pm) { pm.userData.lod = 'near'; extra.push(pm); } }
-    } else if (fresh) {
-      if (mk.flank) { const q = toChunk(it, mk.flank[0], mk.flank[1], mk.flank[2]); labels.push([WF.flank[0], q[0], q[1] + 0.3, ctx.s0 - q[2], WF.flank[1]]); }
-      labels.push([WF.carcass2[0], lab1[0], lab1[1] + 0.6, ctx.s0 - lab1[2], WF.carcass2[1]]);
-      const bm = mk.ribs || mk.spine;
-      if (bm) { const rb = toChunk(it, bm[0], bm[1], bm[2]); labels.push([WF.ribs[0], rb[0], rb[1] + 0.15, ctx.s0 - rb[2], WF.ribs[1]]); }
-      // amphipod swarms hanging at the wounds (specks lit by the lamps)
-      const clouds = [];
-      for (let i = 0; i < S.length && clouds.length < 4; i += 7 * 11) {
-        const p = toChunk(it, S[i], S[i + 1], S[i + 2]);
-        clouds.push({ x: p[0], y: p[1] + 0.35, s: ctx.s0 - p[2], rx: 0.9, ry: 0.45, rz: 0.9, n: Math.round((ctx.tier === 'low' ? 350 : 700) * (0.6 + rng() * 0.8)), size: 0.006 });
-      }
-      if (clouds.length) { const pm = yield* planktonMeshG(ctx, clouds, rng); if (pm) { pm.userData.lod = 'near'; extra.push(pm); } }
-    } else {
-      labels.push([WF.mats[0], lab1[0], P[1] + 0.6, ctx.s0 - lab1[2], WF.mats[1]]);
-      const os = toChunk(it, -0.05 * W.L, 0.5, 0);
-      labels.push([WF.osedax2[0], os[0], os[1], ctx.s0 - os[2], WF.osedax2[1]]);
+    // labels on the generated shape: the main tear, the tail stock, the bare ribs (or spine)
+    const mk = tpl.wfMarks || {};
+    if (mk.flank) { const q = toChunk(it, mk.flank[0], mk.flank[1], mk.flank[2]); labels.push([WF.sunBite[0], q[0], q[1] + 0.3, ctx.s0 - q[2], WF.sunBite[1]]); }
+    { const q = toChunk(it, -0.42 * W.L, 1.0, 0); labels.push([WF.sunTail[0], q[0], q[1], ctx.s0 - q[2], WF.sunTail[1]]); }
+    const bm = mk.ribs || mk.spine;
+    if (bm) { const rb = toChunk(it, bm[0], bm[1], bm[2]); labels.push([WF.ribs[0], rb[0], rb[1] + 0.15, ctx.s0 - rb[2], WF.ribs[1]]); }
+    // a faint cloud of scraps and oil in the water over the wounds (sunlit specks)
+    const S = tpl.spots, clouds = [];
+    for (let i = 0; i < S.length && clouds.length < 5; i += 7 * 9) {
+      const p = toChunk(it, S[i], S[i + 1], S[i + 2]);
+      clouds.push({ x: p[0], y: p[1] + 0.8, s: ctx.s0 - p[2], rx: 1.6, ry: 0.9, rz: 1.6, n: Math.round((ctx.tier === 'low' ? 160 : 320) * (0.6 + rng() * 0.8)), size: 0.018 });
     }
+    if (clouds.length) { const pm = yield* planktonMeshG(ctx, clouds, rng); if (pm) { pm.userData.lod = 'near'; extra.push(pm); } }
   }
   if (!st.items.length) return null;
   // the carcass is one big item (10-25k vertices): merging it into a batch took 5-10 ms in one stage, so it is drawn
@@ -916,16 +663,14 @@ export function* layoutWfA(ctx) {
   return { batches: [one, sw], extra, labels, pois };
 }
 
-// ---------------------------------------------------------------- chain B: scraps and stains around it, the near-empty mud
+// ---------------------------------------------------------------- chain B: scraps around it, the lava flat
 export function* layoutWfB(ctx) {
   const Y = slice();
-  if (presenceWF(ctx) <= 0) return null;
-  const KEY = presence(ctx, KEYS[0]) >= presence(ctx, KEYS[1]) ? KEYS[0] : KEYS[1], g0 = segFor(ctx, ctx.s0 + 32, KEY);
+  if (presence(ctx, KEY) <= 0) return null;
+  const g0 = segFor(ctx, ctx.s0 + 32, KEY);
   if (!g0) return null;
   const fs = nbFloor(ctx), pc = pathCache(ctx), bk = budgetK(ctx, KEY), lk = lowK(ctx), rng = chunkRng(ctx, 0x7f02);
   const st = new Batch(H.mat.flesh, 30000 * bk); st.lod = 'near';
-  const ib = new IBatch(H.brittle[0], MAT.static, 64, 'near');
-  const dec = new Builder(), labels = [];
   const place = (b, tpl, x, s, sc, col, tilt = 0.8) => {
     fs.at(x, s);
     const R = upTo(mix3([0, 1, 0], [fs.nx, fs.ny, fs.nz], tilt), rng() * TAU), P = [x, fs.at(x, s), s];
@@ -936,37 +681,26 @@ export function* layoutWfB(ctx) {
   for (const g of ctx.segments) {
     const W = whaleFallOf(g);
     if (!W || W.s + W.R < ctx.s0 - 4 || W.s - W.R > ctx.s1 + 4) continue;
-    const fresh = W.stage === 0, n = Math.round((fresh ? 34 : 22) * lk);
-    // sloppy feeding spreads tissue (fresh) or bone fragments (old) over the mud around the carcass
+    const n = Math.round(34 * lk);
+    // sloppy feeding spreads tissue and a few bone fragments over the sand around the carcass
     for (let k = 0; k < n; k++) {
       if (Y.over()) { yield; Y.reset(); }
       const u = (rng() - 0.5) * (W.L + 4), v = (rng() < 0.6 ? -1 : 1) * (2.6 + Math.pow(rng(), 1.6) * 3.5) + (rng() - 0.5);
       const x = W.x + u * W.ca + v * W.sa * W.side, s = W.s + u * W.sa - v * W.ca * W.side;
       if (s < ctx.s0 || s >= ctx.s1) continue;
-      const tpl = fresh && rng() < 0.85 ? pick(rng, KEY === KEYS[0] ? H.scrapSun : H.scrap) : pick(rng, H.bone), sc = 0.7 + rng() * 0.8;
+      const tpl = rng() < 0.85 ? pick(rng, H.scrap) : pick(rng, H.bone), sc = 0.7 + rng() * 0.8;
       place(st, tpl, x, s, sc, [1, 1, 1], 0.9);
     }
     yield;
-    // the stain: black sulfide patches and (old stage) white and yellow bacterial mats on the mud
-    if (!fresh) {
-      for (let k = 0; k < 16; k++) {
-        const u = (rng() - 0.5) * W.L, v = (rng() - 0.5) * 7, x = W.x + u * W.ca + v * W.sa * W.side, s = W.s + u * W.sa - v * W.ca * W.side;
-        if (s < ctx.s0 - 3 || s >= ctx.s1 + 3) continue;
-        const c = rng() < 0.65 ? MAT_W : MAT_Y;
-        decalDisc(dec, fs, ctx, x, s, 0.5 + rng() * 1.2, 0.4 + rng() * 0.9, rng() * TAU, c, 0, 0.85, 4, 14);
-      }
-      const lp = W.x - W.side * 3 * W.sa;
-      if (W.s >= ctx.s0 && W.s < ctx.s1) labels.push([WF.mats[0], lp, fs.at(lp, W.s) + 0.4, W.s, WF.mats[1]]);
-    }
   }
   yield;
-  // (sunlit) the lava flat: low black basalt and pillow lobes, rubble patches and a few coral heads (lobe and cauliflower
+  // the lava flat: low black basalt and pillow lobes, rubble patches and a few coral heads (lobe and cauliflower
   // corals, as in Hawaii); small and sparse within ~15 m of the carcass, so nothing hides it, and out of the flight tube
-  const lv = KEY === KEYS[0] ? new Batch(MAT.static, 60000 * bk) : null;
-  if (lv) {
+  const lv = new Batch(MAT.static, 60000 * bk);
+  {
     const lava = poolOf(g0, 'wfLava', T.rocks, 3), heads = [T.boulder, T.coralMound].filter((l) => l && l.length), occ = [];
     const Wn = [];
-    for (const g of ctx.segments) { const W = whaleFallOf(g); if (W && !W.deep) Wn.push(W); }
+    for (const g of ctx.segments) { const W = whaleFallOf(g); if (W) Wn.push(W); }
     const near = (x, s) => { // 0 on the carcass .. 1 from ~15 m out
       let k = 1;
       for (const W of Wn) { const uv = whaleFallUV(W, x, s, _uv), eu = uv[0] / (W.L / 2 + 5), ev = uv[1] / 6.5; k = Math.min(k, sstep(1.0, 1.9, Math.sqrt(eu * eu + ev * ev))); }
@@ -1006,17 +740,5 @@ export function* layoutWfB(ctx) {
       putS(pick(rng, pick(rng, heads)), x, s, sc, sc * (0.75 + 0.3 * rng()), tintOf(rng, CORAL_HI, 0.1), 0.3);
     }
   }
-  // away from the carcass the mud is nearly bare: a few brittle stars (deep only)
-  const nB = KEY === KEYS[1] ? Math.round(6 * bk * lk) : 0;
-  for (let k = 0; k < nB; k++) {
-    const s = ctx.s0 + rng() * CHUNK, x = pc.x(s) + (rng() - 0.5) * 28;
-    fs.at(x, s);
-    const R = upTo([fs.nx, fs.ny, fs.nz], rng() * TAU), P = [x, fs.at(x, s), s];
-    seat(fs, H.brittle[0], R, 1, 1, 1, P, null, 0.004);
-    iput(ctx, ib, P[0], P[1], P[2], R, 1, 1, 1, [0.9 + rng() * 0.2, 0.85, 0.8]);
-  }
-  const extra = [];
-  const dm = dec.vc ? builderMesh(dec, NBMAT.decal, null, 'mid') : null;
-  if (dm) { dm.renderOrder = 1; extra.push(dm); }
-  return { batches: lv ? [st, ib, lv] : [st, ib], extra, labels };
+  return { batches: [st, lv] };
 }

@@ -285,7 +285,7 @@ const app = {
   weathers: WEATHER_KEYS, times: TIME_KEYS,
   // Instrument depth: the deep zones are rendered ~40-55 m down but depict the deep sea, so the deck's
   // depth gauge adds a nominal offset (blended across zone cross-fades) to read like the real thing.
-  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736, coldcoral: 260, whalefalldeep: 1627 }, // (Lost City: ~800 m; cold-water coral: ~300 m; whale fall: 1,675 m)
+  depthOffsets: { vents: 2150, abyss: 1150, deepplain: 3950, hadal: 7930, lostcity: 736, coldcoral: 260 }, // (Lost City: ~800 m; cold-water coral: ~300 m)
   _cpool: [],
   get paused() { return paused; }, get speed() { return speed; }, get labelsOn() { return labels.on; },
   get captionsOn() { return showCaptions; }, get statsOn() { return statsOn; }, get lampMode() { return lampMode; },
