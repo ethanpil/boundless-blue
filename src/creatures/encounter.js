@@ -315,6 +315,9 @@ export class Encounter {
     // head to tail (_orient). Small fish keep the quick direct response.
     const swimPlan = sp.plan === 'fish' || sp.plan === 'squid';
     this.smooth = swimPlan && this.elong && this.baseSize >= 0.45 && this.kind !== 'bait' && this.kind !== 'attach' && this.kind !== 'walk';
+    // big swimmers keep the lens off their body (geometry capsule), not out of a sphere of their size: a whale passing the
+    // camera sinks or rises clear of it when it must, instead of being shoved sideways (_camClear)
+    this.camCap = this.smooth && this.kind !== 'mill' && this.baseSize >= 4;
     const turn = mot.turn || TURN[mot.mode] || TURN0;
     this.kap = turn[0]; this.flex = turn[1]; this.flexV = turn[2]; this.bankMax = turn[3];
     this.wn = 1.8;                                     // heading spring natural frequency x sqrt(body length)
@@ -1654,7 +1657,18 @@ export class Encounter {
           dvx += oax; dvy += oay; dvz += oaz;
         }
       }
-      if (ed < avR && ed > 1e-4 && i !== this.inspect) {
+      if (this.camCap) {
+        // a big swimmer sees the camera's path ahead and changes depth (and a little course) early, through its heading,
+        // aiming to keep its body 6 m + 0.15 length off the lens (passes measure 4-10 m): close, but nothing has to shove it
+        const L = SZ[i], bs = this.entry.shape, cpx = cx + sgx * tq, cpz = cz + sgz * tq;
+        let t = (cpx - px) * f0x + (py2 - py) * f0y + (cpz - pz) * f0z; t = clamp(t, (bs.c - bs.h) * L, (bs.c + bs.h) * L);
+        const bx = px + f0x * t - cpx, by = py + f0y * t - py2, bz = pz + f0z * t - cpz, bd = h3(bx, by, bz) || 1e-4;
+        const want = 6 + 0.15 * L, clr = bd - bs.r * L;
+        if (clr < want) {
+          const push = (want - clr) / want * (2.5 + spd0 * 2) * 1.3;
+          dvx += bx / bd * push * 0.5; dvz += bz / bd * push * 0.5; dvy += (by / bd + (by >= 0 ? 0.6 : -0.6)) * push;
+        }
+      } else if (ed < avR && ed > 1e-4 && i !== this.inspect) {
         // (a big animal mostly turns away: its push only sets the direction it turns to, see the sideslip below)
         const push = (avR - ed) / avR * (2.5 + spd0 * 2) * (flock ? 1.6 : 2.4) * (1 + STL[i]) * (steered ? 0.8 : this.smooth ? 0.4 : 1);
         dvx += ex / ed * push; dvy += ey / ed * push * 0.7; dvz += ez / ed * push;
@@ -1692,10 +1706,11 @@ export class Encounter {
           let fw = wx * ux + wz * uz, lt = wx * uz - wz * ux;
           // (it keeps way on while it turns: without it a big animal cannot turn at all, and idling beside the camera it was
           // shoved sideways by the camera bubble)
-          const want = Math.max(dvx * ux + dvz * uz, (ed < avR ? this.speed * (0.6 + 0.4 * ed / avR) : Math.min(h2(dvx, dvz), this.speed)) * 0.65);
+          // (nose against a rock or an ice keel it only creeps on while it turns away: pressing on into it, it was wedged)
+          const fwd = dvx * ux + dvz * uz, want = Math.max(fwd, (oa && fwd < 0 ? 0.25 : (ed < avR ? this.speed * (0.6 + 0.4 * ed / avR) : Math.min(h2(dvx, dvz), this.speed))) * 0.65);
           fw += (want - fw) * ka2;
           lt *= Math.exp(-this.slip * dts);
-          if (oa) lt += ((dvx * uz - dvz * ux) * 0.35 - lt) * ka2;
+          if (oa) { const ls = this.speed * 0.3; lt += (clamp((dvx * uz - dvz * ux) * 0.35, -ls, ls) - lt) * ka2; }
           vx = ux * fw + uz * lt; vz = uz * fw - ux * lt;
         } else this._orientFor(i, dts, vx, vy, vz, dt, kind);
       }
@@ -1707,13 +1722,13 @@ export class Encounter {
         ctop = Math.min(sh.ceilingAt(nx, -(nz + az)), sh.ceilingAt(hx, -(hz + az)), 0) - SZ[i] * Math.max(hh0, F[i3 + 1] * 0.45 + hh0 * 0.75) - 0.06;
         if (ny > ctop) { ny = ctop; if (vy > 0) vy = 0; }
       }
-      // hard bubble
+      // hard bubble (big swimmers: _camClear below, on the body)
       qx = nx - cx; qz = nz - cz;
       tq = sgl > 1e-6 ? clamp((qx * sgx + qz * sgz) / sgl, 0, 1) * (0.36 / ta) : 0;
       ex = nx - (cx + sgx * tq); ey = ny - cy; ez = nz - (cz + sgz * tq);
       ed = h3(ex, ey, ez);
       const hr = this.hardR + SZ[i] * 0.2;
-      if (ed < hr) {
+      if (ed < hr && !this.camCap) {
         const f = (ed > 1e-4 ? 1 / ed : 0);
         const ux = ed > 1e-4 ? ex * f : 0, uy = ed > 1e-4 ? ey * f : 1, uz = ed > 1e-4 ? ez * f : 0;
         nx = cx + sgx * tq + ux * hr; ny = cy + uy * hr; nz = cz + sgz * tq + uz * hr;
@@ -1722,6 +1737,7 @@ export class Encounter {
       }
       V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz;
       P[i3] = nx; P[i3 + 1] = ny; P[i3 + 2] = nz;
+      if (this.camCap) { this._camClear(i); if (P[i3 + 1] > ctop) { P[i3 + 1] = ctop; if (V[i3 + 1] > 0) V[i3 + 1] = 0; } }
       if (!this.smooth) this._orientFor(i, dts, vx, vy, vz, dt, kind);
       if (this.cork) { // sea lions: playful corkscrew rolls
         if (this.SPIN[i] > 0 || (this.speed > 0.5 && this.rng() < dts * 0.06)) {
@@ -1838,7 +1854,7 @@ export class Encounter {
       spd = h3(vx, vy, vz);
     }
     const ofx = F[i3], ofz = F[i3 + 2], sz = this.SZ[i];
-    let yaw, lead = 0;
+    let yaw, lead = 0, leadV = 0;
     if (this.smooth) {
       // Heading as yaw / pitch angles driven by critically damped springs (eased start and stop, no overshoot), the
       // rates capped by a minimum turning radius: wMax = kappa v / L + w0 (a big animal can hardly turn without way on;
@@ -1847,8 +1863,9 @@ export class Encounter {
       const fx = F[i3], fy = F[i3 + 1], fz = F[i3 + 2], hf = h2(fx, fz), rs = 1 / Math.sqrt(sz);
       let psi = hf > 0.15 ? Math.atan2(fx, fz) : this.PSI[i], th = Math.asin(clamp(fy, -1, 1));
       // (the yaw radius is horizontal: rising or sinking on the spot is no way on for a turn)
-      const hsp = Math.min(spd, h2(this.V[i3], this.V[i3 + 2]) + 0.05);
-      const wn = this.wn * rs, wMax = Math.min(this.turnRate * (1 + this.STL[i]), this.kap * hsp / sz + this.w0 * rs), pMax = Math.min(this.turnRate, this.kap * spd / sz + 0.12 * rs) * 1.2 + 0.05; // (pitch: it levels out on its fins when slow)
+      // (blocked by a rock or ice it may scull round slowly on its fins: with no way on and no pivot it stayed wedged)
+      const hsp = Math.min(spd, h2(this.V[i3], this.V[i3 + 2]) + 0.05), OA = this.OA, blk = OA[i3] !== 0 || OA[i3 + 1] !== 0 || OA[i3 + 2] !== 0;
+      const wn = this.wn * rs, wMax = Math.min(this.turnRate * (1 + this.STL[i]), this.kap * hsp / sz + (blk ? this.w0 + 0.15 : this.w0) * rs), pMax = Math.min(this.turnRate, this.kap * spd / sz + 0.12 * rs) * 1.2 + 0.05; // (pitch: it levels out on its fins when slow)
       const mp = Math.min(this.maxPitch, 1);
       let yr = this.YR[i], pr = this.PR[i], thD = this.kind === 'hover' ? th : 0, dpsi = 0;
       if (spd > 0.04) {
@@ -1864,7 +1881,7 @@ export class Encounter {
       const ct = Math.cos(th);
       F[i3] = ct * Math.sin(psi); F[i3 + 1] = Math.sin(th); F[i3 + 2] = ct * Math.cos(psi);
       this.YR[i] = yr; this.PR[i] = pr; this.PSI[i] = psi;
-      yaw = yr; lead = dpsi - yr * dt;
+      yaw = yr; lead = dpsi - yr * dt; leadV = thD - th;
     } else {
       if (spd > 0.04) {
         const k = Math.min(1, this.turnRate * dt * clamp(spd / (this.speed + 0.1), 0.3, 1.5));
@@ -1893,7 +1910,8 @@ export class Encounter {
       const sp = Math.max(spd, 0.2 + 0.3 * this.speed), fl = this.flex, up = Math.cos(this.BANK[i] - this.bankBase); // (rolled over: sides swap)
       tf = clamp(yaw * sz / (this.kap * Math.max(spd, 0.2)), -1, 1) * Math.min(1, spd / (0.4 * this.speed + 0.1)); // share of the tightest turn
       bt = clamp(clamp(yaw / sp * sz * Math.min(1, fl / this.kap), -0.75 * fl, 0.75 * fl) + clamp(lead * 0.5, -0.4, 0.4) * fl * (1 - Math.abs(tf)), -fl, fl) * up;
-      bv = clamp(this.PR[i] / sp * sz, -this.flexV, this.flexV) * up;
+      // (the head also leads a dive or a climb: it tips down / up before the body pitches over)
+      bv = clamp(this.PR[i] / sp * sz + clamp(leadV * 0.5, -0.4, 0.4) * this.flexV, -this.flexV, this.flexV) * up;
     } else bt = clamp((yaw / Math.max(spd, 0.3)) * sz, -0.5, 0.5) * (m.mode === 1 ? 0.6 : 1);
     const rb = smooth ? clamp(5 / Math.sqrt(sz), 1, 5) : 4; // (a whale's body takes a turn up over a second or so)
     this.BEND[i] += (bt - this.BEND[i]) * Math.min(1, dt * rb);
@@ -2596,6 +2614,20 @@ export class Encounter {
   }
 
   // Apply the separation pass's correction (sep.js) and re-establish the hard constraints for moved animals.
+  // Big swimmer i (camCap) against the lens (this._cx, _cy, _cz): the lens stays 1.6 m off its body capsule. A breach is
+  // resolved by sinking (or rising, with the camera below) just far enough, keeping its heading and way on; a whale that
+  // the camera bubble shoved sideways crabbed past the lens. Returns the distance moved.
+  _camClear(i) {
+    const P = this.P, F = this.F, V = this.V, i3 = i * 3, L = this.SZ[i], bs = this.entry.shape;
+    const x = P[i3], y = P[i3 + 1], z = P[i3 + 2], fx = F[i3], fy = F[i3 + 1], fz = F[i3 + 2], cx = this._cx, cy = this._cy, cz = this._cz;
+    const t = clamp((cx - x) * fx + (cy - y) * fy + (cz - z) * fz, (bs.c - bs.h) * L, (bs.c + bs.h) * L);
+    const dx = cx - x - fx * t, dy = cy - y - fy * t, dz = cz - z - fz * t, R = bs.r * L + 1.6, hh = dx * dx + dz * dz;
+    if (hh + dy * dy >= R * R) return 0;
+    const mv = Math.sqrt(Math.max(0, R * R - hh)) - Math.abs(dy), sg = dy >= 0 ? -1 : 1;
+    P[i3 + 1] += sg * mv;
+    if (V[i3 + 1] * sg < 0) V[i3 + 1] = 0;
+    return mv;
+  }
   _applySep(c) {
     const n = this.n, D = this.SD, P = this.P, V = this.V, sh = this.sys.shape, az = this.anchorZ, k = this.kind;
     const M = this.mesh.instanceMatrix.array, cx = c.x, cy = c.y, cz = c.z - az, MV = this.SMV;
@@ -2634,7 +2666,8 @@ export class Encounter {
         }
         this._slotShift(i, dx, dy, dz);
         const ex = P[i3] - cx, ey = P[i3 + 1] - cy, ez = P[i3 + 2] - cz, ed = h3(ex, ey, ez), hr = this.hardR + this.SZ[i] * 0.2;
-        if (ed < hr && ed > 1e-4) { P[i3] = cx + ex / ed * hr; P[i3 + 1] = cy + ey / ed * hr; P[i3 + 2] = cz + ez / ed * hr; dl += hr - ed; }
+        if (this.camCap) { this._cx = cx; this._cy = cy; this._cz = cz; dl += this._camClear(i); }
+        else if (ed < hr && ed > 1e-4) { P[i3] = cx + ex / ed * hr; P[i3 + 1] = cy + ey / ed * hr; P[i3 + 2] = cz + ez / ed * hr; dl += hr - ed; }
       }
       this.CLR[i] -= dl;
       if (this.obs.length && this.CLR[i] < 0.05) {
@@ -2929,7 +2962,9 @@ export class Encounter {
         const mode = MODE[i];
         if (mode === 1) { // roll belly-down, then down to the bottom
           tx = HOME[i * 2]; tz = HOME[i * 2 + 1]; ty = sh.floorAt(tx, -(tz + az)) + 0.45 + sz * 0.1; spd = this.speed;
-          if (Math.abs(this.BANK[i]) > 0.7) { ty = py; spd = 0.3; } // finish the roll first
+          // a duck dive: it rolls belly-down already swimming, and tips its head under as the roll ends (it used to roll
+          // over on the spot, then tilt down as one piece)
+          if (Math.abs(this.BANK[i]) > 0.7) { ty = py - sz * 0.6 * clamp(1 - Math.abs(this.BANK[i]) / 2, 0, 1); spd = 0.45 * this.speed + 0.15; }
           if (py - fl < 0.9 + sz * 0.15 || h3(tx - px, ty - py, tz - pz) < 0.8 || TMR[i] < 15) { MODE[i] = 2; TMR[i] = 3 + rng() * 5; }
         } else if (mode === 2) { // foraging over the rocks, nose down
           const w = this.age * 0.4 + RP[o] * TAU;

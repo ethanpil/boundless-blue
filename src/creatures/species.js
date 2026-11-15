@@ -1985,6 +1985,7 @@ Object.assign(FACTS, {
 {
   const T = (keys, v) => { for (const k of keys.split(' ')) if (S[k]) S[k].mot = { ...S[k].mot, turn: v }; };
   T('seaOtter seaOtterUrchin seaOtterMom seaOtterPup', [3.2, 3.0, 2.4, 0.7]);
+  for (const k of ['seaOtter', 'seaOtterUrchin', 'seaOtterMom']) S[k].mot = { ...S[k].mot, amp: 0.08, c0: 0.2 }; // (swimming under water: the whole body undulates)
   T('harbourSeal leopardSeal weddellSeal ringedSeal harpSeal', [2.2, 2.4, 1.6, 0.7]);
   T('seaLion', [2.4, 2.2, 1.8, 0.8]);
   T('emperorPenguin adeliePenguin', [2.2, 0.6, 0.5, 0.7]);
