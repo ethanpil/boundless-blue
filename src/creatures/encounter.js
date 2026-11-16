@@ -115,6 +115,9 @@ export class GeoCache {
   }
   _evict() {
     if (this.map.size <= this.cap) return;
+    // unused coarse / twin levels go first: a species' level 0 also carries its triangle count for the director's group
+    // sizes (background life builds many coarse levels; evicting level 0 for them shrank the near schools)
+    for (const [k, e] of this.map) { if (this.map.size <= this.cap) return; if (e.refs === 0 && k.includes('|')) this.map.delete(k); }
     for (const [k, e] of this.map) { if (this.map.size <= this.cap) break; if (e.refs === 0) this.map.delete(k); }
   }
 }
@@ -158,6 +161,9 @@ export class Encounter {
     this.glowAcc = 0;                  // bioluminescent bay: sparkle emission carried over (Creatures._ambientFx)
     this.brood = false;                 // events: brooding octopuses (_broodInit)
     this.HOLD = null;                   // --- whalefall --- a pose set by the feeding controller (wf_crowd.js, _holdPose)
+    // --- farlife --- background mode (background.js, _bgUpdate): 0 = full simulation; 1 = background life away from
+    // the route; 2 = a group the camera has passed, carrying on behind it. passed: retired as behind / beside the route
+    this.bg = 0; this.bgT = 0; this.bgAcc = 0; this.bgYaw = 0; this.bgSpd = 0; this.bgTurn = 0; this.bgChk = 0; this.bgRk = 0; this.bgR = 0; this.passed = false;
     const rng = mulberry32(plan.seed);
     this.rng = rng; this.sys = sys; this.sp = sp; this.plan = plan;
     const beh = sp.beh, n = plan.n;
@@ -1200,6 +1206,7 @@ export class Encounter {
       this._visibility(c);
       return;
     }
+    if (this.bg) { this._bgUpdate(dt, c); return; } // --- farlife ---
     if (dt <= 0) { this._visibility(c); return; }
     // simulation LOD: off-screen groups and groups too small to read step at a third of the rate,
     // small-on-screen groups beyond 35 m at half the rate (accumulated dt; obstacle budgets use real displacement)
@@ -1250,8 +1257,9 @@ export class Encounter {
     this.unseen = this.visible ? 0 : (this.unseen || 0) + dt;
     const ahead = -(this.anchorZ + b.z) - c.s, lat = Math.abs(b.x - c.x);
     const fromBehind = (this.route === 'overtake' || this.route === 'escort' || this.route === 'lead') && this.age < 45;
-    if (sMax < c.s - 14) this.done = true;
-    else if (this.unseen > 6 && !fromBehind && (ahead < 3 || lat > ahead * 1.2 + 8 + b.r)) this.done = true;
+    // (passed: background.js may keep such a group alive behind the camera at background cost)
+    if (sMax < c.s - 14) { this.done = true; this.passed = true; }
+    else if (this.unseen > 6 && !fromBehind && (ahead < 3 || lat > ahead * 1.2 + 8 + b.r)) { this.done = true; this.passed = true; }
     else if (Math.abs(b.x - c.x) > 320 || Math.abs(-(this.anchorZ + b.z) - c.s) > 520) this.done = true;
     else if (this.age > this.maxAge && !this.visible) this.done = true;
   }
@@ -2718,7 +2726,7 @@ export class Encounter {
   // Lower-poly geometry beyond ~45 m; agents within ~7 m are drawn by a small high-detail twin mesh
   // (smooth silhouettes and round eyes on close passes). Missing levels are built in idle time.
   _lodTick(c) {
-    const sp = this.sp, cache = this.sys.cache;
+    const sp = this.sp;
     if (sp.plan === 'siphon') return;
     // Low tier: by apparent size (length / distance of the group's nearest point): LOD -1 below 1/10 rad (31 px long at
     // 360p; 1/6 rad for detail-2 species, whose level -1 is still ~1k triangles; at most 48 m), -2 (fish-like plans with
@@ -2739,16 +2747,20 @@ export class Encounter {
       const lv = d > t2 ? -3 : d > t1 ? -2 : d > t0 ? -1 : 0;
       want = lv <= cur ? lv : d < (cur === -3 ? t2 * 0.85 : cur === -2 ? t1 * 0.85 : low ? t0 * 0.85 : t0 - 8) ? lv : cur;
     }
-    if (want !== this.lod) {
-      const k = want + 3;
-      if (!this.lodGeo[k] && cache.has(sp, want)) { this.lodEntry[k] = cache.acquire(sp, want); this.lodGeo[k] = this._makeGeo(this.lodEntry[k]); }
-      if (this.lodGeo[k]) {
-        this.mesh.geometry = this.lodGeo[k];
-        const nt = this.lodEntry[k].tris * this.n; this.sys.trisTotal += nt - this.tris; this.tris = nt;
-        this.lod = want;
-      } else this.sys.wantLod(sp, want);
-    }
+    if (want !== this.lod && !this._lodSet(want)) this.sys.wantLod(sp, want);
     if (!twin0) this._nearTick(c, 0);
+  }
+  // switch the main mesh to level `want` if its geometry is built (false: not built yet)
+  _lodSet(want) {
+    const sp = this.sp, cache = this.sys.cache, k = want + 3;
+    if (!this.lodGeo[k] && cache.has(sp, want)) { this.lodEntry[k] = cache.acquire(sp, want); this.lodGeo[k] = this._makeGeo(this.lodEntry[k]); }
+    if (!this.lodGeo[k]) return false;
+    this.mesh.geometry = this.lodGeo[k];
+    const nt = this.lodEntry[k].tris * this.n;
+    if (this.bg) this.sys.bgTris += nt - this.tris; else this.sys.trisTotal += nt - this.tris; // (background life: its own total)
+    this.tris = nt;
+    this.lod = want;
+    return true;
   }
   // t0 = 0: the high-detail twin (LOD +1) for agents within ~9 m. t0 > 0 (low tier, groups of 3+, see _lodTick): a
   // level-0 twin for the agents in view within t0; sets lodD, the distance of the nearest agent in view it does not take.
@@ -3128,6 +3140,204 @@ export class Encounter {
     }
     const dx = b.x - c.x, dy = b.y - c.y, dz = this.anchorZ + b.z - c.z;
     this.dist = Math.max(0, h3(dx, dy, dz) - b.r);
+  }
+
+  // ======================================================================
+  // --- farlife --- Background mode (background.js): background life away from the route (mode 1) and groups the camera
+  // has passed (mode 2) live on at background cost. No steering, separation, camera bubble or per-agent terrain work:
+  // flocks keep their formation slots around a leader that cruises with a slow wander and turns away from walls,
+  // shallows, rock and the camera (probed for the group as a whole twice a second); reef fish hover around where they
+  // are; drifters drift; the rest keep still. Stepped every frame near and in view, every 2nd in view, every 4th out of
+  // view, and drawn at the coarsest level their size on screen allows (_bgLod: no level-0 twins).
+  toBg(mode, c) {
+    this.bg = mode; this.done = false; this.passed = false; this.dying = false;
+    this.event = null; this.lookCam = 0; this.inspect = -1; this.bgAcc = 0; this.bgT = 0; this.bgChk = 0; this.bgTurn = 0;
+    if (this.SPIN) this.SPIN.fill(0);
+    if (this.FLIP) this.FLIP.fill(0);
+    if (this.nearCount) this._nearSet(0); // (the twin meshes' draw calls are the near encounters')
+    this.mesh.castShadow = false; // (high tier: no shadow-pass draw for life in the background)
+    const k = this.kind, P = this.P, SL = this.SL;
+    if (FLOCK_KINDS.has(k)) {
+      const hs = h2(this.Cvx, this.Cvz);
+      this.bgYaw = hs > 0.1 ? Math.atan2(this.Cvx, this.Cvz) : Math.atan2(this.cvx, this.cvz);
+      // a passed school swims on at its own cruising pace (lead groups were pacing the camera); rings and bait balls
+      // hold their spot (checked clear of rock when they came here: nothing steers their members round it)
+      this.bgSpd = k === 'mill' || k === 'bait' ? 0 : clamp(hs > 0.1 ? hs : this.speed * 0.8, this.speed * 0.4, this.speed * 1.1);
+    } else if (k === 'shoal' || k === 'hover') { // hover around the current spot (the sway is 0 at t = 0)
+      for (let i = 0; i < this.n; i++) { SL[i * 4] = P[i * 3]; SL[i * 4 + 1] = P[i * 3 + 1]; SL[i * 4 + 2] = P[i * 3 + 2]; }
+    }
+    this.regCount = -1; // (rock is checked at the first step: _bgRock)
+    this._visibility(c);
+    this._bgLod();
+  }
+  // sway of a hovering member, at most half its clearance from rock (CLR, set by _bgRock); RP[+3] of a shoal is its
+  // relocation timer, not a random
+  _bgAmp(i) { return Math.min(Math.min(0.2 + this.baseSize * 1.2, 0.7) * (0.6 + 0.4 * this.RP[i * 4 + 2]), this.CLR[i] * 0.5); }
+  // Rock registered since (chunk props finish after a group is placed) or near: a flock with rock inside its formation
+  // fades away (its members do not steer round it); a hovering member's spot is moved out of the rock and its sway
+  // limited to its clearance.
+  // gone because of rock: at once out of view; in view it stops and fades quickly (from at most half opacity)
+  _bgGone() { if (!this.visible) { this.done = true; return; } this.dying = true; this.bgSpd = 0; this.bgTurn = 0; this.fade = Math.min(this.fade, 0.5); }
+  _bgRock() {
+    const reg = this.sys.env && this.sys.env.obstacles, k = this.kind, n = this.n, SL = this.SL, az = this.anchorZ;
+    if (!reg || !reg.count) { this.CLR.fill(1e3); return; }
+    if (FLOCK_KINDS.has(k) || k === 'drift') { // (member by member: a wide pod with one penguin in the ice is not clear)
+      const P = this.P;
+      for (let i = 0; i < n; i++) {
+        const x = P[i * 3], y = P[i * 3 + 1], s = -(az + P[i * 3 + 2]), r = this.rbU * this.SZ[i];
+        reg.query(x, s, r + 2, _q);
+        for (let j = 0; j < _q.length; j++) if (Obstacles.dist(_q[j], x, y, s, null) < r) { this._bgGone(); return; }
+      }
+      return;
+    }
+    if (k !== 'shoal' && k !== 'hover') return;
+    for (let i = 0; i < n; i++) {
+      const o = i * 4, r = this.rbU * this.SZ[i] + 0.1;
+      let x = SL[o], y = SL[o + 1], s = -(SL[o + 2] + az), clr = 1e3;
+      reg.query(x, s, r + 3, _q);
+      for (let it = 0; it < 3 && _q.length; it++) {
+        let worst = 1e3, nx = 0, ny = 0, ns = 0;
+        for (let j = 0; j < _q.length; j++) { const d = Obstacles.dist(_q[j], x, y, s, _n); if (d < worst) { worst = d; nx = _n.x; ny = _n.y; ns = _n.s; } }
+        clr = worst - r;
+        if (clr >= 0) break;
+        x -= nx * clr; y -= ny * clr; s -= ns * clr; clr = 0; // (out along the surface normal)
+      }
+      SL[o] = x; SL[o + 1] = y; SL[o + 2] = -s - az; this.CLR[i] = Math.max(0, clr);
+    }
+  }
+  _bgUpdate(dt, c) {
+    if (dt > 0) {
+      this.age += dt; this.bgAcc += dt;
+      const rate = !this.visible ? 4 : this.dist > 40 ? 2 : 1;
+      if (++this.simSkip % rate === 0) { const d = Math.min(this.bgAcc, 0.25); this.bgAcc = 0; this._bgStep(d, c); }
+    }
+    if (!this.done) this._visibility(c);
+  }
+  _bgStep(dt, c) {
+    this.bgT += dt;
+    if (this.dying) { this.fade -= dt * 0.6; if (this.fade <= 0) { this.done = true; return; } }
+    else if (this.fade < 1) this.fade = Math.min(1, this.fade + dt * 0.35); // (~3 s: may come into being in view, far off)
+    const k = this.kind, n = this.n, P = this.P, V = this.V, F = this.F, SL = this.SL, RP = this.RP, m = this.mot, t = this.bgT;
+    const reg = this.sys.env && this.sys.env.obstacles;
+    // (and every 0.5 s for groups that move: the ahead probe can miss a rock beside the formation, and drifters have none)
+    this.bgRk -= dt;
+    if ((reg ? reg.count : 0) !== this.regCount || (this.bgRk < 0 && (FLOCK_KINDS.has(k) || k === 'drift'))) {
+      this.regCount = reg ? reg.count : 0; this.bgRk = 0.5; this._bgRock(); if (this.dying || this.done) return;
+    }
+    if (FLOCK_KINDS.has(k)) {
+      this._bgLead(dt, c);
+      // the members' floor / roof limits, a few refreshed per step (the formation reaches past the leader's column)
+      const sh = this.sys.shape, az = this.anchorZ, FLO = this.FLO, CEI = this.CEI;
+      for (let j = 0, K = Math.ceil(n / 6); j < K; j++) {
+        const i = this.rr = (this.rr + 1) % n, xi = P[i * 3], si = -(P[i * 3 + 2] + az), lift = this.SZ[i] * 0.3;
+        FLO[i] = sh.floorAt(xi, si) + this.mFloor * 0.6 + lift; CEI[i] = Math.min(Math.min(sh.ceilingAt(xi, si), 0) - this.mCeil, this.surfY) - lift;
+      }
+      const e = 1 - Math.exp(-dt * 1.5);
+      for (let i = 0; i < n; i++) {
+        const q = this._slotTarget(i, dt), i3 = i * 3;
+        // follow the slot (feed-forward, so there is no lag) and ease onto it
+        let x = P[i3] + q[3] * dt, y = P[i3 + 1] + q[4] * dt, z = P[i3 + 2] + q[5] * dt;
+        x += (q[0] - x) * e; y += (q[1] - y) * e; z += (q[2] - z) * e;
+        if (CEI[i] > FLO[i]) y = clamp(y, FLO[i], CEI[i]);
+        const vx = (x - P[i3]) / dt, vy = (y - P[i3 + 1]) / dt, vz = (z - P[i3 + 2]) / dt;
+        P[i3] = x; P[i3 + 1] = y; P[i3 + 2] = z; V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz;
+        this._orientFor(i, dt, vx, vy, vz, dt, k);
+      }
+    } else if (k === 'shoal' || k === 'hover') {
+      const sh = this.sys.shape, az = this.anchorZ, j = this.rr = (this.rr + 1) % n, sj = -(P[j * 3 + 2] + az); // (a slope under the hover)
+      this.FLO[j] = Math.max(this.FLO[j], sh.floorAt(P[j * 3], sj) + this.mFloor * 0.6 + this.SZ[j] * 0.3);
+      for (let i = 0; i < n; i++) {
+        const o = i * 4, i3 = i * 3, A = this._bgAmp(i), w = (0.12 + 0.12 * RP[o + 1]) / Math.sqrt(0.3 + this.SZ[i]);
+        const p0 = RP[o] * TAU, p1 = RP[o + 1] * TAU, p2 = RP[o + 2] * TAU, a0 = w * t + p0, a1 = 1.3 * w * t + p1, a2 = 0.8 * w * t + p2;
+        let y = SL[o + 1] + A * 0.3 * (Math.sin(a1) - Math.sin(p1));
+        if (this.CEI[i] > this.FLO[i]) y = clamp(y, this.FLO[i], this.CEI[i]);
+        P[i3] = SL[o] + A * (Math.sin(a0) - Math.sin(p0)); P[i3 + 1] = y; P[i3 + 2] = SL[o + 2] + A * (Math.sin(a2) - Math.sin(p2));
+        const vx = A * w * Math.cos(a0), vy = A * 0.39 * w * Math.cos(a1), vz = A * 0.8 * w * Math.cos(a2);
+        V[i3] = vx; V[i3 + 1] = vy; V[i3 + 2] = vz;
+        this._orient(i, dt, vx, vy, vz);
+      }
+    } else if (k === 'drift') { // bells pulse and drift with the current, inside the water column (refreshed slowly)
+      const sh = this.sys.shape, az = this.anchorZ, j = this.rr = (this.rr + 1) % n, xj = P[j * 3], sj = -(P[j * 3 + 2] + az);
+      this.FLO[j] = sh.floorAt(xj, sj) + this.mFloor; this.CEI[j] = Math.min(Math.min(sh.ceilingAt(xj, sj), 0) - this.mCeil, this.surfY);
+      for (let i = 0; i < n; i++) {
+        const i3 = i * 3, ph = this.PH[i], pulse = Math.max(0, Math.sin(ph)), th = this.speed * (0.25 + 2.2 * pulse * pulse) * 0.5;
+        let y = P[i3 + 1] + F[i3 + 1] * th * dt;
+        if (this.CEI[i] > this.FLO[i]) y = clamp(y, this.FLO[i], this.CEI[i]);
+        P[i3] += (F[i3] * th + this.curX) * dt; P[i3 + 1] = y; P[i3 + 2] += (F[i3 + 2] * th + this.curZ) * dt;
+        let p2 = ph + TAU * m.idle * (0.8 + 0.4 * RP[i * 4 + 1]) * dt; if (p2 > PH_WRAP) p2 -= PH_WRAP; this.PH[i] = p2;
+        this.AMP[i] = 1;
+      }
+    } else { // resting, perched, walking, floating, in burrows: keep still and breathe
+      for (let i = 0; i < n; i++) {
+        let p2 = this.PH[i] + TAU * (m.idle || 0.4) * (0.8 + 0.4 * RP[i * 4 + 1]) * dt; if (p2 > PH_WRAP) p2 -= PH_WRAP; this.PH[i] = p2;
+        this.AMP[i] = k === 'rest' ? 0.3 : 1;
+      }
+    }
+    this._writeAll(dt);
+    this._bgLod();
+  }
+  // the leader of a background flock: cruise, wander slowly, turn away from what is ahead (or from the camera)
+  _bgLead(dt, c) {
+    const sh = this.sys.shape, az = this.anchorZ;
+    this.bgChk -= dt;
+    if (this.bgChk <= 0) {
+      this.bgChk = 0.5;
+      const look = Math.min(this.R || 0, 8) + 2 + this.bgSpd * 3;
+      let turn = 0.07 * Math.sin(this.bgT * 0.06 + this.wP * 5); // a slow wander
+      // (ahead, and ahead of either flank of the formation)
+      const wR = Math.min(this.R || 0, 8) * 0.7, wA = Math.atan2(wR, look), wL = Math.hypot(look, wR);
+      if (this._bgBlocked(this.bgYaw, look) || (wR > 1 && (this._bgBlocked(this.bgYaw + wA, wL) || this._bgBlocked(this.bgYaw - wA, wL)))) {
+        const l = this._bgBlocked(this.bgYaw + 0.9, look), r = this._bgBlocked(this.bgYaw - 0.9, look);
+        turn = l && !r ? -0.5 : r && !l ? 0.5 : this.bgTurn < 0 ? -0.5 : 0.5; // toward the open side (both shut: keep turning)
+      }
+      // a group heading for the camera turns away from it (no camera bubble work in the background)
+      const sy = Math.sin(this.bgYaw), cy = Math.cos(this.bgYaw), dx = c.x - this.Cx, dz = c.z - az - this.Cz;
+      if (h2(dx, dz) < Math.min(this.R || 0, 8) + 12 && dx * sy + dz * cy > 0) turn = dx * cy - dz * sy > 0 ? -0.45 : 0.45;
+      this.bgTurn = turn;
+    }
+    this.bgYaw += this.bgTurn * dt;
+    if (this.bgYaw > Math.PI) this.bgYaw -= TAU; else if (this.bgYaw < -Math.PI) this.bgYaw += TAU;
+    const sy = Math.sin(this.bgYaw), cy = Math.cos(this.bgYaw), spd = this.bgSpd * (Math.abs(this.bgTurn) > 0.3 ? 0.6 : 1);
+    this.Cvx = sy * spd; this.Cvy = 0; this.Cvz = cy * spd;
+    this.Cx += this.Cvx * dt; this.Cz += this.Cvz * dt;
+    // depth: inside the water column at the centre (floor, roof, surface)
+    const s = -(this.Cz + az), fl = sh.floorAt(this.Cx, s), ce = Math.min(sh.ceilingAt(this.Cx, s), 0), r0 = this.R0();
+    const lo = fl + this.mFloor + r0 + 0.5, hi = Math.min(ce - this.mCeil, this.surfY) - r0 * 0.5;
+    this.Cy += ((hi > lo ? clamp(this.Cy, lo, hi) : (lo + hi) * 0.5) - this.Cy) * Math.min(1, dt * 0.8);
+    const kk = Math.min(1, dt * 0.6);
+    this.cvx += (sy - this.cvx) * kk; this.cvz += (cy - this.cvz) * kk;
+    const l = h2(this.cvx, this.cvz) || 1; this.cvx /= l; this.cvz /= l;
+    if (this.HB) { this.hbT += dt; if (this.hbT >= 0.1) { this.hbT = 0; this.hbI = (this.hbI + 1) & 31; this.HB[this.hbI * 2] = this.cvx; this.HB[this.hbI * 2 + 1] = this.cvz; } }
+    if (this.calfT !== undefined && this.calfT < 16) this.calfT += dt;
+    this.ls = s; this.ll = this.Cx - sh.pathX(s); this.lh = this.Cy - sh.pathY(s);
+  }
+  // no room for the group `look` metres ahead along `yaw`: a wall or shallows rising into it, a low roof, or rock
+  _bgBlocked(yaw, look) {
+    const sh = this.sys.shape, az = this.anchorZ, x = this.Cx + Math.sin(yaw) * look, z = this.Cz + Math.cos(yaw) * look, s = -(z + az);
+    const fl = sh.floorAt(x, s) + this.mFloor, top = Math.min(Math.min(sh.ceilingAt(x, s), 0) - this.mCeil, this.surfY), r0 = this.R0();
+    if (top - fl < r0 * 1.5 + 0.6 || fl > this.Cy + 1.5 || top < this.Cy - 1.5) return true;
+    const reg = this.sys.env && this.sys.env.obstacles;
+    if (!reg || !reg.count) return false;
+    const rad = Math.min((this.R || 0) * 0.8 + this.baseSize * 0.6 + 0.5, 12); // (the formation's width: its members do not steer)
+    reg.query(x, s, rad + 2, _q);
+    for (let j = 0; j < _q.length; j++) if (Obstacles.dist(_q[j], x, this.Cy, s, null) < rad) return true;
+    return false;
+  }
+  // level by apparent size (as _lodTick, without twins); a level not built yet: the nearest coarser one that is
+  _bgLod() {
+    const sp = this.sp;
+    if (sp.plan === 'siphon') return;
+    const ts = this.sys.tierScale, L = this.baseSize, d = this.dist, cur = this.lod, fish = hasSpeck(sp), low = ts < 0.7;
+    const t0 = low ? Math.min(48, L * ((sp.det ?? 1) >= 2 ? 6 : 10)) : 48;
+    const t1 = low && fish && levelOf(sp, -2) < levelOf(sp, -1) ? L * 24 : 1e9;
+    const t2 = fish ? L * (low ? 48 : ts < 1 ? 80 : 120) : 1e9; // (high / ultra: the speck where it is a few pixels long)
+    const lv = d > t2 ? -3 : d > t1 ? -2 : d > t0 ? -1 : 0;
+    const want = lv <= cur ? lv : d < (cur === -3 ? t2 * 0.85 : cur === -2 ? t1 * 0.85 : t0 * 0.85) ? lv : cur;
+    if (want === cur || this._lodSet(want)) return;
+    // (one coarse level a frame may be built on the spot: a ray swimming nearer stayed a speck until idle time came)
+    if (want < 0 && this.sys.bgBuild > 0) { this.sys.bgBuild--; this.sys.cache.prebuild(sp, want); if (this._lodSet(want)) return; }
+    this.sys.wantLod(sp, want);
+    if (want < cur) for (let l = want - 1; l >= (fish ? -3 : -1); l--) if (this._lodSet(l)) return;
   }
 
   dispose() {

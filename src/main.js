@@ -182,6 +182,7 @@ function placeCamera(dt, time, C, lookDt = dt) {
   const r = director.update(dt, time, s, Oz, Math.max(0.005, U.uSigma.value.y), C.surge, subjectsFn, poisFn);
   camState.s = s; camState.x = r.x; camState.y = r.y; camState.z = r.gz; camState.Oz = Oz;
   camera.getWorldDirection(camState.forward);
+  camState.heading = director.heading; // the way the craft travels (the view may be turned: drag to look)
 }
 
 // ---------- captions ----------

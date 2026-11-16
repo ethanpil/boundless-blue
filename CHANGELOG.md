@@ -10,6 +10,7 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 
 ### Changed
 - Scenery no longer stops a few metres from the route. Every seabed zone's own corals, kelp, grass, rocks, sponges, chimneys and wreckage carry on to where the water hides them, in gardens and bare stretches that do not follow the route; the sunken city has streets of walls and columns fading into the haze, and wrecks have other hulls in the distance. The world is kept behind the camera too, for when you look back.
+- Animals live beside and behind the route too: groups of each zone's own cast swim and hover off to the sides, and groups you pass carry on behind you instead of vanishing.
 - Turns feel like riding a small submersible instead of a camera pan: the heading eases into and out of bends, ignores the route's small wiggles and banks into turns (up to about 12°), and the camera's looks at animals are slower, eased head turns.
 - Sound, more variety in the same muffled style. Every zone family has its own water: lapping and small breakers in the shallows, a heavy swell with shifting sand on reefs, creaks and knocks in kelp, hollow glugs in caves, a wide rumble with distant booms in open water, squeaks of trapped air under ice, near silence in the deep, gas streams at Champagne Reef. Calmer and busier spells come and go, and nights are calmer.
 - New water sounds tied to what is on screen: bubble curtains and belches, the wake of a big animal passing, splashes and breach thumps from the surface, strikes, and the tearing and thrashing at the whale fall.

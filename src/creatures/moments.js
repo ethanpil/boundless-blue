@@ -194,6 +194,7 @@ export class Moments {
     const dir = this.dir, sys = this.sys, sp = dir.species('silverside');
     if (!sp) return null;
     while (sys.enc.length > sys.maxEnc - 6 && dir.retireOne(c));
+    if (sys.enc.length > sys.maxEnc - 4) return null; // (no room freed, all in view: the new school would be the first group retired for the hunters)
     const plan = dir.plan(sp, c, true, sys.seq.weights(c.s + ahead), sys.maxInstances - sys.instances, sys.maxTris - sys.trisTotal, false, false);
     if (!plan) return null;
     const tris = sys.cache.map.get(sp.key)?.tris ?? 700;

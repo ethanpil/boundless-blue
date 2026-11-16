@@ -56,7 +56,8 @@ export class WhaleCrowd {
     this.guT -= dt;
     if (this.guT > 0 || c.s < d.cs - d.L / 2 - 90) return;
     this.guT = 1;
-    for (const e of this.dir.sys.enc) {
+    const sys = this.dir.sys;
+    for (let li = 0; li < 2; li++) for (const e of li ? sys.bg : sys.enc) { // (background life too, background.js)
       if (e.done || e.dying || (this.own && this.own.has(e.sp.key))) continue;
       const es = -(e.anchorZ + e.bounds.z);
       if (Math.abs(es - d.cs) < d.L / 2 + 70 && Math.abs(e.bounds.x - d.cx) < 60) e.dying = true;

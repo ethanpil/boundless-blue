@@ -9,6 +9,7 @@ import { Director } from './director.js';
 import { commonName, FACTS } from './species.js';
 import { FX } from './fx.js';
 import { Separation } from './sep.js';
+import { Background } from './background.js'; // --- farlife ---
 
 const _v = new THREE.Vector3();
 const TAU = Math.PI * 2;
@@ -24,7 +25,7 @@ export class Creatures {
     this.world = world; this.env = env;
     this.shape = env.shape; this.seq = env.seq; this.U = env.U; this.seed = env.seed | 0;
     this.mats = makeMaterials();
-    this.cache = new GeoCache(96);
+    this.cache = new GeoCache(128); // (96 before background life, whose coarse levels would push out the prewarmed species)
     this.enc = [];
     // per-tier budgets: groups (= draw calls), instances, triangles, high-detail close-up twins (extra draw calls)
     // (low: 170k since level-0 twins and the speck level (Encounter._lodTick) cut its triangles per animal by ~half:
@@ -38,12 +39,16 @@ export class Creatures {
     this.logStats = qs.get('crstats') === '1';
     this.fx = new FX(world, env.U);
     this.director = new Director(this);
+    // --- farlife --- background life off the route and behind the camera (background.js): its own list, which the
+    // director, separation, camera subjects and audio never walk, and its own animal / triangle totals, so the director
+    // budgets exactly as before; the background gives way to keep the sum within the tier's maxTris
+    this.bg = []; this.bgLife = new Background(this); this.bgBuild = 0; this.bgInst = 0; this.bgTris = 0;
     this.sep = new Separation(this);
     this.frustum = new THREE.Frustum();
     this._pm = new THREE.Matrix4();
     this.lastS = null; this.camSpeed = 3; this.fogD = 130;
     this.ctx = { s: 0, x: 0, y: 0, z: 0, vx: 0, vz: 0, speed: 3, Oz: 0, frustum: this.frustum, jumped: false, fx: 0, fz: -1 };
-    this.stats = { enc: 0, visible: 0, instances: 0, tris: 0, ms: 0 };
+    this.stats = { enc: 0, visible: 0, instances: 0, tris: 0, ms: 0, bg: 0, bgVisible: 0, bgTris: 0 };
     this._logT = 0; this._sparkAcc = 0; this._wakeAcc = 0; this._eyeAcc = 0;
     this._idleQueued = false; this._resetPending = false;
     this._idleCb = (deadline) => {
@@ -72,8 +77,8 @@ export class Creatures {
   // (two for large schools). GLOBAL coordinates (z = -s). Notable species carry a one-line fun fact.
   labels(out) {
     const camera = this.env.camera, cp = camera.position, maxD = this.fogD * 0.7, v = _v, Oz = this.ctx.Oz;
-    for (const e of this.enc) {
-      if (!e.visible || e.dist > maxD || e.fade < 0.5) continue;
+    for (let li = 0; li < 2; li++) for (const e of li ? this.bg : this.enc) {
+      if (!e.visible || e.dist > (li ? Math.min(maxD, 35) : maxD) || e.fade < 0.5) continue; // (far background life: no label clutter)
       const name = e._label || (e._label = commonName(e.sp)), fact = FACTS[e.sp.key];
       const b = e.bounds, step = Math.max(1, Math.floor(e.n / 40));
       let best = -1, bd = 1e9, far = -1, fd = -1;
@@ -127,7 +132,8 @@ export class Creatures {
   // next update with time running primes a new cast around the camera's new position.
   reset() {
     for (const e of this.enc) e.dispose();
-    this.enc.length = 0; this.instances = 0; this.trisTotal = 0; this.nearActive = 0;
+    for (const e of this.bg) e.dispose();
+    this.enc.length = 0; this.bg.length = 0; this.bgLife.reset(); this.instances = 0; this.trisTotal = 0; this.bgInst = 0; this.bgTris = 0; this.nearActive = 0;
     this.lodQueue.clear();
     this.fx.clear();
     if (this.sep._act) this.sep._act.length = 0;
@@ -142,7 +148,7 @@ export class Creatures {
   // small or distant animals (at least ~1.2 degrees of arc, so a fingertip can hit a 5 cm fish). Called on tap only.
   pickRay(ox, oy, oz, dx, dy, dz, maxDist = 120) {
     let best = null, bd = maxDist;
-    for (const e of this.enc) {
+    for (let li = 0; li < 2; li++) for (const e of li ? this.bg : this.enc) {
       if (e.done || e.fade < 0.3) continue;
       const b = e.bounds, bx = b.x - ox, by = b.y - oy, bz = e.anchorZ + b.z - oz, tb = bx * dx + by * dy + bz * dz;
       const slack = Math.max(0.02 * Math.max(tb, 0), 0.1);
@@ -180,6 +186,18 @@ export class Creatures {
     } else this.enc.push(e);
     this.instances += e.n; this.trisTotal += e.tris;
     return e;
+  }
+
+  // --- farlife --- remoras riding a host that went to the background follow it there (updated after it: just before it)
+  _riders() {
+    for (let i = this.enc.length - 1; i >= 0; i--) {
+      const r = this.enc[i];
+      if (r.kind !== 'attach' || !r.host || !r.host.bg) continue;
+      this.enc.splice(i, 1); r.bg = 2;
+      this.instances -= r.n; this.trisTotal -= r.tris; this.bgInst += r.n; this.bgTris += r.tris;
+      const k = this.bg.indexOf(r.host);
+      this.bg.splice(k < 0 ? this.bg.length : k, 0, r);
+    }
   }
 
   // Dev metric (enable with window.__crMetric = {}): fraction of frames with something worth watching
@@ -311,7 +329,7 @@ export class Creatures {
       else if (dt > 0) this.camSpeed += (ds / dt - this.camSpeed) * Math.min(1, dt * 1.5);
     }
     this.lastS = cam.s;
-    const f = cam.forward;
+    const f = cam.heading || cam.forward; // the craft's heading: the view itself can be turned sideways or back (drag to look)
     c.s = cam.s; c.x = cam.x; c.y = cam.y; c.z = cam.z; c.Oz = cam.Oz; c.jumped = jumped;
     c.speed = Math.max(0, this.camSpeed);
     // camera velocity ~ along the forward direction projected on the path
@@ -330,11 +348,15 @@ export class Creatures {
 
     if (this._resetPending && dt > 0) this._resetPending = false;
     if (!this._resetPending && (dt > 0 || jumped || !this.director.primed)) this.director.update(dt, c);
-    let vis = 0, visTris = 0;
+    this.bgBuild = 1; // (background groups: one coarse geometry level built on the spot per frame, Encounter._bgLod)
+    if (!this._resetPending && dt > 0 && this.director.primed) this.bgLife.tick(dt, c); // --- farlife ---
+    let vis = 0, visTris = 0, adopted = 0;
     for (let i = this.enc.length - 1; i >= 0; i--) {
       const e = this.enc[i];
       e.update(dt, c);
       if (e.done) {
+        // passed behind / beside the camera: carry on in the background if it may (its animals move to the background totals)
+        if (e.passed && this.bgLife.adopt(e, c)) { this.enc.splice(i, 1); adopted++; continue; }
         e.dispose();
         this.enc.splice(i, 1);
         this.instances -= e.n; this.trisTotal -= e.tris;
@@ -342,19 +364,34 @@ export class Creatures {
       }
       if (e.visible) { vis++; visTris += e.tris + (e.nearCount ? e.nearEntry.tris * e.nearCount : 0); }
     }
+    if (adopted) this._riders();
+    this.bgLife.trim(); // (near and background triangles together within maxTris, this frame)
+    let bgVis = 0, bgTris = 0;
+    for (let i = this.bg.length - 1; i >= 0; i--) {
+      const e = this.bg[i];
+      e.update(dt, c);
+      if (e.done) {
+        e.dispose();
+        this.bg.splice(i, 1);
+        this.bgInst -= e.n; this.bgTris -= e.tris;
+        continue;
+      }
+      if (e.visible) { bgVis++; bgTris += e.tris; }
+    }
     if (dt > 0) this.sep.run(c, dt); // personal space: no two animals inside each other
     this._ambientFx(dt, c);
     this.fx.update(dt, c.s);
     if (!this._idleQueued && typeof requestIdleCallback === 'function') { this._idleQueued = true; requestIdleCallback(this._idleCb, { timeout: 1500 }); }
     if (window.__crMetric) this._measure(cam, window.__crMetric);
     const st = this.stats;
-    st.enc = this.enc.length; st.visible = vis; st.instances = this.instances; st.tris = visTris;
+    st.enc = this.enc.length; st.visible = vis + bgVis; st.instances = this.instances; st.tris = visTris + bgTris;
+    st.bg = this.bg.length; st.bgVisible = bgVis; st.bgTris = bgTris;
     st.ms = st.ms * 0.95 + (performance.now() - t0) * 0.05;
     if (this.logStats) {
       this._logT += dt;
       if (this._logT > 5) {
         this._logT = 0;
-        console.log(`[creatures] enc ${st.enc} vis ${st.visible} inst ${st.instances} visTris ${(st.tris / 1000).toFixed(0)}k cpu ${st.ms.toFixed(2)}ms fog ${this.fogD.toFixed(0)}m fx ${this.fx.n} :: ` +
+        console.log(`[creatures] enc ${st.enc} bg ${st.bg} vis ${st.visible} inst ${st.instances} visTris ${(st.tris / 1000).toFixed(0)}k cpu ${st.ms.toFixed(2)}ms fog ${this.fogD.toFixed(0)}m fx ${this.fx.n} :: ` +
           this.enc.map((e) => `${e.sp.key}x${e.n}${e.visible ? '*' : ''}@${Math.round(e.dist)}`).join(' '));
       }
     }

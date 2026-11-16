@@ -188,7 +188,7 @@ export const TABLES = {
 const clamp = (x, a, b) => (x < a ? a : x > b ? b : x);
 const TAU = Math.PI * 2;
 // activity by time of day: diurnal fish thin out after dark, nocturnal ones only come out at night
-const dielW = (k, night) => { const d = DIEL[k] ?? (k.startsWith('proc:') ? 'day' : null); return d === 'day' ? 1 - 0.75 * night : d === 'night' ? night : 1; };
+export const dielW = (k, night) => { const d = DIEL[k] ?? (k.startsWith('proc:') ? 'day' : null); return d === 'day' ? 1 - 0.75 * night : d === 'night' ? night : 1; };
 const REMORA_HOSTS = { whaleShark: 0.85, whaleSharkFeed: 0.9, mantaFeed: 0.5, manta: 0.6, oceanicWhitetip: 0.6, reefShark: 0.3, blacktip: 0.25, whitetip: 0.2, greatWhite: 0.3,
   hammerhead: 0.25, hammerheadSchool: 0.2, sandTiger: 0.3, lemonShark: 0.25, greenTurtle: 0.2, hawksbill: 0.15, blueShark: 0.2, silkyShark: 0.35, loggerhead: 0.25 };
 // species that come to look at divers in nature -> the largest group that still makes a curious pass (mantas and
