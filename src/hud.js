@@ -117,6 +117,9 @@ export class Hud {
     this.tag.setAttribute('aria-live', 'polite');
     this.tag.innerHTML = '<i class="dk-pr"></i><div class="dk-pb"></div>';
     this.tagBox = this.tag.lastChild;
+    // a tap on the card dismisses it at once (left alone it fades by itself); the card is not part of the view,
+    // so that tap neither names what is behind it nor opens the deck (see inUI in _bind)
+    this.tagBox.addEventListener('click', () => this._dismissTag());
     document.body.appendChild(this.tag);
 
     this.toastEl = document.createElement('div');
@@ -198,7 +201,7 @@ export class Hud {
 
   _bind() {
     const deck = this.deck;
-    const inUI = (t) => !!(t && t.closest && t.closest('.dk-p, .dk-sheet, #dk-toast, #dk-handle button, #dk-fade'));
+    const inUI = (t) => !!(t && t.closest && t.closest('.dk-p, .dk-sheet, #dk-toast, #dk-handle button, #dk-fade, #dk-pick .dk-pb'));
     // A tap on the view (not on the deck) toggles the deck, or in identify mode names what is under it.
     // An open sheet is closed first either way. Pointer events cover mouse, touch and pen.
     let down = null;
@@ -471,9 +474,16 @@ export class Hud {
     if (by < m) by = Math.max(m, Math.min(y + 18, H - m - h));
     el.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px)`;
     box.style.transform = `translate(${Math.round(bx - x)}px, ${Math.round(by - y)}px)`;
+    el.classList.remove('cut');
     el.classList.add('on');
     clearTimeout(this.tagT);
     this.tagT = setTimeout(() => el.classList.remove('on'), r ? PICK_MS : PICK_NONE_MS);
+  }
+  // the viewer tapped the identify card: hide it now, without the fade
+  _dismissTag() {
+    clearTimeout(this.tagT);
+    this.tag.classList.add('cut');
+    this.tag.classList.remove('on');
   }
   // fade to the loader colour, then let the app reload the page
   _reload(fn) {

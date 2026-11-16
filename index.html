@@ -476,6 +476,8 @@
     #dk-handle button:focus-visible { outline: 2px solid var(--dk-amber); outline-offset: 2px; }
     #dk-pick { position: fixed; left: 0; top: 0; z-index: 4; pointer-events: none; opacity: 0; visibility: hidden; transition: opacity .5s, visibility 0s linear .5s; }
     #dk-pick.on { opacity: 1; visibility: visible; transition: opacity .15s, visibility 0s; }
+    #dk-pick.cut { transition: none; } /* dismissed by a tap on the card: gone at once */
+    #dk-pick.on .dk-pb { pointer-events: auto; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
     .dk-pr { position: absolute; left: -10px; top: -10px; width: 20px; height: 20px; border-radius: 50%;
       box-shadow: 0 0 0 1.5px var(--dk-amber), 0 0 10px rgba(255, 181, 74, .6), inset 0 0 6px rgba(255, 181, 74, .4); }
     #dk-pick.none .dk-pr { box-shadow: 0 0 0 1.5px rgba(214, 242, 238, .55); }
