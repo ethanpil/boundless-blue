@@ -83,6 +83,10 @@ Static site, no build step. The three.js version is pinned in the `index.html` i
   - Calls come from the nearest 5 callers (3 on low), each with its own timer; ranges and gaps per voice are in `VOICE`. Every voice in `CALLS` is a sound the species is documented to make; list its source in `docs/SOURCES.md` ("Sounds").
   - It reads `creatures.enc` internals (`sp.key`, `dist`, `bounds`, `anchorZ`, `fade`, `done`, `uid`, `n`, `visible`) and `surprises.active.divers`; renaming those silences the calls without throwing.
   - `_build()` closes its AudioContext if it throws; before, every later tap leaked another context.
+  - Each zone maps to a family (`ZONE_FAM` -> `FAMILY`) that sets its liquid character: slosh band and pace, the stereo width of the rumble, its own water events (`_water`: lapping, breakers, shifting sand, pebbles, knocks, hollow glugs, distant booms, deep thuds, ice squeaks, vent gushes, gas streams, seeps) and its bubble style. A new zone needs a `ZONE_FAM` entry; without one it falls back to the reef family. A slow mood (spells of 40-90 s), calm nights and storm surge vary the bed over time. The viewer approved this style and asked for variety within it.
+  - Animal-linked water sounds: new `e.event` objects (strike, lunge, play, flip, roll), single big bodies passing close (wake), divers and whales near the surface (splash, breach), and the whale-fall crowd (the audio diffs `director.wfCrowd.ev` and plays each event at `wfCrowd.lx/ly/lz`). So the audio also reads `e.event`, `e.n`, `e.bounds.r` and `director.wfCrowd`.
+  - Calls carry the caller's identity (`uid * 16 + member`), which fixes its pitch and tempo, its signature whistle, its pod's dialect and its song phrase; species have several call types; group mates answer and big groups sometimes call together. At most one new call starts every 0.35-0.8 s.
+  - One-shot buffers (`BANK`) are made on first use, then one more variant per tick at most; `bubble()` uses a phasor. Generators run on the main thread: keep them cheap.
 
 ## Agent-built subsystems (conventions to keep)
 - **Props** (`src/props/`):

@@ -189,3 +189,41 @@ Considered and not added:
   crackle above 1 kHz, the hiss the user asked to remove.
 - Sea otter in-air vocalisations (pup squeals): airborne, so not heard under water.
 - Redfish, tusk, ling (cold-water coral), Arctic cod: no source read for these species.
+
+### Sounds, second batch (call types and three more species)
+
+All pages opened and read with WebFetch on 2026-11-15. "Depicted" = shown, not stated.
+
+| Voice (species) | Call types now | Source facts used | Matched in code | Source |
+|---|---|---|---|---|
+| `humpback` | song; feeding call | song: sounds "arranged in complex, repeating sequences" of tonal and pulsed sounds, by males; feeding calls: rhythmic, "at 500 Hz", "usually about 2.5 seconds long", on feeding grounds | each singer repeats its own phrase (its units in order, seeded per animal, small jitter); 20% feeding calls: a 430-560 Hz tone, 2-3 s, amplitude-pulsed 3-6 times a second | https://dosits.org/galleries/audio-gallery/marine-mammals/baleen-whales/humpback-whale/ |
+| `blue` | song unit; D call | calls "typically in the 15-40 Hz range"; song units ~15-20 s, repeated; D calls: "short, down-swept", irregular, both sexes, contact calls | song units 10-16 s; 30% D calls: 1.5-3 s downsweeps. Pitch is played an octave or so above 15-40 Hz with harmonics so speakers carry it (depicted, as before) | https://dosits.org/galleries/audio-gallery/marine-mammals/baleen-whales/blue-whale/ |
+| `sperm` | usual clicks; codas; creaks | usual (echolocation) clicks; codas: "repeated click patterns" in social settings; while foraging, regular clicks "interrupted by creaks"; very rapid clicking in "the last stages of prey capture" | slow regular clicks; codas with a rhythm fixed per group (seeded); creaks: clicks accelerating into a buzz (ICI 0.2 s -> 0.012 s) | https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/sperm-whale/ |
+| `orca` | pulsed calls in a pod dialect; click trains | "Each pod has a distinct dialect"; "pulsed sounds and clicks at rates of up to 5000 per second"; "screams or a harsh metallic sound"; 0.1-40 kHz | two harsh pulsed call types per pod (shape fixed per pod, seeded); fast click trains | https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/killer-whale-orca/ |
+| `dolphin` (bottlenose, common dolphin) | signature / group whistles; click trains; quacks and rusty-hinge sounds | bottlenose: whistles; "signature whistles" individually distinctive; clicks in series and trains (feeding); "buzzes, quacks, pops, rusty hinged sounds, and yelps" named. Common dolphin: whistles "unique to that group" | 75% of whistles are the caller's own contour (seeded per animal, so the same animal repeats its whistle); click trains closing into buzzes; short burst-pulse squawks (sawtooth at 150-600 pulses/s through a 1.2-4.5 kHz band: timbre depicted) | https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/bottlenose-dolphin/ ; https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/common-dolphin/ |
+| `pilot` | whistles of seven shapes; clicks | whistles 1-8 kHz, mean ~1 s (long-finned), 2-14 kHz / 3.6-6.1 kHz, 0.4 s (short-finned); seven contour categories: level, falling, rising, up-down, down-up, waver, multiple hump; clicks; pulsed sounds | whistles 2-8 kHz, 0.4-1.2 s, one of the seven contour shapes; click trains | https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/pilot-whale/ |
+| `beluga` | chirps; whistles; squeals; clicks | sounds like "whistles, squeals, chirps, and clicks"; non-echolocation calls average 2.0-5.9 kHz | chirp bursts 1-4 kHz; whistles 2-6 kHz, 0.5-1.5 s; squeals (upsweeps 1.5-4.5 kHz with a harmonic); click runs | https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/beluga-whale-white-whale/ |
+| `narwhal` | click trains; tonal-pulsed signals; whistles | echolocation clicks 2 to >500 per second; tonal-pulsed signals 500 Hz-48 kHz, 0.5 to several s; whistles 300 Hz-48 kHz, about 1 s | click trains; buzzy pulse-train tones (300-900 pulses/s, 0.5-2.5 s); whistles 0.5-3 kHz, ~1 s | https://dosits.org/galleries/audio-gallery/marine-mammals/toothed-whales/narwhal/ |
+| `weddell` | trills; whistles; low buzzes; chirps | "Trills", "Whistles", "Low-frequency buzzes", "Chirps"; 80 Hz-24 kHz | descending trills (as before); whistles 1-6 kHz; low buzzes (80-200 pulses/s, 1-3 s); runs of short chirps | https://dosits.org/galleries/audio-gallery/marine-mammals/pinnipeds/weddell-seal/ |
+| `leopard` | low tonal calls; trills and hoots; growls | males: "low-frequency tonal calls", pulses, FM calls 50 Hz-8 kHz; "trills" and "hoots"; captive seals: "underwater growls and blast sounds" in aggression | low moans (as before); pulsed trills 1-3 kHz or 1-3 hoots 200-400 Hz; growls (60-100 pulses/s through 150-900 Hz). Exact shapes depicted | https://dosits.org/galleries/audio-gallery/marine-mammals/pinnipeds/leopard-seal/ |
+| `sealion` | barks; whines; buzzing; click trains | underwater calls: "barks, whines and buzzing sounds, and click trains" | barks (as before); whines (300-1000 Hz rise-fall, 0.4-1 s); buzzing (50-120 pulses/s); click trains. Pitches depicted | https://dosits.org/galleries/audio-gallery/marine-mammals/pinnipeds/california-sea-lion/ |
+| `squirrel` (soldierfish = blotcheye soldierfish, Myripristis berndti) | growls; knocks | in Myripristis species incl. M. berndti, "Growls, thumps and knock were produced during episodes of chasing between conspecific in schools" (Salmon 1967, cited); Holocentridae calls have "a dominant frequency of between 80 and 130 Hz"; congeners M. violacea / M. kuntee: 4-11 pulses per call, pulse period 8-13 ms | growls: 6-11 pulses 9-13 ms apart at 80-130 Hz; knocks: 1-2 pulses; 1-3 per call | Parmentier et al. 2011, Frontiers in Zoology 8:12, https://pmc.ncbi.nlm.nih.gov/articles/PMC3126766 |
+| `drum` (picasso = Picasso triggerfish, Rhinecanthus aculeatus) | drum rolls | "short drum rolls", ~85 ms, dominant ~193 Hz; pulses from the left and right pectoral fins sweeping alternately against scutes on the swim bladder | rolls of 3-4 pulse pairs (11 ms within a pair, ~26 ms between pairs), ~180-205 Hz, 1-2 rolls | Parmentier et al. 2017 abstract, https://agris.fao.org/search/en/records/6748513b7625988a371a427a |
+| `cod` (arcticCod, arcticCodIce = Arctic cod, Boreogadus saida) | grunt | captive fish: each call "a single grunt with 6 to 12 pulses", mean 289 ms, mean peak 107 Hz, range 59-234 Hz | one grunt of 6-12 pulses over 0.26-0.32 s at ~95-120 Hz | Riera et al. 2018 JASA abstract, https://dspace.library.uvic.ca/items/a84ff612-599b-4d49-8408-ad281a1569c7 |
+
+Behaviour of voices (applies to all): each animal has its own pitch (+-12 %) and tempo (+-15 %), fixed per animal; group
+mates answer (25-45 % of calls in groups); big pods/shoals (6+) of dolphins, pilot whales, belugas, narwhals, orcas,
+sweepers and soldierfish sometimes call two or three at once. Depicted (no source claims answering for each species).
+
+Still not added: penguins (underwater calls documented for king, gentoo and macaroni penguins only: PMC6966993 search
+result, not the cast species); sharks (silent: their sound here is water movement: wakes, thrashing, tearing);
+mahi-mahi, trevallies, snappers, tarpon, groupers other than goliath (no source read for these species).
+
+### Water sounds (stylised bed and plain physics, not species claims)
+breakers (a wave breaking overhead: thump, wash, bubbles), lapping of the surface underside, sand shifting in a swell,
+pebbles rolling, wood knocks (kelp stipes, drowned trunks), hollow glugs in caves, distant low booms in open water,
+deep thuds, air squeaking under ice, vent gushes, champagne streams, Lost City seeps, bubble curtains, belches,
+fading fizz; animal-linked: wakes of big bodies passing close, splash-plunges of otters/seals/sea lions/penguins/
+dolphins diving from the surface, breach and tail-slap thumps of whales near the surface, the whoosh and scatter
+of a strike, the lunge of a feeding whale; whale fall: sharks tearing (head-shake whooshes over a low grind),
+thrashing when displaced, snaps at scraps, fish scattering, sharks sweeping in. No on-screen text claims any of these.

@@ -34,6 +34,7 @@ export class WhaleCrowd {
     this.schools = []; this.mill = null; this.mahi = null; this.cam = null; // schools: the fish at the wounds (_school)
     // event counters (dev tools, the pass harness): bites begun, chunks torn free, displacements, arrivals, sweeps, scraps
     this.ev = { bite: 0, chunk: 0, displace: 0, arrive: 0, sweep: 0, snap: 0 };
+    this.lx = 0; this.ly = 0; this.lz = 0; // where the latest event happened (global; the sound reads it, src/audio)
     this.nextFeed = 0; this.nextArr = 0; this.nextSweep = 0; this.nextCycle = 0; this.nextDisp = 0; this.open = 0; this.uv = 0;
     this.rushT = 0; this.rx = 0; this.ry = 0; this.rz = 0; this.bA = null; this.bB = null; // rush point (a chunk torn free); the biters the fish crowd
     this.gx = 0; this.gy = 0; this.gz = 0; this.gw = 0; this.gT = 0; this.gp = 0; // gaze pull (camera.js)
@@ -360,7 +361,7 @@ export class WhaleCrowd {
   }
   // an event at (x, y, z): a highlight for the pacing governor and a pull of the gaze, when the camera can see it
   _event(kind, x, y, z) {
-    this.ev[kind]++;
+    this.ev[kind]++; this.lx = x; this.ly = y; this.lz = z;
     if (!this._inView(x, y, z, 45)) return;
     this.dir.pace.mark();
     if (this.gT < 0.5 || kind !== 'bite') { this.gx = x; this.gy = y; this.gz = z; this.gT = kind === 'arrive' ? 4 : 3; }

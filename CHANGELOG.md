@@ -2,6 +2,16 @@
 
 All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-11-16]
+
+### Changed
+- Sound, more variety in the same muffled style. Every zone family has its own water: lapping and small breakers in the shallows, a heavy swell with shifting sand on reefs, creaks and knocks in kelp, hollow glugs in caves, a wide rumble with distant booms in open water, squeaks of trapped air under ice, near silence in the deep, gas streams at Champagne Reef. Calmer and busier spells come and go, and nights are calmer.
+- New water sounds tied to what is on screen: bubble curtains and belches, the wake of a big animal passing, splashes and breach thumps from the surface, strikes, and the tearing and thrashing at the whale fall.
+- Animals have several call types, their own pitch, signature whistles and pod dialects, and answer each other. Soldierfish, Picasso triggerfish and Arctic cod now call.
+
+### Removed
+- The Deep Whale Fall zone (the daytime Whale Fall stays).
+
 ## [2026-11-15]
 
 ### Added

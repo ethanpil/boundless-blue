@@ -14,11 +14,19 @@
 //   vent     brown-noise rumble at vents/champagne; bubbles: a looped generated bubble stream
 //   chorus   evening/night fish chorus on reefs: trains of low harmonic pops (sweepers), only after dusk
 //   rain     soft muffled patter when it rains and the surface is open overhead
-//   fx       one-shots: wave slaps, cave drips, ice creaks/groans/pings, kelp creaks
-//   bub      bubble one-shots everywhere: small rising trails and rare big low glugs (denser when moving fast or
-//            when animals pass close), with their own voice cap
-//   life     calls of the nearest calling animals (up to five) (see VOICE), diver exhale bubbles, distant song
+//   lap      the underside of the surface lapping and slapping, in very shallow zones (a generated loop)
+//   sand     dark sand and grit shifting under a heavy swell, gated by the slosh surges (reefs, sand flats)
+//   fx       one-shots: wave slaps and breakers, cave drips and hollow glugs, ice creaks/groans/pings and trapped-air
+//            squeaks, kelp creaks and wood knocks, pebbles in the surge, distant booms and thuds, wakes of big
+//            animals, splashes and breaches at the surface, the whale-fall feeding (tearing, thrashing, scattering)
+//   bub      bubble one-shots everywhere: trails, glugs, curtains, belches, fading fizz, vent gushes and seeps,
+//            champagne streams; size, density and rhythm follow the zone family (FAMILY); own voice cap
+//   life     calls of the nearest calling animals (up to five) (see VOICE), diver exhale bubbles, distant song;
+//            each animal has its own pitch and tempo, some species have signature calls, groups answer and chorus
 //   reverb   one generated impulse response; caves and ice send base and fx, distant animals send most of their call
+// Each zone belongs to a family (ZONE_FAM -> FAMILY) that sets its liquid character: slosh band, surge pace and
+// width, which water events happen and how often, and the bubble style. A slow "mood" (calmer and busier spells of
+// a minute or so), the night (calmer) and the weather (rain, storm surge) vary the bed further.
 // Mix: bed buses (base..fx) -> two lowpasses ("ears plugged", ~1.6 kHz) -> duck (dips under a close call) -> master;
 // bub, bubbles, life and reverb reach the master through gentler lowpasses. master (volume, enable) -> compressor ->
 // limiter -> out. Disabled or hidden: ramp down, then suspend.
@@ -28,9 +36,59 @@ const R = (a, b) => a + (b - a) * Math.random();
 const pick = (a) => a[(Math.random() * a.length) | 0];
 const ri = (n) => (Math.random() * n) | 0;
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
-const LAYERS = ['base', 'slosh', 'hum', 'shrimp', 'vent', 'bubbles', 'chorus', 'rain', 'fx', 'bub', 'life', 'reverb'];
-const STEERED = LAYERS.slice(0, 8); // buses whose gain follows the zone mix
-const BED = ['base', 'slosh', 'hum', 'shrimp', 'vent', 'chorus', 'rain', 'fx']; // through the "ears plugged" lowpass
+const LAYERS = ['base', 'slosh', 'hum', 'shrimp', 'vent', 'bubbles', 'chorus', 'rain', 'lap', 'sand', 'fx', 'bub', 'life', 'reverb'];
+const STEERED = LAYERS.slice(0, 10); // buses whose gain follows the zone mix
+const BED = ['base', 'slosh', 'hum', 'shrimp', 'vent', 'chorus', 'rain', 'lap', 'sand', 'fx']; // through the "ears plugged" lowpass
+// deterministic randoms (per animal traits, signature whistles, pod dialects, song themes)
+const seeded = (s) => { let a = (s * 2654435761) >>> 0; return () => { a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; };
+
+// Liquid character per zone family, blended by the zone weights like PROFILE.
+//   sl: slosh level; slLo/slHi: slosh band (Hz); up/gap: surge rise time and spacing (x the default 0.35-1.1 s, 2-6 s);
+//   width: stereo spread of the rumble; lap/swell/wood/hollow/far/deep/gush/fizz/seep/squeak/pebble: amounts of the
+//   family's own sounds; bubD/bubF: bubble density and pitch (x); curtain/belch: amounts of those bubble events
+const FAM0 = { sl: 1, slLo: 130, slHi: 500, up: 1, gap: 1, width: 0.5, lap: 0, swell: 0, wood: 0, hollow: 0, far: 0, deep: 0,
+  gush: 0, fizz: 0, seep: 0, squeak: 0, pebble: 0, bubD: 1, bubF: 1, curtain: 0.3, belch: 0.3 };
+const FAMILY = {
+  // under a surface a metre or two up: quick light surges, lapping, pebbles, lots of small bubbles
+  shallow: { sl: 1.1, slLo: 170, slHi: 600, up: 0.6, gap: 0.6, width: 0.6, lap: 1, pebble: 0.6, bubD: 1.4, bubF: 1.15, curtain: 0.4, belch: 0.2 },
+  // a slow, heavy swell over coral and sand, with the sand shifting in it
+  reef: { sl: 1, slLo: 90, slHi: 300, up: 1.8, gap: 1.6, width: 0.6, swell: 1, pebble: 0.2, bubD: 1, curtain: 0.5, belch: 0.4 },
+  // kelp and drowned trees: medium surges, deep creaks and soft knocks of stipes and trunks
+  forest: { sl: 0.9, slLo: 110, slHi: 380, up: 1.3, gap: 1.3, width: 0.5, wood: 1, swell: 0.4, pebble: 0.4, bubD: 0.9 },
+  // caves and the blue hole: low, slow water, hollow resonant glugs, drips, long tail (reverb)
+  cave: { sl: 0.6, slLo: 90, slHi: 260, up: 1.6, gap: 1.8, width: 0.3, hollow: 1, bubD: 0.7, bubF: 0.8, belch: 0.5, curtain: 0.1 },
+  // open ocean: a wide slow rumble, long gentle surges, distant low booms
+  open: { sl: 0.85, slLo: 70, slHi: 200, up: 2.5, gap: 2.4, width: 1, far: 1, bubD: 0.6, bubF: 0.85, curtain: 0.3, belch: 0.25 },
+  // floating weed mats at the surface over open water
+  sargassum: { sl: 0.9, slLo: 110, slHi: 380, up: 1.4, gap: 1.4, width: 0.9, far: 0.5, lap: 0.5, bubD: 0.9, curtain: 0.3, belch: 0.2 },
+  // sunlit whale fall: open water over sand, with the swell reaching the bottom
+  whalefall: { sl: 0.85, slLo: 80, slHi: 260, up: 2, gap: 1.8, width: 0.9, far: 0.6, swell: 0.5, bubD: 0.8, curtain: 0.3, belch: 0.35 },
+  // under ice: creaks, groans and pings (PROFILE.ice) plus air trapped under the floes squeaking
+  ice: { sl: 0.6, slLo: 100, slHi: 300, up: 1.5, gap: 1.8, width: 0.7, squeak: 1, bubD: 0.6, belch: 0.3, curtain: 0.15 },
+  // the deep: little but a slow pressure rumble, rare big bubbles and distant thuds
+  deep: { sl: 0.45, slLo: 60, slHi: 160, up: 3, gap: 3, width: 0.8, deep: 1, bubD: 0.25, bubF: 0.7, curtain: 0, belch: 0.12 },
+  // black smokers: gushes of heavy bubbling over the rumble
+  vent: { sl: 0.35, slLo: 70, slHi: 200, up: 2.5, gap: 2.5, width: 0.7, deep: 0.5, gush: 1, bubD: 0.6, bubF: 0.75, belch: 0.6, curtain: 0 },
+  // Champagne Reef: streams of fine gas bubbles rising out of the sand
+  fizz: { sl: 0.9, slLo: 110, slHi: 400, up: 1.2, gap: 1.2, width: 0.6, fizz: 1, swell: 0.4, bubD: 1.8, bubF: 1.2, curtain: 0.8 },
+  // Lost City: deep, the chimneys only weep: a slow trickle of tiny bubbles and soft low gurgles
+  seep: { sl: 0.45, slLo: 60, slHi: 170, up: 3, gap: 3, width: 0.8, deep: 0.7, seep: 1, bubD: 0.4, bubF: 0.8, belch: 0.1, curtain: 0 },
+};
+for (const k in FAMILY) FAMILY[k] = { ...FAM0, ...FAMILY[k] };
+const ZONE_FAM = { tidepool: 'shallow', mangrove: 'shallow', seagrass: 'shallow', biobay: 'shallow', jellylake: 'shallow',
+  reef: 'reef', sandflat: 'reef', softcoral: 'reef', anemone: 'reef', wall: 'reef', wreck: 'reef', ruins: 'reef',
+  kelp: 'forest', otterkelp: 'forest', sunkenforest: 'forest', cave: 'cave', bluehole: 'cave',
+  pelagic: 'open', whaleshark: 'open', seamount: 'open', sargassum: 'sargassum', whalefall: 'whalefall',
+  polar: 'ice', iceedge: 'ice', abyss: 'deep', deepplain: 'deep', hadal: 'deep', coldcoral: 'deep',
+  vents: 'vent', champagne: 'fizz', lostcity: 'seep' };
+// animals whose dives in from the surface make a splash (heard from below), and big ones whose breaches, tail and
+// flipper slaps carry down as thumps
+const PLUNGE = new Set(['seaOtter', 'seaOtterUrchin', 'seaOtterMom', 'harbourSeal', 'seaLion', 'harpSeal', 'ringedSeal', 'leopardSeal',
+  'weddellSeal', 'adeliePenguin', 'emperorPenguin', 'bottlenose', 'commonDolphin']);
+const BREACH = new Set(['humpback', 'blueWhale', 'spermWhale', 'orca', 'pilotWhale', 'bowhead', 'beluga', 'narwhal', 'mantaFeed', 'manta']);
+// voices whose group mates answer a call, and voices that call together in a big group
+const ANSWER = new Set(['dolphin', 'pilot', 'beluga', 'orca', 'weddell', 'harp', 'sealion', 'clown', 'damsel', 'ringed', 'narwhal', 'squirrel', 'manatee']);
+const CHORUS = new Set(['dolphin', 'pilot', 'beluga', 'narwhal', 'sweeper', 'orca', 'squirrel']);
 
 // Per-zone amounts (0..1), blended by the sequence weights. song/seal: chance of distant calls with no animal near.
 // wash: surface water movement (slosh surges, wave slaps) when shallow and open to the sky. chorus: night fish chorus.
@@ -58,16 +116,18 @@ const CALLS = {
   goliath: 'boom', giantSeaBass: 'gsb', clownfish: 'clown', pinkSkunkClown: 'clown', tomatoClown: 'clown', blackClown: 'clown',
   clarkClown: 'clown', dominoDamsel: 'damsel', sergeant: 'damsel', garibaldi: 'thump', grunt: 'grunt', parrotfish: 'crunch',
   spinyLobster: 'rasp', seahorse: 'seahorse', sweeper: 'sweeper', kelpRockfish: 'rockfish',
+  soldierfish: 'squirrel', picasso: 'drum', arcticCod: 'cod', arcticCodIce: 'cod',
 };
 // per voice: [audible range (m), seconds between calls while near (lo, hi), seconds the bed ducks under a close call]
 // (gaps shrink while the animal is in view and for bigger groups; fish are quiet, so they are heard only up close)
 const VOICE = {
   humpback: [160, 5, 14, 6], blue: [160, 12, 28, 9], sperm: [160, 7, 18, 4], orca: [130, 3, 9, 1.5], pilot: [120, 3, 8, 1.2],
-  dolphin: [120, 4, 10, 1.2], beluga: [120, 2, 6, 1.2], narwhal: [120, 4, 9, 1.5], weddell: [130, 5, 13, 6], leopard: [130, 6, 14, 5],
+  dolphin: [120, 4, 10, 1.2], beluga: [120, 3, 8, 1.2], narwhal: [120, 4, 9, 1.5], weddell: [130, 5, 13, 6], leopard: [130, 6, 14, 5],
   sealion: [100, 3, 9, 1.5], harbour: [110, 6, 15, 3], harp: [110, 3, 9, 2], ringed: [100, 4, 11, 1.5], bowhead: [160, 7, 18, 6],
-  manatee: [70, 3, 9, 1.5], dugong: [70, 3, 9, 1.5], otter: [60, 6, 14, 3], boom: [60, 4, 12, 1.5], gsb: [60, 4, 12, 1.5], clown: [25, 2, 6, 0.5],
-  damsel: [30, 2, 7, 0.6], thump: [28, 3, 8, 0.6], grunt: [30, 2.5, 7, 0.8], crunch: [35, 4, 10, 1.2], rasp: [22, 4, 11, 0.8],
+  manatee: [70, 3, 9, 1.5], dugong: [70, 3, 9, 1.5], otter: [60, 6, 14, 3], boom: [60, 4, 12, 1.5], gsb: [60, 4, 12, 1.5], clown: [25, 3, 8, 0.5],
+  damsel: [30, 3, 9, 0.6], thump: [28, 3, 8, 0.6], grunt: [30, 2.5, 7, 0.8], crunch: [35, 4, 10, 1.2], rasp: [22, 4, 11, 0.8],
   seahorse: [14, 4, 12, 0.4], sweeper: [40, 2.5, 7, 0.8], rockfish: [18, 4, 11, 0.5],
+  squirrel: [25, 3, 8, 0.5], drum: [20, 4, 11, 0.4], cod: [30, 3, 9, 0.6],
 };
 const LIFE_GAIN = 1.7; // animal calls sit ~4.6 dB above where they were, and fall off more slowly with distance
 
@@ -120,10 +180,18 @@ function ticks(x, sr) {
   }
 }
 // one bubble: Minnaert ring with the upward chirp of a rising bubble (damp: fraction of a cycle's energy lost)
+// (a rotating phasor with the pitch updated every 32 samples: several times cheaper than sin/exp per sample)
 function bubble(x, i0, f0, amp, sr, damp = R(0.04, 0.08), chirp = R(0.1, 0.5)) {
-  const tau = 1 / (Math.PI * f0 * damp) * sr, n = Math.min(x.length - i0, (5 * tau) | 0);
-  let ph = 0;
-  for (let j = 0; j < n; j++) { ph += 2 * Math.PI * f0 * (1 + chirp * j / tau) / sr; x[i0 + j] += amp * Math.sin(ph) * Math.exp(-j / tau); }
+  const tau = 1 / (Math.PI * f0 * damp) * sr, n = Math.min(x.length - i0, (5 * tau) | 0), dk = Math.exp(-1 / tau);
+  let c = 1, s = 0, env = amp, cw = 1, sw = 0;
+  for (let j = 0; j < n; j++) {
+    if ((j & 31) === 0) {
+      const w = 2 * Math.PI * f0 * (1 + chirp * (j + 16) / tau) / sr, m = 1 / Math.hypot(c, s);
+      cw = Math.cos(w); sw = Math.sin(w); c *= m; s *= m;
+    }
+    const c2 = c * cw - s * sw; s = s * cw + c * sw; c = c2;
+    x[i0 + j] += env * s; env *= dk;
+  }
 }
 function bubbleStream(x, sr) {
   let t = 0;
@@ -195,7 +263,72 @@ const PULSES = {
   click: [0.02, (x, sr) => { for (let j = 0; j < x.length; j++) { const t = j / sr; x[j] = Math.exp(-t / 0.0025) * (0.8 * Math.sin(2 * Math.PI * 420 * t) + 0.4 * Math.sin(2 * Math.PI * 170 * t)) + (j < 0.0003 * sr ? 0.4 * (Math.random() * 2 - 1) : 0); } }],
   // sweeper pop: ~380 Hz, ~8 ms
   spop: [0.015, (x, sr) => pop(x, 0, 380, 0.0026 * sr, 1, sr)],
+  // swim-bladder drumming pulse: about two cycles of 100 Hz (soldierfish growls and knocks, triggerfish drum rolls
+  // and Arctic cod grunts at other rates)
+  low: [0.03, (x, sr) => { for (let j = 0; j < x.length; j++) { const t = j / sr; x[j] = Math.exp(-t / 0.007) * Math.sin(2 * Math.PI * 100 * t) * Math.min(1, t / 0.0015); } }],
 };
+// ---- buffers generated on first use (_bank) ----
+// a two-pole resonator ringing on noise: the building block of slaps, knocks and grit
+function ring(x, i0, f, tau, a, sr, noise = 1) {
+  const r = Math.exp(-1 / (tau * sr)), c = 2 * r * Math.cos(2 * Math.PI * f / sr);
+  let y1 = 0, y2 = 0;
+  const n = Math.min(x.length - i0, (6 * tau * sr) | 0), att = (0.002 * sr) | 0;
+  for (let j = 0; j < n; j++) {
+    const ex = j < att ? noise * (Math.random() * 2 - 1) * (1 - j / att) : 0;
+    const y = ex + c * y1 - r * r * y2; y2 = y1; y1 = y; x[i0 + j] += a * y * 0.05;
+  }
+}
+// the underside of the surface slapping and lapping: waves every 0.7-1.9 s, each one to three soft low slaps,
+// sometimes a few small bubbles trapped by them
+function lapLoop(x, sr) {
+  let t = 0;
+  while (t < x.length - sr * 0.4) {
+    let s = t;
+    for (let k = 1 + ri(3); k > 0; k--) { ring(x, s, R(160, 450), R(0.03, 0.09), R(0.4, 1), sr); s += (R(0.05, 0.2) * sr) | 0; }
+    if (Math.random() < 0.35) for (let k = 1 + ri(3); k > 0; k--) bubble(x, Math.min(x.length - 1, s + ((R(0, 0.2) * sr) | 0)), R(400, 900), R(0.1, 0.3), sr);
+    t += (R(0.7, 1.9) * sr) | 0;
+  }
+}
+// sand and grit stirred by a swell: many tiny grains, kept dark (one-pole lowpass at ~450 Hz, then 600 Hz in the graph)
+function sandLoop(x, sr) {
+  const a = 1 - Math.exp(-2 * Math.PI * 450 / sr); let y = 0;
+  for (let i = 0; i < x.length; i++) {
+    const g = Math.random() < 0.02 ? (Math.random() * 2 - 1) * (0.3 + Math.random() ** 3) : 0;
+    y += a * (g - y); x[i] = y;
+  }
+}
+// a curtain of bubbles rising past: a dense wash of 120-200 mixed bubbles that swells and thins out
+function curtain(x, sr) {
+  const n = 120 + ri(80), len = x.length - sr * 0.15;
+  for (let k = 0; k < n; k++) {
+    const t = (Math.random() * len) | 0, env = Math.sin(Math.PI * t / len);
+    bubble(x, t, R(300, 1400), env * R(0.1, 0.45), sr, R(0.05, 0.09));
+  }
+}
+// a big belch of air: a low whump, then four to eight big bubbles in quick succession
+function belch(x, sr) {
+  const f0 = R(60, 90);
+  for (let j = 0; j < 0.4 * sr; j++) { const t = j / sr; x[j] += 0.6 * Math.exp(-t / 0.09) * Math.sin(2 * Math.PI * f0 * t * (1 - 0.3 * t)) * Math.min(1, t / 0.01); }
+  let t = (0.03 * sr) | 0;
+  for (let k = 4 + ri(5); k > 0 && t < x.length - sr * 0.3; k--) { bubble(x, t, R(90, 260), R(0.5, 1), sr, R(0.025, 0.04), R(0.05, 0.2)); t += (R(0.04, 0.13) * sr) | 0; }
+}
+// a fizzing trail that fades: many small bubbles, thinning out
+function fizzOut(x, sr) {
+  const n = 70 + ri(50), len = x.length - sr * 0.1;
+  for (let k = 0; k < n; k++) { const u = Math.random() ** 2.2, t = (u * len) | 0; bubble(x, t, R(700, 1800), (1 - u) * R(0.08, 0.3), sr, R(0.06, 0.1)); }
+}
+// pebbles and shell grit rolling in the surge: clicks of small stones, swelling in and out
+function pebbles(x, sr) {
+  const n = 25 + ri(35), len = x.length - sr * 0.05;
+  for (let k = 0; k < n; k++) { const u = Math.random(), t = (u * len) | 0, env = Math.sin(Math.PI * u); ring(x, t, R(900, 2200), R(0.002, 0.005), env * R(0.3, 1), sr); ring(x, t, R(220, 400), R(0.006, 0.012), env * R(0.1, 0.4), sr); }
+}
+// a hollow wooden knock (a kelp stipe or a drowned trunk knocking): a few damped modes
+function woodKnock(x, sr) {
+  const f = R(150, 260);
+  ring(x, 0, f, 0.04, 1, sr); ring(x, 0, f * R(2.2, 2.6), 0.025, 0.6, sr); ring(x, 0, f * R(3.9, 4.6), 0.014, 0.35, sr);
+}
+const BANK = { lap: [7.3, lapLoop, true], sand: [6.1, sandLoop, true], curtain: [2.4, curtain], belch: [1.4, belch], fizz: [2.5, fizzOut],
+  pebbles: [0.9, pebbles], knock: [0.3, woodKnock] };
 // a diver's exhale: a rush of large bubbles that tapers off
 function exhale(ctx) {
   const sr = ctx.sampleRate, len = Math.round(1.6 * sr), buf = ctx.createBuffer(1, len, sr), x = buf.getChannelData(0);
@@ -239,6 +372,15 @@ export class Ambience {
     const low = env && env.tier === 'low';
     this.voices = 0; this.cap = low ? 8 : 12;      // animal calls and other one-shots
     this.bVoices = 0; this.bCap = low ? 3 : 5;     // bubble one-shots
+    this.fVoices = 0; this.fCap = low ? 4 : 7;     // water events (fx: breakers, knocks, wakes, feeding...)
+    this.F = { ...FAM0 }; // blended zone family (liquid character)
+    this.stats = {};      // count of every event and call played, by kind (debug, harness)
+    this.mood = 1; this._moodT = 1; this._moodNext = 0; // slow calmer / busier spells
+    this._seen = new WeakSet(); // encounter events already heard (strike, lunge, play...)
+    this._sfx = new Map();      // encounter uid -> time its next splash / wake may sound
+    this._wf = { bite: 0, chunk: 0, displace: 0, arrive: 0, sweep: 0, snap: 0 }; // whale-fall crowd events heard
+    this._ans = { kind: '', t: 0, d: 0, pan: 0, uid: 0 }; // a pending answer from a group mate
+    this._cents = 0; this._T = 1; this._lifeGap = 0; this._lastKind = ''; this._lastKindT = 0; this._warmK = ''; this._wakeT = 0; // pitch (cents) and tempo of the animal calling now; next call start
     this.Z = { ...Z0 };   // blended zone amounts
     this.mix = {};        // latest bus targets (debug)
     this.cand = Array.from({ length: low ? 3 : 5 }, () => ({ kind: '', d: 1e9, pan: 0, uid: 0, vis: false, n: 1 })); // nearest callers
@@ -326,10 +468,17 @@ export class Ambience {
     this.revIn = g(1, this.conv); this.conv.connect(bus.reverb);
 
     const brownS = src(this.buf.brown), pinkS = src(this.buf.pink);
-    // base: brown -> highpass 28 -> lowpass -> lowpass (depth) -> swell -> bus
+    // base: two independent brown noises (left and right: the family sets how wide) -> highpass 28 -> lowpass ->
+    // lowpass (depth) -> pan -> swell -> bus
     const swell = g(1, bus.base);
-    this.baseLP = [f('lowpass', 400, 0.6, swell)]; this.baseLP.unshift(f('lowpass', 400, 0.5, this.baseLP[0]));
-    brownS.connect(f('highpass', 28, 0.7, this.baseLP[0]));
+    this.baseLP = []; this.basePan = [];
+    for (const side of [-1, 1]) {
+      let out = swell;
+      if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = 0.5 * side; p.connect(swell); out = p; this.basePan.push(p); }
+      const l2 = f('lowpass', 400, 0.6, g(1.1, out)), l1 = f('lowpass', 400, 0.5, l2); // (the panner's equal-power law: -3 dB at centre)
+      (side < 0 ? brownS : src(this.buf.brown, 0.97)).connect(f('highpass', 28, 0.7, l1));
+      this.baseLP.push(l1, l2);
+    }
     lfo(0.043, 0.3, swell.gain); lfo(0.0291, 0.22, swell.gain);
     this.baseRev = g(0, this.revIn); bus.base.connect(this.baseRev);
     // slosh: two voices, each noise -> lowpass -> gurgling bandpass -> surge envelope -> drifting pan
@@ -358,12 +507,31 @@ export class Ambience {
     this.chorusIn = f('lowpass', 1400, 0.5, bus.chorus);
     this.fxRev = g(0.3, this.revIn); bus.fx.connect(this.fxRev);
     this.lifeRev = g(0, this.revIn); bus.chorus.connect(this.lifeRev);
+    // lapping (lazy loop) and the sand under the swell (lazy loop through a gain the surges open and close)
+    this.lapIn = f('lowpass', 900, 0.5, bus.lap);
+    this.sandEnv = g(0.15, f('lowpass', 600, 0.7, bus.sand));
   }
   // loops only some zones and weathers use: built on first use, outside unlock()
   _lazy(k) {
     const c = this.ctx, b = this.buf, { src } = this._mk;
     if (k === 'rain' && !b.rain) { b.rain = loopBuffer(c, 3.9, rainPatter, 0.15); src(b.rain, 1).connect(this.rainLP); }
     if (k === 'chorus' && !b.chorus) { b.chorus = loopBuffer(c, 6.3, chorusLoop, 0.15); src(b.chorus, 1).connect(this.chorusIn); src(b.chorus, 0.97).connect(this.chorusIn); }
+    if (k === 'lap' && !b.lap) { b.lap = this._bank('lap'); src(b.lap, 1).connect(this.lapIn); src(b.lap, 0.91).connect(this.lapIn); }
+    if (k === 'sand' && !b.sand) { b.sand = this._bank('sand'); src(b.sand, 1).connect(this.sandEnv); }
+  }
+  // generated sounds of the water events: two variants of each one-shot (one loop), made on first use
+  // (a one-shot's first variant is made when first needed, its second one a tick later: one buffer per tick at most)
+  _bank(k) {
+    const b = this.buf, B = BANK[k], c = this.ctx;
+    if (!b['_' + k]) b['_' + k] = B[2] ? loopBuffer(c, B[0], B[1], 0.15) : [shotBuffer(c, B[0], B[1])];
+    if (!B[2] && b['_' + k].length < 2 && !this._warmK) this._warmK = k;
+    return b['_' + k];
+  }
+  _warm() {
+    const k = this._warmK; if (!k) return;
+    this._warmK = '';
+    const v = this.buf['_' + k], B = BANK[k];
+    if (v && v.length < 2) v.push(shotBuffer(this.ctx, B[0], B[1]));
   }
 
   // ---------- 4 Hz control ----------
@@ -377,6 +545,7 @@ export class Ambience {
     this._steer(now, dt);
     if (now >= this._scan) { this._scan = now + 1; this._look(now); }
     this._events(now);
+    this._warm();
   }
 
   _steer(now, dt) {
@@ -385,56 +554,78 @@ export class Ambience {
     // camera speed (m/s), for bubble density; a jump (zone change) reads as a stop, not a dash
     const ds = this._lastS === null ? 0 : Math.abs(s - this._lastS); this._lastS = s;
     this.speed += ((ds < 60 && dt > 0 ? ds / dt : 0) - this.speed) * 0.3;
-    const Z = this.Z; for (const k in Z0) Z[k] = 0;
+    const Z = this.Z, F = this.F; for (const k in Z0) Z[k] = 0; for (const k in FAM0) F[k] = 0;
     let off = 0;
     const offs = (this.app && this.app.depthOffsets) || {};
     for (const e of env.seq.weights(s)) {
-      const p = PROFILE[e.key] || Z0;
+      const p = PROFILE[e.key] || Z0, fm = FAMILY[ZONE_FAM[e.key]] || FAMILY.reef;
       for (const k in Z0) Z[k] += (p[k] ?? Z0[k]) * e.w;
+      for (const k in FAM0) F[k] += fm[k] * e.w;
       off += (offs[e.key] || 0) * e.w;
     }
     const camD = Math.max(0, -cam.y), D = camD + off;
     const head = env.shape.ceilingAt(cam.x, s) - cam.y;           // ice, cave roof or rock overhead
     const cover = clamp01((60 - head) / 50), open = 1 - cover;
-    const night = this.night = C.night || 0, rain = C.rain || 0, surge = C.surge || 0;
+    const night = this.night = C.night || 0, rain = C.rain || 0, surge = this.surge = C.surge || 0;
     const shallow = Math.exp(-camD / 9), bright = Math.exp(-D / 45);
-    Z.wash *= shallow * open; Z.iceAmt = Z.ice * (0.4 + 0.6 * cover); Z.caveAmt = Z.cave * cover;
+    Z.wash *= shallow * open; Z.iceAmt = Z.ice * (0.4 + 0.6 * cover); Z.caveAmt = Z.cave * cover; Z.open = open; Z.camD = camD;
+    // calmer and busier spells of a minute or so; calm nights (unless a storm is up) quieten the water further
+    if (now >= this._moodNext) { this._moodT = R(0.65, 1.35); this._moodNext = now + R(40, 90); }
+    this.mood += (this._moodT - this.mood) * Math.min(1, dt / 15);
+    const calm = 1 - 0.3 * night * (1 - Math.min(1, surge));
+    Z.act = this.mood * calm;
     // how much water moves around the head: surface wash, surge weather, kelp swell; never quite still
     Z.slosh = Math.min(1.4, 0.3 + 0.1 * bright + 0.7 * Z.wash + 0.6 * surge + 0.3 * Z.kelp * Math.exp(-camD / 30));
     const m = this.mix;
-    m.base = 0.34 * (0.35 + 0.65 * Math.exp(-D / 600));
-    m.slosh = 4 * Z.slosh;
+    m.base = 0.34 * (0.35 + 0.65 * Math.exp(-D / 600)) * (0.9 + 0.1 * this.mood);
+    m.slosh = 4 * Z.slosh * F.sl * (0.75 + 0.25 * Z.act);
     m.hum = 0.022 * Z.hum;
     m.shrimp = 0.15 * Z.shrimp * (0.8 + 0.5 * night) * Math.exp(-camD / 70);
     m.vent = 0.4 * Z.vent;
     m.bubbles = 0.3 * Z.bubbles;
     m.chorus = 0.3 * Z.chorus * clamp01((night - 0.2) / 0.5) * Math.exp(-camD / 80);
     m.rain = 0.18 * rain * Math.exp(-camD / 20) * open;
+    m.lap = 0.5 * F.lap * Math.exp(-camD / 5) * open * (0.7 + 0.3 * Z.act + 0.5 * surge);
+    m.sand = 0.9 * F.swell * Math.exp(-camD / 40) * (0.6 + 0.4 * Z.act + 0.6 * surge);
     if (m.rain > 0.01) this._lazy('rain');
     if (m.chorus > 0.01) this._lazy('chorus');
+    if (m.lap > 0.01) this._lazy('lap');
+    if (m.sand > 0.01) this._lazy('sand');
     for (const k of STEERED) this.bus[k].gain.setTargetAtTime(m[k], now, 0.8);
     const lp = 150 + 260 * bright;
     for (const n of this.baseLP) n.frequency.setTargetAtTime(lp, now, 1);
+    for (let i = 0; i < this.basePan.length; i++) this.basePan[i].pan.setTargetAtTime((i ? 1 : -1) * (0.15 + 0.75 * F.width), now, 2);
     this.rainLP.frequency.setTargetAtTime(350 + 500 * Math.exp(-camD / 15), now, 1);
     this.baseRev.gain.setTargetAtTime(0.5 * (Z.caveAmt + 0.6 * Z.iceAmt), now, 1);
-    this.fxRev.gain.setTargetAtTime(0.25 + 0.6 * Math.max(Z.caveAmt, Z.iceAmt), now, 1);
+    this.fxRev.gain.setTargetAtTime(0.25 + 0.6 * Math.max(Z.caveAmt, Z.iceAmt) + 0.3 * F.far + 0.3 * F.deep, now, 1);
     this.lifeRev.gain.setTargetAtTime(0.3 + 0.5 * Z.caveAmt, now, 1);
-    for (const v of this.slosh) if (now >= v.due) this._surge(v, now + R(0, 0.2), Z.slosh);
+    for (let i = 0; i < this.slosh.length; i++) { const v = this.slosh[i]; if (now >= v.due) this._surge(v, now + R(0, 0.2), Z.slosh, i === 0); }
   }
 
-  // one slosh surge: the water swells past (gain up, band rises, gurgle deepens), then drains away
-  _surge(v, t, amt) {
-    const up = R(0.35, 1.1), hold = R(0.1, 0.5), down = R(1, 2.8), pk = R(0.6, 1), top = t + up + hold;
+  // one slosh surge: the water swells past (gain up, band rises, gurgle deepens), then drains away. The zone family
+  // sets its band and pace (quick and light under a shallow surface, slow and heavy over a reef, long in open water);
+  // over a swell the sand shifts with it, and in the shallows pebbles roll at the top
+  _surge(v, t, amt, lead) {
+    const F = this.F, up = R(0.35, 1.1) * F.up, hold = R(0.1, 0.5) * Math.sqrt(F.up), down = R(1, 2.8) * F.up, pk = R(0.6, 1), top = t + up + hold;
+    const lo = F.slLo, hi = F.slHi, mid = Math.sqrt(lo * hi);
     v.env.gain.cancelScheduledValues(t); v.bp.frequency.cancelScheduledValues(t); v.depth.gain.cancelScheduledValues(t);
     v.env.gain.setTargetAtTime(pk, t, up / 3); v.env.gain.setTargetAtTime(R(0.06, 0.15), top, down / 3);
-    v.bp.frequency.setTargetAtTime(R(260, 500), t, up / 2); v.bp.frequency.setTargetAtTime(R(130, 200), top, down / 2);
+    v.bp.frequency.setTargetAtTime(R(mid, hi), t, up / 2); v.bp.frequency.setTargetAtTime(R(lo, mid), top, down / 2);
     v.depth.gain.setTargetAtTime(R(500, 1000), t, 0.2); v.depth.gain.setTargetAtTime(R(150, 250), top, down / 2);
-    v.due = top + down * R(0.3, 0.9) + R(0.4, 3) / (0.5 + amt);
+    v.due = top + down * R(0.3, 0.9) + R(0.4, 3) * F.gap / (0.5 + amt * this.Z.act);
     if (Math.random() < 0.25 * amt) this._bub(top - R(0, 0.3), true, 0.7 * amt);
+    if (!lead) return;
+    if (F.swell > 0.15 && this.buf._sand) { // the sand lifts with the surge and settles after it
+      const p = this.sandEnv.gain; p.cancelScheduledValues(t);
+      p.setTargetAtTime(pk, t + up * 0.4, up / 2); p.setTargetAtTime(0.12, top, down / 2);
+    }
+    const peb = (F.pebble + 0.5 * this.surge) * Math.exp(-this.Z.camD / 12);
+    if (Math.random() < 0.35 * peb) this._water('pebbles', top - R(0.1, 0.4), Math.min(1, peb), R(-0.7, 0.7), 0);
   }
 
   // calling animals near the camera (the nearest 5, or 3 on low, within their voice's range) and the nearest diver, once a
-  // second; reads encounter state and allocates nothing after the first sighting of an animal
+  // second; also what the animals are doing (strikes, lunges, play: e.event), big bodies passing close (a wake) and
+  // dives and breaches at the surface. Reads encounter state and allocates nothing after the first sighting
   _look(now) {
     const O = window.__ocean || {}, cam = this.env.camera.position, Oz = -this.env.world.position.z;
     const me = this.env.camera.matrixWorld.elements, rx = me[0], ry = me[1], rz = me[2]; // camera right
@@ -443,6 +634,8 @@ export class Ambience {
     if (enc) for (const e of enc) {
       if (e.done || !(e.fade > 0.3)) continue;
       if (e.dist < 6 && e.visible) close++;
+      const b = e.bounds;
+      if (e.dist < 60 && this._sfxDue(e, now)) this._behave(e, now, cam, Oz, rx, ry, rz);
       const kind = e.sp && CALLS[e.sp.key];
       if (!kind || e.dist > VOICE[kind][0]) continue;
       if (kind === 'sweeper' && this.night < 0.25) continue; // sweepers call after dusk
@@ -454,7 +647,7 @@ export class Ambience {
       const slot = cand[i];
       while (i > 0 && cand[i - 1].d > e.dist) { cand[i] = cand[i - 1]; i--; }
       cand[i] = slot;
-      const b = e.bounds, dx = b.x - cam.x, dy = b.y - cam.y, dz = e.anchorZ + b.z - Oz - cam.z;
+      const dx = b.x - cam.x, dy = b.y - cam.y, dz = e.anchorZ + b.z - Oz - cam.z;
       slot.kind = kind; slot.d = e.dist; slot.uid = e.uid; slot.vis = !!e.visible; slot.n = e.n || 1;
       slot.pan = 0.8 * Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / (Math.hypot(dx, dy, dz) || 1)));
     }
@@ -462,6 +655,7 @@ export class Ambience {
     for (let i = nc; i < K; i++) cand[i].d = 1e9;
     // forget animals that left; a new arrival calls within a few seconds
     for (const [uid, t] of this._due) if (t < now - 30) this._due.delete(uid);
+    for (const [uid, t] of this._sfx) if (t < now - 30) this._sfx.delete(uid);
     for (let i = 0; i < nc; i++) if (!this._due.has(cand[i].uid)) this._due.set(cand[i].uid, now + R(0.5, 3.5));
     this.diverD = 1e9;
     const a = O.surprises && O.surprises.active;
@@ -470,37 +664,91 @@ export class Ambience {
       if (dd < this.diverD) { this.diverD = dd; this.diverPan = 0.8 * Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / (dd || 1))); }
     }
   }
+  // may this animal make a water sound now? (a new event always may; splashes and wakes have a per-animal cooldown)
+  _sfxDue(e, now) {
+    if (e.event && !this._seen.has(e.event)) return true;
+    const t = this._sfx.get(e.uid);
+    return t === undefined || now >= t;
+  }
+  // the water sounds of what an animal is doing
+  _behave(e, now, cam, Oz, rx, ry, rz) {
+    const b = e.bounds, dx = b.x - cam.x, dy = b.y - cam.y, dz = e.anchorZ + b.z - Oz - cam.z, d = e.dist;
+    const pan = 0.8 * Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / (Math.hypot(dx, dy, dz) || 1)));
+    const key = e.sp && e.sp.key, r = b.r || 1, ev = e.event, t = now + R(0.05, 0.3);
+    if (ev && !this._seen.has(ev)) {
+      this._seen.add(ev);
+      const ty = ev.type;
+      if (ty === 'strike') { this._water('scatter', t, 1, pan, d); this._water('wake', t + 0.1, 0.6, pan, d); }
+      else if (ty === 'lunge') { this._water('wake', t, 1.4, pan, d); this._water('belch', t + 0.4, 0.8, pan, d); if (b.y > -4 - r) this._water('breach', t + 0.6, 1, pan, d); }
+      else if (ty === 'play') this._water(Math.random() < 0.5 ? 'belch' : 'curtain', t, 0.5, pan, d);
+      else if (ty === 'flip' || ty === 'roll') this._water('wake', t, 0.8, pan, d);
+      this._sfx.set(e.uid, now + 4);
+      return;
+    }
+    // a big body passing close pushes water past the head (single animals: a school's bounds are the whole school)
+    if (r > 2 && (e.n || 1) <= 2 && d < 2 + 0.2 * r && now >= this._wakeT) { this._water('wake', t, Math.min(1.5, r / 3), pan, d); this._sfx.set(e.uid, now + R(12, 20)); this._wakeT = now + R(5, 9); return; }
+    // dives from the surface and breaches / slaps carry down from above
+    const surf = b.y > -2.5 - 0.3 * r;
+    if (surf && PLUNGE.has(key) && d < 45 && Math.random() < 0.12) { this._water('plunge', t, 1, pan, d); this._sfx.set(e.uid, now + R(6, 14)); return; }
+    if (surf && BREACH.has(key) && d < 140 && Math.random() < 0.06) { this._water('breach', t, Math.min(1.5, r / 4), pan, d); this._sfx.set(e.uid, now + R(15, 40)); return; }
+    this._sfx.set(e.uid, now + 1);
+  }
 
   _events(now) {
-    const Z = this.Z, due = this._dueE, full = () => this.voices >= this.cap;
+    const Z = this.Z, F = this.F, due = this._dueE, full = () => this.voices >= this.cap, act = Z.act;
     const fire = (k, amt, lo, hi, fn) => {
+      if (due[k] === undefined) due[k] = now + R(0, hi) / Math.max(0.2, Math.min(1, amt + 0.15));
       if (now < due[k]) return;
       if (amt < 0.08) { due[k] = now + R(lo, hi); return; }
       if (!full()) fn(now + R(0.05, 0.3), amt);
-      due[k] = now + R(lo, hi) / Math.min(1, amt + 0.15);
+      due[k] = now + R(lo, hi) / Math.min(1.6, (amt + 0.15) * act);
     };
+    const water = (k, amt, lo, hi) => fire(k, amt, lo, hi, (t, a) => this._water(k, t, Math.min(1, a), R(-0.75, 0.75), 0));
     fire('slap', Z.wash, 2, 7, (t, a) => this._slap(t, a));
     fire('drip', Z.caveAmt, 0.8, 5, (t, a) => this._drip(t, a));
     fire('ice', Z.iceAmt, 3, 14, (t, a) => { const r = Math.random(); r < 0.45 ? this._creak(t, a, false) : r < 0.75 ? this._groan(t, a) : this._ping(t, a); });
     fire('kelp', Z.kelp, 4, 15, (t, a) => this._creak(t, a * 0.6, true));
+    // the zone family's own water events
+    const sh = Math.exp(-Z.camD / 6) * Z.open;
+    water('breaker', (0.5 * F.lap + 0.2 * F.swell + 0.8 * this.surge) * sh, 10, 28);
+    water('knock', F.wood, 5, 16);
+    water('hglug', F.hollow * Math.max(Z.caveAmt, 0.3), 5, 14);
+    water('boomFar', F.far, 22, 55);
+    water('thud', F.deep, 25, 70);
+    water('squeak', F.squeak * Z.iceAmt, 7, 20);
+    water('gush', F.gush, 10, 26);
+    water('fizzStream', F.fizz, 3, 9);
+    water('seep', F.seep, 6, 16);
+    water('curtain', F.curtain, 25, 70);
+    water('belch', F.belch, 30, 80);
+    water('fizz', 0.25 + 0.4 * F.fizz + 0.3 * F.lap - 0.3 * F.deep, 18, 45);
     // bubbles everywhere: trails at random intervals, denser when moving fast or with animals close; rare glugs
-    const dens = 0.55 + 0.12 * Math.min(6, this.speed) + 0.5 * Math.min(2, this.closeN) + 0.6 * Z.bubbles + 0.4 * Z.vent + 0.3 * Z.wash;
-    if (now >= due.trail) { this._bub(now + R(0.05, 0.3), false, 0.6 + 0.4 * Math.random()); due.trail = now + R(1.2, 5.5) / dens; }
-    if (now >= due.glug) { this._bub(now + R(0.05, 0.3), true, R(0.6, 1)); due.glug = now + R(7, 20) / (0.8 + 0.5 * Z.wash + 0.3 * Z.slosh); }
+    const dens = (0.55 + 0.12 * Math.min(6, this.speed) + 0.5 * Math.min(2, this.closeN) + 0.6 * Z.bubbles + 0.4 * Z.vent + 0.3 * Z.wash) * F.bubD * act;
+    if (now >= due.trail) { this._bub(now + R(0.05, 0.3), false, 0.6 + 0.4 * Math.random()); due.trail = now + R(1.2, 5.5) / Math.max(0.15, dens); }
+    if (now >= due.glug) { this._bub(now + R(0.05, 0.3), true, R(0.6, 1)); due.glug = now + R(7, 20) / Math.max(0.3, (0.8 + 0.5 * Z.wash + 0.3 * Z.slosh) * Math.sqrt(F.bubD)); }
     if (now >= due.diver) {
       due.diver = now + R(4, 7);
       if (this.diverD < 45 && !full()) this._exhale(now + 0.05, this.diverD, this.diverPan);
     }
+    this._crowd(now);
     // animals near: each of the nearest callers calls on its own timer (sooner while in view or in a bigger group)
     let calls = 0;
     for (let i = 0; i < this.nCand; i++) {
       const n = this.cand[i], t = this._due.get(n.uid);
-      if (t === undefined || now < t || calls) continue; // (one new call per tick; the others wait a tick)
+      if (t === undefined || now < t || calls || now < this._lifeGap) continue; // (one new call at a time, ~0.5 s apart)
+      if (n.kind === this._lastKind && now < this._lastKindT) continue; // (and not the same voice twice running)
       if (full()) { this._due.set(n.uid, now + R(0.5, 2)); continue; }
-      const v = VOICE[n.kind];
-      this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan); this._duckFor(now, v[3], n.d); calls++;
-      this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : 1) / Math.min(1.6, 1 + 0.15 * (n.n - 1)));
+      const v = VOICE[n.kind], member = n.n > 1 ? ri(Math.min(n.n, 8)) : 0;
+      this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan, n.uid * 16 + member); this._duckFor(now, v[3], n.d); calls++; this._lifeGap = now + R(0.35, 0.8); this._lastKind = n.kind; this._lastKindT = now + R(1.5, 3);
+      this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : 1) / Math.min(1.3, 1 + 0.1 * (n.n - 1)));
+      // a group mate answers; a big group sometimes calls together
+      if (n.n > 1 && ANSWER.has(n.kind) && Math.random() < (VOICE[n.kind][0] < 50 ? 0.25 : 0.45) && !this._ans.kind) {
+        const A = this._ans; A.kind = n.kind; A.t = now + v[3] * 0.7 + R(0.3, 1.2); A.d = n.d * R(0.85, 1.2); A.pan = Math.max(-0.8, Math.min(0.8, n.pan + R(-0.4, 0.4))); A.uid = n.uid * 16 + ((member + 1 + ri(3)) % 8);
+      }
+      if (n.n >= 6 && CHORUS.has(n.kind) && Math.random() < 0.3) for (let k = 1 + ri(2); k > 0 && !full(); k--) this._call(n.kind, now + R(0.2, 1), n.d * R(0.9, 1.3), Math.max(-0.8, Math.min(0.8, n.pan + R(-0.5, 0.5))), n.uid * 16 + 8 + k);
     }
+    const A = this._ans;
+    if (A.kind && now >= A.t) { if (!full()) this._call(A.kind, now + 0.05, A.d, A.pan, A.uid); A.kind = ''; }
     if (this.nCand && this._lifeFar) this._lifeFar = false;
     if (!this.nCand && now >= due.life) { // far away, unseen: whale song in open water, seals under the ice
       const first = !this._lifeFar; this._lifeFar = true;
@@ -508,6 +756,27 @@ export class Ambience {
       if (!first && !full() && r < 0.5 * Z.song) this._call(pick(['humpback', 'humpback', 'blue', 'sperm']), now + 0.1, R(250, 600), R(-0.7, 0.7));
       else if (!first && !full() && r > 1 - 0.5 * Z.seal) this._call(pick(['weddell', 'weddell', 'leopard']), now + 0.1, R(120, 300), R(-0.7, 0.7));
       due.life = now + (first ? R(5, 25) : R(30, 100));
+    }
+  }
+
+  // the feeding crowd at a sunlit whale fall (creatures/wf_crowd.js counts its events in `ev` and keeps the place of
+  // the latest in lx/ly/lz): sharks biting and shaking, chunks tearing free, fish scattering, sharks sweeping in
+  _crowd(now) {
+    const O = window.__ocean || {}, W = O.creatures && O.creatures.director && O.creatures.director.wfCrowd, last = this._wf;
+    if (!W || !W.ev) return;
+    const cam = this.env.camera.position, Oz = -this.env.world.position.z, me = this.env.camera.matrixWorld.elements;
+    for (const k in last) {
+      const n = W.ev[k] || 0, was = last[k]; last[k] = n;
+      if (n <= was || !W.p || n - was > 3) continue; // (a jump of many: a reset or a first look, not events to play)
+      const x = W.lx ?? cam.x, y = W.ly ?? cam.y, z = W.lz ?? (cam.z + Oz);
+      const dx = x - cam.x, dy = y - cam.y, dz = z - Oz - cam.z, d = Math.hypot(dx, dy, dz);
+      if (d > 70) continue;
+      const pan = 0.8 * Math.max(-1, Math.min(1, (dx * me[0] + dy * me[1] + dz * me[2]) / (d || 1))), t = now + R(0.02, 0.2);
+      if (k === 'bite') this._water('tear', t, 0.8, pan, d);
+      else if (k === 'chunk') { this._water('tear', t, 1.3, pan, d); this._water('scatter', t + 0.5, 1, pan, d); }
+      else if (k === 'displace') this._water('thrash', t, 1, pan, d);
+      else if (k === 'snap') this._water('snap', t, 0.8, pan, d);
+      else this._water(k === 'sweep' ? 'scatter' : 'wake', t, 0.8, pan, d);
     }
   }
 
@@ -528,7 +797,8 @@ export class Ambience {
     g.connect(f);
     g.chain = [f];
     let o = f;
-    if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = pan; f.connect(p); o = p; g.chain.push(p); }
+    g.pan = null;
+    if (c.createStereoPanner) { const p = c.createStereoPanner(); p.pan.value = pan; f.connect(p); o = p; g.chain.push(p); g.pan = p; }
     o.connect(bus);
     if (wet > 0) { const w = c.createGain(); w.gain.value = wet; o.connect(w); w.connect(this.revIn); g.chain.push(w); }
     return g;
@@ -539,25 +809,28 @@ export class Ambience {
   }
   // count a voice until its last source ends, then drop its chain (bubble voices have their own count)
   _hold(src, head, bub) {
-    if (bub) this.bVoices++; else this.voices++;
-    src.onended = () => { if (bub) this.bVoices--; else this.voices--; head.disconnect(); for (const n of head.chain) n.disconnect(); };
+    const k = bub === true ? 'bVoices' : bub ? 'fVoices' : 'voices';
+    this[k]++;
+    src.onended = () => { this[k]--; head.disconnect(); for (const n of head.chain) n.disconnect(); };
   }
   _env(param, t, a, peak, hold, rel) {
     param.setValueAtTime(0, t); param.linearRampToValueAtTime(peak, t + a);
     param.setValueAtTime(peak, t + a + hold); param.exponentialRampToValueAtTime(0.0001, t + a + hold + rel);
     return t + a + hold + rel;
   }
-  _osc(type, hz, to) { const o = this.ctx.createOscillator(); o.type = type; o.frequency.value = hz; if (to) o.connect(to); return o; }
+  // (inside a call, every oscillator and buffer is detuned to the calling animal's own pitch: this._cents)
+  _osc(type, hz, to) { const o = this.ctx.createOscillator(); o.type = type; o.frequency.value = hz; if (this._cents) o.detune.value = this._cents; if (to) o.connect(to); return o; }
   _gain(v, to) { const g = this.ctx.createGain(); g.gain.value = v; if (to) g.connect(to); return g; }
   _shot(buf, t, rate, to, offset = 0, dur) {
     const s = this.ctx.createBufferSource(); s.buffer = buf; s.playbackRate.value = rate; s.connect(to);
+    if (this._cents && s.detune) s.detune.value = this._cents;
     if (dur) s.start(t, offset, dur); else s.start(t, offset);
     return s;
   }
   // n pulses of a prebuilt buffer, `per` seconds apart; returns the last source (it ends last) and the time after it
   _train(buf, t, n, per, rate, head, amp = 1, jit = 0.1) {
     let s = null;
-    for (let i = 0; i < n; i++) { s = this._shot(buf, t, rate * R(0.97, 1.03), this._gain(amp * R(0.7, 1), head)); t += per * R(1 - jit, 1 + jit); }
+    for (let i = 0; i < n; i++) { s = this._shot(buf, t, rate * R(0.97, 1.03), this._gain(amp * R(0.7, 1), head)); t += per * this._T * R(1 - jit, 1 + jit); }
     this._tEnd = t;
     return s;
   }
@@ -573,8 +846,10 @@ export class Ambience {
   _bub(t, glug, a) {
     if (this.bVoices >= this.bCap) return;
     const head = this._out(R(-0.75, 0.75), glug ? 1600 : R(2200, 3500), (glug ? 0.55 : 0.32) * a, 0.15, this.bus.bub);
-    const s = this._shot(pick(glug ? this.buf.glug : this.buf.trail), t, R(0.8, 1.25), head); this._hold(s, head, true);
+    const s = this._shot(pick(glug ? this.buf.glug : this.buf.trail), t, R(0.8, 1.25) * this.F.bubF, head); this._hold(s, head, true);
+    this._count(glug ? 'glug' : 'trail');
   }
+  _count(k) { this.stats[k] = (this.stats[k] || 0) + 1; }
   _slap(t, a) { // a wave breaking overhead, heard from below: a low wash that swells and drains
     const head = this._out(R(-0.6, 0.6), 900, 0.6 * Math.min(1, a), 0, this.bus.fx), c = this.ctx;
     const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = R(160, 380); bp.Q.value = 1.2;
@@ -625,114 +900,339 @@ export class Ambience {
     const s = this._shot(pick(this.buf.exhale), t, R(0.85, 1.15), head); this._hold(s, head);
   }
 
+  // ---------- water events (zone families, animals at the surface or passing close, the whale-fall feeding) ----------
+  // k: event kind; a: amount (~0-1.5); d: distance in metres (0: somewhere around, not tied to an animal)
+  _water(k, t, a, pan, d) {
+    if (this.fVoices >= this.fCap || !this.ctx) return;
+    this._count(k);
+    const B = this.bus, F = this.F, near = d > 0 ? 1 / (1 + d / 20) : 1, lpD = d > 0 ? 500 + 6000 * Math.exp(-d / 25) : 6000;
+    const wet = d > 0 ? Math.min(0.75, 0.12 + d / 90) : 0.2;
+    this._le = 0; this._ls = null;
+    let head = null;
+    if (k === 'curtain' || k === 'belch' || k === 'fizz' || k === 'pebbles') { // generated bubble / grit sounds
+      const peb = k === 'pebbles', lvl = k === 'curtain' ? 0.5 : k === 'belch' ? 0.75 : k === 'fizz' ? 0.3 : 0.45;
+      head = this._out(pan, Math.min(lpD, peb ? 1400 : k === 'fizz' ? 2200 : 2800), a * near * lvl, wet, peb ? B.fx : B.bub);
+      const buf = pick(this._bank(k)), rate = R(0.85, 1.15) * (peb ? 1 : F.bubF), s = this._shot(buf, t, rate, head);
+      this._L(s, t + buf.duration / rate);
+      if (k === 'curtain' && head.pan) { head.pan.pan.setValueAtTime(pan, t); head.pan.pan.linearRampToValueAtTime(Math.max(-0.8, Math.min(0.8, pan + R(-0.9, 0.9))), t + 2.3); }
+    } else if (k === 'knock') { // kelp stipes / drowned trunks knocking: one to three hollow knocks
+      head = this._out(pan, 1200, 0.5 * a, 0.3, B.fx);
+      const bank = this._bank('knock'), rate = R(0.8, 1.3);
+      for (let i = 1 + ri(3); i > 0; i--) { this._L(this._shot(pick(bank), t, rate * R(0.97, 1.03), this._gain(R(0.6, 1), head)), t + 0.3 / rate); t += R(0.15, 0.45); }
+    } else if (k === 'hglug') { // a hollow, resonant glug in a cave or a hole
+      head = this._out(pan, 900, 0.7 * a, 0.9, B.fx);
+      const bp = this._filt('bandpass', R(180, 420), R(4, 7), this._gain(2.5, head));
+      for (let i = 1 + ri(2); i > 0; i--) { const s = this._shot(pick(this.buf.glug), t, R(0.7, 1), bp); this._L(s, t + 1); t += R(0.2, 0.6); }
+    } else if (k === 'boomFar' || k === 'thud') { // a distant low boom in open water (swell breaking far off); a deep thud
+      const far = k === 'boomFar', dur = far ? R(1.5, 3) : R(0.5, 0.9), f0 = far ? R(32, 55) : R(25, 40);
+      head = this._out(pan, far ? 260 : 160, (far ? 0.55 : 0.45) * a, far ? 0.7 : 0.85, B.fx);
+      const e = this._gain(0, head), o = this._osc('sine', f0, e);
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.82, t + dur);
+      const end = this._env(e.gain, t, far ? 0.08 : 0.02, 1, 0, dur);
+      o.start(t); o.stop(end + 0.02); this._L(o, end);
+      this._noise(t, dur * 0.8, far ? 140 : 90, far ? 90 : 60, 0.7, head, far ? 1.2 : 0.8, far ? 0.15 : 0.03);
+    } else if (k === 'squeak') { // air trapped under the ice squeezed along a floe: a squeaky, gurgling whistle
+      head = this._out(pan, 1500, 0.14 * a, 0.5, B.fx);
+      const f0 = R(450, 1100), dur = R(0.2, 0.6), e = this._gain(0, head), o = this._osc('sine', f0, e), v = this._osc('sine', R(18, 35));
+      v.connect(this._gain(f0 * 0.06, o.frequency));
+      o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * R(0.7, 1.35), t + dur);
+      const end = this._env(e.gain, t, 0.02, 1, dur - 0.08, 0.06);
+      o.start(t); v.start(t); o.stop(end + 0.02); v.stop(end + 0.02); this._L(o, end);
+      this._L(this._shot(pick(this.buf.trail), end, R(1, 1.3), this._gain(0.4, head)), end + 1);
+    } else if (k === 'gush') { // a vent gushing: a swell of low roar and heavy bubbling
+      head = this._out(pan, 700, 0.6 * a, 0.35, B.fx);
+      const dur = R(1.5, 3);
+      this._noise(t, dur, 260, 140, 0.8, head, 1.6, 0.4);
+      this._L(this._shot(pick(this._bank('belch')), t + 0.2, R(0.65, 0.85), this._gain(0.8, head)), t + 2.4);
+    } else if (k === 'fizzStream' || k === 'seep') { // a stream of fine gas bubbles (Champagne); a slow weep (Lost City)
+      const fz = k === 'fizzStream';
+      head = this._out(pan, fz ? 2600 : 1400, (fz ? 0.3 : 0.22) * a, 0.2, B.bub);
+      for (let i = fz ? 3 + ri(4) : 2 + ri(3); i > 0; i--) {
+        this._L(this._shot(pick(this.buf.trail), t, fz ? R(1.1, 1.45) : R(0.6, 0.8), this._gain(R(0.5, 1), head)), t + 1.2);
+        t += fz ? R(0.25, 0.6) : R(0.6, 1.5);
+      }
+      if (head.pan) head.pan.pan.linearRampToValueAtTime(Math.max(-0.8, Math.min(0.8, pan + R(-0.3, 0.3))), t + 1);
+    } else if (k === 'breaker') { // a wave breaking overhead: a muffled thump, a wash, and a burst of bubbles
+      head = this._out(pan, 1200, 0.7 * a, 0.25, B.fx);
+      this._thump(t, R(55, 90), 0.35, head, 1);
+      this._noise(t + 0.02, R(1.5, 2.5), R(250, 450), 150, 1.2, head, 1.4, 0.15);
+      this._L(this._shot(pick(this._bank('curtain')), t + 0.08, R(1, 1.3), this._gain(0.45, head)), t + 2.4);
+    } else if (k === 'wake') { // a big body passing close: water pushed past, a whoosh-gurgle sweeping across
+      head = this._out(pan, Math.min(lpD, 1600), 0.6 * a * near, 0.2, B.fx);
+      const dur = R(1.2, 2.4), [, end] = this._noise(t, dur, 130, 130, 1.4, head, 1.6, dur * 0.4, R(320, 480));
+      if (head.pan) { head.pan.pan.setValueAtTime(pan, t); head.pan.pan.linearRampToValueAtTime(-0.7 * pan, end); }
+      this._L(this._shot(pick(this.buf.trail), t + dur * 0.5, R(0.8, 1), this._gain(0.4, head)), t + dur * 0.5 + 1.2);
+    } else if (k === 'plunge') { // something diving in from the surface: a slap from above, then its bubble trail
+      head = this._out(pan, Math.min(lpD, 2400), 0.8 * a * near, wet, B.fx);
+      this._thump(t, R(110, 200), 0.12, head, 0.8);
+      this._noise(t, 0.15, 500, 300, 0.8, head, 1, 0.005);
+      this._L(this._shot(pick(this._bank('curtain')), t + 0.05, R(1.2, 1.5), this._gain(0.5, head), R(0.2, 0.6), 1.2), t + 1.3);
+    } else if (k === 'breach') { // a whale's breach or a tail / flipper slap, from above: a heavy thump, a long wash
+      head = this._out(pan, Math.min(lpD, 900), 0.9 * a * near, wet + 0.1, B.fx);
+      this._thump(t, R(40, 70), 0.5, head, 1);
+      this._noise(t + 0.03, R(2, 3), 220, 120, 1, head, 1.2, 0.1);
+      this._L(this._shot(pick(this._bank('belch')), t + 0.15, R(0.8, 1), this._gain(0.6, head)), t + 1.6);
+    } else if (k === 'tear' || k === 'thrash') { // sharks biting and shaking flesh loose; a shark shoved off its place
+      const tear = k === 'tear';
+      head = this._out(pan, Math.min(lpD, 1500), 1.1 * a * near, wet, B.fx);
+      let tt = t;
+      for (let i = tear ? 3 + ri(4) : 4 + ri(5); i > 0; i--) { this._noise(tt, R(0.12, 0.22), R(180, 450), 140, 1.3, head, R(0.6, 1), 0.03); tt += tear ? R(0.25, 0.4) : R(0.15, 0.28); }
+      if (tear) { // the low grind of the bite itself
+        const e = this._gain(0, this._filt('lowpass', 260, 0.7, this._gain(0.35, head))), o = this._osc('sawtooth', R(45, 70), e), j = this._osc('sine', R(9, 15));
+        j.connect(this._gain(12, o.frequency));
+        const end = this._env(e.gain, t, 0.08, 1, tt - t - 0.2, 0.15);
+        o.start(t); j.start(t); o.stop(end + 0.02); j.stop(end + 0.02); this._L(o, end);
+      }
+      this._L(this._shot(pick(tear ? this.buf.trail : this._bank('belch')), tt, R(0.9, 1.2), this._gain(0.5, head)), tt + 1.4);
+    } else if (k === 'scatter') { // a school bolting: a flurry of small whooshes (the fish turning all at once)
+      head = this._out(pan, Math.min(lpD, 1800), 0.8 * a * near, wet, B.fx);
+      for (let i = 6 + ri(6); i > 0; i--) this._noise(t + R(0, 0.45), R(0.05, 0.1), R(300, 800), 250, 1.5, head, R(0.4, 1), 0.01);
+    } else if (k === 'snap') { // a quick snap at a scrap
+      head = this._out(pan, Math.min(lpD, 2000), 0.6 * a * near, wet, B.fx);
+      this._noise(t, 0.12, 350, 200, 1.2, head, 1, 0.02); this._thump(t + 0.06, R(130, 180), 0.08, head, 0.7);
+    }
+    if (head && this._ls) this._hold(this._ls, head, 'f');
+    else if (head) head.disconnect();
+  }
+  // keep the source that ends last (the voice's chain lives until then)
+  _L(s, end) { if (end > this._le) { this._le = end; this._ls = s; } return s; }
+  _filt(type, hz, q, to) { const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = hz; f.Q.value = q; f.connect(to); return f; }
+  // a burst of noise through a bandpass gliding from f0 to f1 (through fMid at the peak when given)
+  _noise(t, dur, f0, f1, q, to, peak, att, fMid) {
+    const g = this._gain(0, to), bp = this._filt('bandpass', f0, q, g);
+    bp.frequency.setValueAtTime(f0, t);
+    if (fMid) bp.frequency.exponentialRampToValueAtTime(fMid, t + att);
+    bp.frequency.exponentialRampToValueAtTime(f1, t + dur);
+    const end = this._env(g.gain, t, Math.max(0.005, att), peak, 0, Math.max(0.03, dur - att));
+    const s = this._shot(this.buf.pink, t, R(0.8, 1.2), bp, R(0, 4));
+    s.stop(end + 0.02); this._L(s, end);
+    return [s, end];
+  }
+  // a low thump: a sine dropping in pitch, struck and dying away
+  _thump(t, f0, dur, to, peak) {
+    const e = this._gain(0, to), o = this._osc('sine', f0, e);
+    o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.6, t + dur);
+    const end = this._env(e.gain, t, 0.005, peak, 0, dur);
+    o.start(t); o.stop(end + 0.02); this._L(o, end);
+  }
+
   // ---------- animal calls ----------
-  _call(kind, t, d, pan) {
-    const c = this.ctx;
-    if (kind === 'humpback') { // song phrase: 3-7 units with glides, some growled (FM)
-      const head = this._far(d, pan, 0.5, 3000), base = R(110, 380);
+  // uid: the calling animal (encounter uid * 16 + member); it sets the animal's own pitch and tempo (+-12 %, +-15 %),
+  // signature whistles, a pod's dialect and a singer's song. 0: an unseen animal, random traits.
+  _call(kind, t, d, pan, uid = 0) {
+    this._count('call:' + kind);
+    const r = uid ? seeded(uid) : Math.random;
+    this._cents = 1200 * Math.log2(0.88 + 0.25 * r()); this._T = 0.85 + 0.3 * r();
+    try { this._voice(kind, t, d, pan, uid); } finally { this._cents = 0; this._T = 1; }
+  }
+  // a whistle contour (into this._curve): level, falling, rising, up-down, down-up, waver or multi-hump (the seven
+  // shapes of pilot whale whistles); rng: deterministic for signature and group whistles
+  _shape(sh, lo, hi, rng = Math.random) {
+    const k = this._curve, a = lo + (hi - lo) * (0.2 + 0.3 * rng()), b = lo + (hi - lo) * (0.6 + 0.4 * rng()), w = 3 + 3 * rng();
+    for (let i = 0; i < 16; i++) {
+      const u = i / 15, hump = Math.sin(Math.PI * u), f = [
+        (a + b) / 2, b + (a - b) * u, a + (b - a) * u, a + (b - a) * hump, b + (a - b) * hump,
+        (a + b) / 2 * (1 + 0.06 * Math.sin(2 * Math.PI * w * u)), a + (b - a) * Math.abs(Math.sin(2 * Math.PI * u)),
+      ][sh];
+      k[i] = f;
+    }
+    return k;
+  }
+  _whistle(t, dur, curve, head) {
+    const e = this._gain(0, head), o = this._osc('sine', curve[0], e);
+    o.frequency.setValueCurveAtTime(curve, t, dur);
+    const end = this._env(e.gain, t, 0.04, 1, Math.max(0.02, dur - 0.12), 0.08);
+    o.start(t); o.stop(end + 0.02);
+    return [o, end];
+  }
+  // a pulse train heard as a buzzy tone (burst pulses, tonal-pulsed signals, buzzes): a sawtooth at the pulse rate
+  _buzz(t, dur, rate0, rate1, lo, hi, head, peak = 1) {
+    const e = this._gain(0, head), bp = this._filt('bandpass', Math.sqrt(lo * hi), Math.sqrt(lo * hi) / (hi - lo), e);
+    const o = this._osc('sawtooth', rate0, bp);
+    o.frequency.setValueAtTime(rate0, t); o.frequency.exponentialRampToValueAtTime(rate1, t + dur);
+    const end = this._env(e.gain, t, 0.02, peak, Math.max(0, dur - 0.06), 0.04);
+    o.start(t); o.stop(end + 0.02);
+    return [o, end];
+  }
+
+  _voice(kind, t, d, pan, uid) {
+    const c = this.ctx, T = this._T, P = Math.random();
+    if (kind === 'humpback') {
+      const head = this._far(d, pan, 0.5, 3000);
+      if (uid && P < 0.2) { // feeding call: rhythmic, around 500 Hz, about 2.5 s
+        const f0 = R(430, 560), dur = R(2, 3), e = this._gain(0, head), am = this._gain(0.5, e), l = this._osc('sine', R(3, 6));
+        const o = this._osc('sawtooth', f0, this._filt('lowpass', 1300, 0.7, am));
+        l.connect(this._gain(0.5, am.gain));
+        o.frequency.setValueAtTime(f0 * 0.95, t); o.frequency.linearRampToValueAtTime(f0 * 1.05, t + dur);
+        const end = this._env(e.gain, t, 0.15, 0.6, dur - 0.4, 0.25);
+        o.start(t); l.start(t); o.stop(end + 0.02); l.stop(end + 0.02); this._hold(o, head);
+        return;
+      }
+      // song: each singer repeats its own phrase (its units, in order, from a seed), a little different each time
+      const rs = uid ? seeded(uid >> 4) : Math.random, base = 110 + 270 * rs(), nU = 3 + ((rs() * 5) | 0);
       let last = null;
-      for (let i = 3 + ((Math.random() * 5) | 0); i > 0; i--) {
-        const f0 = base * Math.pow(2, R(-1, 1.2)), dur = R(0.5, 2), e = this._gain(0, head);
-        const o = this._osc(Math.random() < 0.6 ? 'sine' : 'triangle', f0, e), m = this._osc('sine', f0 * pick([0.5, 1, 1.5, 2, 3]));
-        const fp = o.frequency, sh = (Math.random() * 4) | 0;
+      for (let i = 0; i < nU; i++) {
+        const f0 = base * Math.pow(2, -1 + 2.2 * rs()) * R(0.97, 1.03), dur = (0.5 + 1.5 * rs()) * T, sh = (rs() * 4) | 0, e = this._gain(0, head);
+        const o = this._osc(rs() < 0.6 ? 'sine' : 'triangle', f0, e), m = this._osc('sine', f0 * [0.5, 1, 1.5, 2, 3][(rs() * 5) | 0]);
+        const fp = o.frequency, up = 1.4 + 1.1 * rs(), growl = rs() < 0.4 ? 0.3 + 1.2 * rs() : 0.15 * rs(), pk = 0.5 + 0.5 * rs(), gap = 0.15 + 1.05 * rs();
         fp.setValueAtTime(f0 * [1, 1.6, 0.8, 1][sh], t);
         if (sh === 2) { fp.exponentialRampToValueAtTime(f0 * 1.5, t + dur / 2); fp.exponentialRampToValueAtTime(f0 * 0.9, t + dur); }
-        else fp.exponentialRampToValueAtTime(f0 * [R(1.4, 2.5), 0.5, 1, 1.05][sh], t + dur);
-        m.connect(this._gain(f0 * (Math.random() < 0.4 ? R(0.3, 1.5) : R(0, 0.15)), fp));
-        const end = this._env(e.gain, t, 0.12, R(0.5, 1), Math.max(0, dur - 0.4), 0.3);
+        else fp.exponentialRampToValueAtTime(f0 * [up, 0.5, 1, 1.05][sh], t + dur);
+        m.connect(this._gain(f0 * growl, fp));
+        const end = this._env(e.gain, t, 0.12, pk, Math.max(0, dur - 0.4), 0.3);
         o.start(t); m.start(t); o.stop(end); m.stop(end); last = o;
-        t = end + R(0.15, 1.2);
+        t = end + gap * T;
       }
       this._hold(last, head);
-    } else if (kind === 'blue') { // long low downsweep with its harmonics (the fundamental alone is below most speakers)
-      const head = this._far(d, pan, 0.5, 800), e = this._gain(0, head), f0 = R(48, 55), dur = R(7, 12);
-      const end = this._env(e.gain, t, 1.5, 1, dur - 3.5, 2);
+    } else if (kind === 'blue') { // song units (long and low), or a D call: a short downsweep between whales
+      // (blue whale calls are 15-40 Hz: played an octave or so up, with harmonics, so speakers carry them)
+      const D = P < 0.3, head = this._far(d, pan, 0.5, 800), e = this._gain(0, head), f0 = D ? R(62, 78) : R(46, 54), dur = D ? R(1.5, 3) : R(10, 16);
+      const end = D ? this._env(e.gain, t, 0.2, 1, dur - 0.5, 0.3) : this._env(e.gain, t, 1.5, 1, dur - 3.5, 2);
       let last = null;
       for (const [h, a] of [[1, 1], [2, 0.6], [3, 0.35]]) {
         const o = this._osc('sine', f0 * h, this._gain(a, e));
-        o.frequency.setValueAtTime(f0 * h, t); o.frequency.exponentialRampToValueAtTime(f0 * h * R(0.8, 0.88), t + dur);
+        o.frequency.setValueAtTime(f0 * h, t); o.frequency.exponentialRampToValueAtTime(f0 * h * (D ? R(0.5, 0.6) : R(0.8, 0.88)), t + dur);
         o.start(t); o.stop(end); last = o;
       }
       this._hold(last, head);
-    } else if (kind === 'sperm') { // slow regular clicks, or a quick coda
-      const head = this._far(d, pan, 0.7, 4000), coda = Math.random() < 0.4, n = coda ? 3 + ((Math.random() * 5) | 0) : 6 + ((Math.random() * 9) | 0);
-      const gap = coda ? R(0.1, 0.25) : R(0.5, 1.2);
+    } else if (kind === 'sperm') { // usual clicks, a coda (the group's own rhythm), or a creak closing on prey
+      const head = this._far(d, pan, 0.7, 4000);
       let s = null;
-      for (let i = 0; i < n; i++) { s = this._shot(this.buf.knock, t, R(0.9, 1.1), this._gain(R(0.6, 1), head)); t += gap * R(0.9, 1.1); }
+      if (P < 0.25) { // creak: clicks speeding up into a buzz
+        let ici = R(0.12, 0.2);
+        for (let i = 0; i < 45 && ici > 0.012; i++) { s = this._shot(this.buf.knock, t, R(1, 1.2), this._gain(R(0.4, 0.8), head)); t += ici; ici *= R(0.88, 0.93); }
+      } else if (P < 0.6) { // coda: a repeated click pattern; each group has its own
+        const rs = seeded((uid >> 4) + 77), n = 3 + ((rs() * 6) | 0), base = 0.1 + 0.15 * rs();
+        for (let i = 0; i < n; i++) { s = this._shot(this.buf.knock, t, R(0.95, 1.05), this._gain(R(0.7, 1), head)); t += base * (i === n - 2 && rs() < 0.5 ? 2 : 1) * R(0.95, 1.05) * T; }
+      } else {
+        const n = 6 + ri(9), gap = R(0.5, 1.2) * T;
+        for (let i = 0; i < n; i++) { s = this._shot(this.buf.knock, t, R(0.9, 1.1), this._gain(R(0.6, 1), head)); t += gap * R(0.9, 1.1); }
+      }
       this._hold(s, head);
-    } else if (kind === 'dolphin' || kind === 'pilot') {
-      const lo = kind === 'pilot' ? 2500 : 4500, hi = kind === 'pilot' ? 8000 : 13000;
-      if (Math.random() < 0.55) { // whistles, sometimes two animals overlapping
-        const head = this._far(d, pan, 0.18);
-        let last = null, lastEnd = 0;
-        for (let i = Math.random() < 0.35 ? 2 : 1; i > 0; i--) {
-          const dur = R(0.4, 1.4), e = this._gain(0, head), o = this._osc('sine', lo, e);
-          o.frequency.setValueCurveAtTime(this._contour(lo, hi), t, dur);
-          const end = this._env(e.gain, t, 0.04, 1, dur - 0.12, 0.08);
-          o.start(t); o.stop(end + 0.02);
-          if (end > lastEnd) { last = o; lastEnd = end; } // the chain lives until the later whistle ends
-          t += R(0.2, 0.9);
-        }
-        this._hold(last, head);
-      } else { // echolocation train, often closing into a buzz
+    } else if (kind === 'dolphin') { // whistles (often the caller's own signature), click trains, burst-pulse squawks
+      if (P < 0.6) {
+        const head = this._far(d, pan, 0.18), sig = P < 0.45 && uid, rs = sig ? seeded(uid * 7 + 3) : Math.random;
+        const dur = (0.4 + rs()) * T, [o] = this._whistle(t, dur, this._shape((rs() * 7) | 0, 4500, 13000, rs), head);
+        this._hold(o, head);
+      } else if (P < 0.85) { // echolocation train, often closing into a buzz
         const head = this._far(d, pan, 0.3), n = 15 + ((Math.random() * 25) | 0), buzz = Math.random() < 0.6;
         let ici = R(0.04, 0.09), s = null;
         for (let i = 0; i < n; i++) { s = this._shot(this.buf.tick, t, R(0.8, 1.3), this._gain(R(0.5, 1), head)); t += ici; if (buzz) ici = Math.max(0.006, ici * 0.9); }
         this._hold(s, head);
+      } else { // quacks and rusty-hinge sounds: short bursts of very fast pulses
+        const head = this._far(d, pan, 0.16, 6000);
+        let last = null;
+        for (let i = 1 + ri(3); i > 0; i--) { const dur = R(0.12, 0.45), r0 = R(150, 600); [last] = this._buzz(t, dur, r0, r0 * R(0.6, 1.5), 1200, 4500, head); t += dur + R(0.08, 0.3); }
+        this._hold(last, head);
       }
-    } else if (kind === 'orca') { // pulsed call: harsh tone with a pitch step
-      const head = this._far(d, pan, 0.12, 3000), e = this._gain(0, head), f0 = R(700, 1400), dur = R(0.6, 1.5);
-      const o = this._osc('sawtooth', f0, e);
-      o.frequency.setValueAtTime(f0, t); o.frequency.setValueAtTime(f0 * R(1.2, 1.6), t + dur * R(0.3, 0.6));
-      o.frequency.exponentialRampToValueAtTime(f0 * R(0.8, 1.1), t + dur);
-      const end = this._env(e.gain, t, 0.05, 1, dur - 0.15, 0.1);
-      o.start(t); o.stop(end + 0.02); this._hold(o, head);
-    } else if (kind === 'beluga') { // bursts of short chirps
+    } else if (kind === 'pilot') { // whistles of seven contour shapes (level, falling, rising, up-down...), or clicks
+      if (P < 0.7) {
+        const head = this._far(d, pan, 0.2), dur = R(0.4, 1.2) * T, [o] = this._whistle(t, dur, this._shape(ri(7), 2000, 8000), head);
+        this._hold(o, head);
+      } else {
+        const head = this._far(d, pan, 0.3), n = 12 + ri(20), ici = R(0.03, 0.08);
+        this._hold(this._train(this.buf.tick, t, n, ici, R(0.6, 0.9), head, 1, 0.15), head);
+      }
+    } else if (kind === 'orca') { // pulsed calls in the pod's own dialect (two call types per pod), or a click train
+      if (P < 0.25) {
+        const head = this._far(d, pan, 0.25, 6000);
+        this._hold(this._train(this.buf.tick, t, 20 + ri(40), R(0.01, 0.04), R(0.7, 1), head, 1, 0.2), head);
+      } else {
+        const rs = seeded((uid >> 4) * 3 + (P < 0.6 ? 1 : 2)), head = this._far(d, pan, 0.12, 3000), e = this._gain(0, head);
+        const f0 = (700 + 700 * rs()) * R(0.98, 1.02), dur = (0.6 + 0.9 * rs()) * T, step = 1.2 + 0.4 * rs(), at = 0.3 + 0.3 * rs(), fin = 0.8 + 0.3 * rs();
+        const o = this._osc('sawtooth', f0, e);
+        o.frequency.setValueAtTime(f0, t); o.frequency.setValueAtTime(f0 * step, t + dur * at);
+        o.frequency.exponentialRampToValueAtTime(f0 * fin, t + dur);
+        const end = this._env(e.gain, t, 0.05, 1, dur - 0.15, 0.1);
+        o.start(t); o.stop(end + 0.02); this._hold(o, head);
+      }
+    } else if (kind === 'beluga') { // chirp bursts, whistles, squeals, clicks
       const head = this._far(d, pan, 0.16);
       let last = null;
-      for (let i = 3 + ((Math.random() * 6) | 0); i > 0; i--) {
-        const f0 = R(1000, 4000), dur = R(0.08, 0.3), e = this._gain(0, head), o = this._osc('sine', f0, e);
-        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (Math.random() < 0.5 ? R(1.3, 2) : R(0.5, 0.8)), t + dur);
-        const end = this._env(e.gain, t, 0.01, 1, dur - 0.04, 0.03);
-        o.start(t); o.stop(end + 0.02); last = o;
-        t = end + R(0.05, 0.25);
-      }
+      if (P < 0.4) {
+        for (let i = 3 + ((Math.random() * 6) | 0); i > 0; i--) {
+          const f0 = R(1000, 4000), dur = R(0.08, 0.3) * T, e = this._gain(0, head), o = this._osc('sine', f0, e);
+          o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * (Math.random() < 0.5 ? R(1.3, 2) : R(0.5, 0.8)), t + dur);
+          const end = this._env(e.gain, t, 0.01, 1, dur - 0.04, 0.03);
+          o.start(t); o.stop(end + 0.02); last = o;
+          t = end + R(0.05, 0.25);
+        }
+      } else if (P < 0.7) [last] = this._whistle(t, R(0.5, 1.5) * T, this._contour(2000, 6000), head);
+      else if (P < 0.9) { // squeals: quick upsweeps with harmonics
+        for (let i = 2 + ri(3); i > 0; i--) {
+          const f0 = R(1500, 2500), dur = R(0.15, 0.35), e = this._gain(0, head);
+          for (const [h, a] of [[1, 1], [2, 0.4]]) { const o = this._osc('sine', f0 * h, this._gain(a, e)); o.frequency.setValueAtTime(f0 * h, t); o.frequency.exponentialRampToValueAtTime(f0 * h * R(1.4, 1.8), t + dur); o.start(t); o.stop(t + dur + 0.03); last = o; }
+          this._env(e.gain, t, 0.01, 1, dur - 0.04, 0.03); t += dur + R(0.05, 0.2);
+        }
+      } else last = this._train(this.buf.tick, t, 10 + ri(15), R(0.02, 0.06), R(0.8, 1.1), head, 1, 0.15);
       this._hold(last, head);
-    } else if (kind === 'narwhal') { // slower click train with a low knock now and then
-      const head = this._far(d, pan, 0.35), n = 10 + ((Math.random() * 20) | 0), ici = R(0.03, 0.12);
-      let s = null;
-      for (let i = 0; i < n; i++) { s = this._shot(Math.random() < 0.1 ? this.buf.knock : this.buf.tick, t, R(0.6, 0.8), this._gain(R(0.5, 1), head)); t += ici * R(0.85, 1.15); }
-      this._hold(s, head);
-    } else if (kind === 'weddell') { // descending trills, each starting lower
+    } else if (kind === 'narwhal') { // click trains, tonal-pulsed signals, whistles
+      const head = this._far(d, pan, 0.35);
+      if (P < 0.5) {
+        const n = 10 + ((Math.random() * 20) | 0), ici = R(0.03, 0.12);
+        let s = null;
+        for (let i = 0; i < n; i++) { s = this._shot(Math.random() < 0.1 ? this.buf.knock : this.buf.tick, t, R(0.6, 0.8), this._gain(R(0.5, 1), head)); t += ici * R(0.85, 1.15); }
+        this._hold(s, head);
+      } else if (P < 0.8) { const r0 = R(300, 900), [o] = this._buzz(t, R(0.5, 2.5) * T, r0, r0 * R(0.7, 1.4), 900, 6000, head, 0.5); this._hold(o, head); }
+      else { const [o] = this._whistle(t, R(0.7, 1.3) * T, this._contour(500, 3000), this._gain(0.5, head)); this._hold(o, head); }
+    } else if (kind === 'weddell') { // descending trills, whistles, low buzzes, chirps
       const head = this._far(d, pan, 0.2, 7000);
-      let f0 = R(2500, 5000), last = null;
-      for (let i = 1 + ((Math.random() * 3) | 0); i > 0; i--) {
-        const dur = R(2, 5), e = this._gain(0, head), am = this._gain(0.5, e), o = this._osc('sine', f0, am), l = this._osc('sine', R(8, 22));
-        l.connect(this._gain(0.5, am.gain));
-        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(R(200, 500), t + dur);
-        const end = this._env(e.gain, t, 0.2, 1, dur - 0.5, 0.3);
-        o.start(t); l.start(t); o.stop(end + 0.02); l.stop(end + 0.02); last = o;
-        t = end + R(0.3, 1.5); f0 *= R(0.6, 0.9);
-      }
-      this._hold(last, head);
-    } else if (kind === 'leopard') { // low moan with a slow vibrato
-      const head = this._far(d, pan, 0.25, 2500), e = this._gain(0, head), f0 = R(150, 320), dur = R(3, 6);
-      const o = this._osc('triangle', f0, e), v = this._osc('sine', R(3, 6));
-      v.connect(this._gain(f0 * 0.03, o.frequency));
-      o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * R(0.85, 1.1), t + dur);
-      const end = this._env(e.gain, t, 0.8, 1, dur - 1.6, 0.8);
-      o.start(t); v.start(t); o.stop(end + 0.02); v.stop(end + 0.02); this._hold(o, head);
-    } else if (kind === 'sealion') { // a few short buzzy barks, each sagging in pitch
-      const head = this._far(d, pan, 0.14, 3500);
-      const bp = c.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = R(500, 900); bp.Q.value = 1.2; bp.connect(head);
       let last = null;
-      for (let i = 2 + ((Math.random() * 4) | 0); i > 0; i--) {
-        const f0 = R(180, 420), dur = R(0.1, 0.25), e = this._gain(0, bp), o = this._osc('sawtooth', f0, e);
-        o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * R(0.7, 0.9), t + dur);
-        const end = this._env(e.gain, t, 0.015, 1, dur - 0.06, 0.045);
-        o.start(t); o.stop(end + 0.02); last = o;
-        t = end + R(0.12, 0.4);
-      }
+      if (P < 0.4) {
+        let f0 = R(2500, 5000);
+        for (let i = 1 + ((Math.random() * 3) | 0); i > 0; i--) {
+          const dur = R(2, 5) * T, e = this._gain(0, head), am = this._gain(0.5, e), o = this._osc('sine', f0, am), l = this._osc('sine', R(8, 22));
+          l.connect(this._gain(0.5, am.gain));
+          o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(R(200, 500), t + dur);
+          const end = this._env(e.gain, t, 0.2, 1, dur - 0.5, 0.3);
+          o.start(t); l.start(t); o.stop(end + 0.02); l.stop(end + 0.02); last = o;
+          t = end + R(0.3, 1.5); f0 *= R(0.6, 0.9);
+        }
+      } else if (P < 0.6) [last] = this._whistle(t, R(0.5, 2) * T, this._contour(1000, 6000), head);
+      else if (P < 0.8) { const r0 = R(80, 200); [last] = this._buzz(t, R(1, 3) * T, r0, r0 * R(0.8, 1.2), 150, 1500, head, 1.3); }
+      else for (let i = 3 + ri(6); i > 0; i--) { const f0 = R(2000, 5000), [o, end] = this._whistle(t, R(0.06, 0.15), this._shape(2, f0, f0 * 1.6), head); last = o; t = end + R(0.06, 0.25) * T; }
+      this._hold(last, head);
+    } else if (kind === 'leopard') { // low tonal moans, trills and hoots, growls
+      const head = this._far(d, pan, 0.25, 2500);
+      if (P < 0.5) {
+        const e = this._gain(0, head), f0 = R(150, 320), dur = R(3, 6) * T, o = this._osc('triangle', f0, e), v = this._osc('sine', R(3, 6));
+        v.connect(this._gain(f0 * 0.03, o.frequency));
+        o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * R(0.85, 1.1), t + dur);
+        const end = this._env(e.gain, t, 0.8, 1, dur - 1.6, 0.8);
+        o.start(t); v.start(t); o.stop(end + 0.02); v.stop(end + 0.02); this._hold(o, head);
+      } else if (P < 0.8) { // a trill (a pulsed tone) or a few hoots
+        let last = null;
+        if (Math.random() < 0.5) {
+          const f0 = R(1000, 3000), dur = R(1, 3) * T, e = this._gain(0, head), am = this._gain(0.5, e), o = this._osc('sine', f0, am), l = this._osc('square', R(15, 30));
+          l.connect(this._gain(0.5, am.gain));
+          o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * R(0.6, 0.9), t + dur);
+          const end = this._env(e.gain, t, 0.1, 0.8, dur - 0.3, 0.2);
+          o.start(t); l.start(t); o.stop(end + 0.02); l.stop(end + 0.02); last = o;
+        } else for (let i = 1 + ri(3); i > 0; i--) {
+          const f0 = R(200, 400), dur = R(0.3, 0.6), e = this._gain(0, head), o = this._osc('triangle', f0, e);
+          o.frequency.setValueAtTime(f0 * 1.1, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.9, t + dur);
+          const end = this._env(e.gain, t, 0.05, 1, dur - 0.15, 0.1); o.start(t); o.stop(end + 0.02); last = o; t = end + R(0.2, 0.6) * T;
+        }
+        this._hold(last, head);
+      } else { const r0 = R(60, 100), [o] = this._buzz(t, R(0.5, 1.2), r0, r0 * 0.8, 150, 900, head, 1.4); this._hold(o, head); }
+    } else if (kind === 'sealion') { // barks, whines, buzzing, click trains
+      const head = this._far(d, pan, 0.14, 3500);
+      let last = null;
+      if (P < 0.45) {
+        const bp = this._filt('bandpass', R(500, 900), 1.2, head);
+        for (let i = 2 + ((Math.random() * 4) | 0); i > 0; i--) {
+          const f0 = R(180, 420), dur = R(0.1, 0.25) * T, e = this._gain(0, bp), o = this._osc('sawtooth', f0, e);
+          o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * R(0.7, 0.9), t + dur);
+          const end = this._env(e.gain, t, 0.015, 1, dur - 0.06, 0.045);
+          o.start(t); o.stop(end + 0.02); last = o;
+          t = end + R(0.12, 0.4) * T;
+        }
+      } else if (P < 0.65) { // whine: a tone rising and falling
+        const f0 = R(300, 700), dur = R(0.4, 1) * T, e = this._gain(0, head), o = this._osc('triangle', f0, e);
+        o.frequency.setValueAtTime(f0, t); o.frequency.linearRampToValueAtTime(f0 * R(1.2, 1.5), t + dur * 0.5); o.frequency.linearRampToValueAtTime(f0 * R(0.8, 1), t + dur);
+        const end = this._env(e.gain, t, 0.05, 1.5, dur - 0.1, 0.05); o.start(t); o.stop(end + 0.02); last = o;
+      } else if (P < 0.85) { const r0 = R(50, 120); [last] = this._buzz(t, R(0.4, 1.2) * T, r0, r0 * R(0.9, 1.2), 300, 1500, head, 2.5); }
+      else last = this._train(this.buf.tick, t, 10 + ri(15), R(0.03, 0.08), R(0.45, 0.6), head, 1.5, 0.15);
       this._hold(last, head);
     } else if (kind === 'harbour') { // male's underwater roar: a rough low buzz with its energy near 1.2 kHz
       const head = this._far(d, pan, 0.2, 4000), dur = R(1.5, 3.5), f0 = R(70, 110);
@@ -868,6 +1368,26 @@ export class Ambience {
     } else if (kind === 'rockfish') { // kelp rockfish: quiet, close-range pulse trains
       const head = this._far(d, pan, 0.3, 2000);
       this._hold(this._train(this.buf.pop, t, 3 + ri(6), R(0.04, 0.08), R(0.45, 0.55), head, 1, 0.1), head);
+    } else if (kind === 'squirrel') { // soldierfish chasing in the school: growls (fast pulse trains, ~80-130 Hz) and knocks
+      const head = this._far(d, pan, 0.6, 1500), rate = R(0.8, 1.3);
+      let s = null;
+      for (let i = 1 + ri(3); i > 0; i--) {
+        const growl = Math.random() < 0.55;
+        s = this._train(this.buf.low, t, growl ? 6 + ri(6) : 1 + ri(2), growl ? R(0.009, 0.013) : R(0.08, 0.15), rate, head, 1, 0.08);
+        t = this._tEnd + R(0.2, 0.6);
+      }
+      this._hold(s, head);
+    } else if (kind === 'drum') { // Picasso triggerfish: a short drum roll (~85 ms, ~190 Hz), its pulses in pairs (one per fin)
+      const head = this._far(d, pan, 0.6, 2000), rate = R(1.8, 2.05);
+      let s = null;
+      for (let i = 1 + ri(2); i > 0; i--) {
+        for (let p = 3 + ri(2); p > 0; p--) { this._shot(this.buf.low, t, rate, this._gain(R(0.7, 1), head)); s = this._shot(this.buf.low, t + 0.011, rate, this._gain(R(0.6, 0.9), head)); t += 0.026 * this._T; }
+        t += R(0.25, 0.7);
+      }
+      this._hold(s, head);
+    } else if (kind === 'cod') { // Arctic cod: one grunt of 6-12 pulses, about 0.29 s, around 107 Hz
+      const head = this._far(d, pan, 0.55, 1200), n = 6 + ri(7);
+      this._hold(this._train(this.buf.low, t, n, R(0.26, 0.32) / n, R(0.95, 1.2), head, 1, 0.12), head);
     }
   }
 
