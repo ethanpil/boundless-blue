@@ -14,7 +14,7 @@ const NBR = [];
 for (const [f, n] of [['newbiomes', ''], ['newbiomes2', '2'], ['newbiomes3', '3'], ['newbiomes4', '4'], ['newbiomes5', '5'], ['newbiomes6', '6'], ['newbiomes7', '7']])
   NBR.push((await import(SRC + 'props/' + f + '.js'))['registerNewBiomeProps' + n]);
 const { mulberry32 } = await import(SRC + 'noise.js');
-const { registerFarField } = await import(SRC + 'props/farfield.js');
+const { registerFarField, FARSTATS } = await import(SRC + 'props/farfield.js');
 
 const biomes = process.argv[2] && process.argv[2] !== 'all' ? process.argv[2].split(',') : BIOME_KEYS;
 const seeds = (process.argv[3] || '1,2').split(',').map(Number);
@@ -36,7 +36,7 @@ function rec(tpl, x, z, sx, sz, cr, cg, cb) {
   if (!CUR || !tpl) return;
   const m = meanCol(tpl), R = srgb(Math.min(1, m[0] * cr)), G = srgb(Math.min(1, m[1] * cg)), Bl = srgb(Math.min(1, m[2] * cb));
   const chroma = Math.max(R, G, Bl) - Math.min(R, G, Bl), rad = (tpl.r || 0.3) * Math.max(sx, sz || sx);
-  CUR.items.push(x, CUR.s0 - z, tpl.tris, chroma * Math.PI * rad * rad, Math.PI * rad * rad);
+  CUR.items.push(x, CUR.s0 - z, tpl.tris, chroma * Math.PI * rad * rad, Math.PI * rad * rad, CUR.far ? 1 : 0);
 }
 const bAdd = core.Batch.prototype.add;
 core.Batch.prototype.add = function (tpl, x, y, z, R, sx, sy = sx, sz = sx, cr = 1, cg = 1, cb = 1, fa = 1) {
@@ -86,6 +86,7 @@ const fogOf = (k) => { const sg = BIOMES[k].sigma; return Math.min(330, Math.max
 const OUT = {};
 const STG = {};
 for (const key of biomes) {
+  if (FARSTATS) { FARSTATS.hero = 0; FARSTATS.heroMax = 0; }
   const H = { items: new Float64Array(NB), tris: new Float64Array(NB), col: new Float64Array(NB), area: new Float64Array(NB), chunks: 0, triOut: 0, calls: 0, stageMax: 0 };
   for (const seed of seeds) {
     seq = new BiomeSequence(seed, key, 20000 + seed * 3000); shape = new WorldShape(seq);
@@ -98,6 +99,7 @@ for (const key of biomes) {
       CUR = { s0: ctx.s0, items: [] };
       for (let pi = 0; pi < term.populators.length; pi++) {
         if (pi >= nPre) window.__stageTrace = []; else delete window.__stageTrace;
+        CUR.far = pi >= nPre;
         const o0 = OBS.n, ta = performance.now(); const r = term.populators[pi](ctx); const dt = performance.now() - ta;
         if (pi >= nPre && n >= 1) for (const [k, ms] of window.__stageTrace) { const T = H.trace || (H.trace = {}); T[k] = Math.max(T[k] || 0, ms); if (ms > 5) H.over5 = (H.over5 || 0) + 1; H.nst = (H.nst || 0) + 1; }
         if (pi >= nPre) H.farObs = (H.farObs || 0) + OBS.n - o0; else H.obs = (H.obs || 0) + OBS.n - o0;
@@ -120,9 +122,9 @@ for (const key of biomes) {
         }
       }
       const I = CUR.items; CUR = null; H.chunks++;
-      for (let i = 0; i < I.length; i += 5) {
+      for (let i = 0; i < I.length; i += 6) {
         const d = Math.abs(I[i] - shape.pathX(I[i + 1])), b = Math.min(NB - 1, Math.floor(d / BIN));
-        H.items[b]++; H.tris[b] += I[i + 2]; H.col[b] += I[i + 3]; H.area[b] += I[i + 4];
+        H.items[b]++; H.tris[b] += I[i + 2]; H.col[b] += I[i + 3]; H.area[b] += I[i + 4]; if (I[i + 5]) { H.farIt = H.farIt || new Float64Array(NB); H.farIt[b]++; H.farTr = H.farTr || new Float64Array(NB); H.farTr[b] += I[i + 2]; }
       }
     }
   }
@@ -143,6 +145,7 @@ for (const key of biomes) {
   OUT[key] = S;
   const row = (a, k = 1) => a.d.filter((_, i) => i % 2 === 0).map((v) => (v * k).toFixed(k > 1 ? 0 : 1).padStart(5)).join('');
   console.log(`\n== ${key}  fog ${fog.toFixed(0)} m, ${H.chunks} chunks, ${S.ktrisChunk}k tris/chunk (far ${S.farK}k), ${S.calls} calls/chunk (far ${S.farCalls}), slowest stage ${S.stageMax} ms; far field ${S.farMs} ms/chunk, slowest far stage ${S.farMax} ms; props ${S.mb} MB/chunk (far ${S.farMb}); obstacles/chunk ${S.obs} (far ${S.farObs})`);
+  if (FARSTATS) console.log(`  hero footprint stamping: ${(FARSTATS.hero / H.chunks).toFixed(2)} ms/chunk, slowest ${FARSTATS.heroMax.toFixed(2)} ms`);
   if (H.trace) console.log('  far stage kinds, max ms:', JSON.stringify(Object.fromEntries(Object.entries(H.trace).map(([k, v]) => [k, +v.toFixed(2)]))), `stages over 5 ms: ${H.over5 || 0} of ${H.nst}`);
   console.log(`  items: half at ${S.items.half} m, ~zero at ${S.items.zero} m, beyond 30 m ${S.items.b30}%, beyond 60 m ${S.items.b60}%`);
   console.log(`  tris : half at ${S.tris.half} m, ~zero at ${S.tris.zero} m, beyond 30 m ${S.tris.b30}%, beyond 60 m ${S.tris.b60}%`);
@@ -152,6 +155,7 @@ for (const key of biomes) {
   console.log('  it/100m2' + row(S.items));
   console.log('  tris/m2 ' + row(S.tris, 0.01));
   console.log('  cover%  ' + row(S.area));
+  if (H.farIt) { const k = 1 / (H.chunks * 64 * 2 * BIN / 100); console.log('  far it  ' + Array.from(H.farIt).filter((_, i) => i % 2 === 0).map((v) => (v * k).toFixed(1).padStart(5)).join('')); console.log('  far ktri' + Array.from(H.farTr).filter((_, i) => i % 2 === 0).map((v) => (v / H.chunks / 1000).toFixed(1).padStart(5)).join('')); }
 }
 const names = {}; // stage index -> populator kind is not tracked here; run.mjs prints per-stage names
 const slow = Object.entries(STG).map(([i, a]) => [+i, Math.max(...a)]).filter((x) => x[1] > 3).sort((a, b) => b[1] - a[1]).slice(0, 12);

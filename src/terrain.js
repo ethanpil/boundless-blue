@@ -13,7 +13,8 @@ import { CHUNK, DX, NZ, NO_CEIL, rowS, chunkData, skyData } from './worker/terra
 export { CHUNK };
 // BEHIND: the world stays 100 m behind the camera, so a view turned sideways or back (drag-to-look) still finds
 // seabed and props there; in the forward view those chunks are frustum-culled (memory: about one chunk more)
-const AHEAD = 330, BEHIND = 100;
+const AHEAD = 330, BEHIND = 64; // (behind: at least one whole chunk, for views turned sideways or back (drag to look); 100 cost
+// kelp +30k forward-view triangles on low: tall props behind the camera have bounding spheres that reach into the view)
 // Distance (m ahead of the camera) up to which tagged prop LOD classes are drawn (per GPU tier, see quality.js).
 const LOD = { high: { near: 70, mid: 150 }, low: { near: 45, mid: 100 } };
 // Builds waiting for workers go ahead here once the pool has stalled this long (ms): a caller running the
