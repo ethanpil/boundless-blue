@@ -14,6 +14,7 @@ import { registerNewBiomeProps4 } from './props/newbiomes4.js';
 import { registerNewBiomeProps5 } from './props/newbiomes5.js'; // Lost City
 import { registerNewBiomeProps6 } from './props/newbiomes6.js'; // coldcoral
 import { registerNewBiomeProps7 } from './props/newbiomes7.js'; // whalefall
+import { registerFarField } from './props/farfield.js'; // far-field habitat (runs after every zone's own props)
 import { Ambience } from './audio/index.js';
 import { Creatures } from './creatures/index.js';
 import { Surprises } from './surprises/index.js';
@@ -674,7 +675,7 @@ async function boot() {
   await bootStep(0.57, 750, () => registerNewBiomeProps4(terrain, env));
   await bootStep(0.58, 150, () => registerNewBiomeProps5(terrain, env)); // Lost City
   await bootStep(0.57, 120, () => registerNewBiomeProps6(terrain, env)); // coldcoral
-  await bootStep(0.58, 120, () => registerNewBiomeProps7(terrain, env)); // whalefall
+  await bootStep(0.58, 140, () => { registerNewBiomeProps7(terrain, env); registerFarField(terrain, env); }); // whalefall; far field last
   bootProgress(0.57, 'waking the sea life');
   await bootStep(0.6, 300, () => {
     creatures = new Creatures(world, env);

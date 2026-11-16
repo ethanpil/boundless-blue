@@ -6,6 +6,7 @@ import { putAt, putFloor, pickW, tintFrom, spot, bendX, microDetail, microSteps,
 import { MAT } from './materials.js';
 import { acroThicket, cullBase, canopyNormals } from './reef_shapes.js';
 import { mulberry32, noise2 } from '../noise.js';
+import { habitat } from '../biomes.js';
 
 // ---------- reef-specific templates ----------
 function staghorn(seed) {
@@ -541,6 +542,8 @@ const SOFTC = RL([[1.05, 0.4, 0.66], [1.05, 0.9, 0.6], [0.8, 0.42, 1.0], [1.15, 
 const BARREL = RL([[0.8, 0.3, 0.22], [0.66, 0.36, 0.24], [0.86, 0.42, 0.4], [0.6, 0.3, 0.28], [0.84, 0.5, 0.36]]);
 const TABLE = RL([[0.95, 0.66, 0.34], [0.78, 0.54, 0.28], [1.0, 0.8, 0.5], [0.6, 0.68, 0.95], [0.86, 0.5, 0.66], [0.78, 0.86, 0.42]]);
 const NEUTRAL = [[1, 1, 1], [1.04, 0.99, 0.93], [0.96, 0.98, 1.04], [1.02, 0.96, 1.0]];
+// the colony palettes, for the far-field reef (farfield.js: same colours as the hero colonies)
+export const REEF_PAL = { MOSAIC, PAD, PORITES, BRAINP, HEADP, ACRO, TABLE, FANS, SOFTC, MASSIVE, VIVID, BARREL };
 export const REEF = {};
 function specs() {
   if (REEF.stag) return REEF;
@@ -735,6 +738,9 @@ function spurs(x, s) { // > 0 on a spur; crests run across the valley about ever
   return Math.sin((s + w) * TAU / 11 + noise2(x / 17, s / 9, 911) * 2.2) * 0.6 + noise2(x / 7, s / 7, 912) * 0.9;
 }
 const REEF_SPUR_THR = -0.55;
+// the world-space habitat field (biomes.habitat, shared with the far field): the route crosses richer gardens and
+// poorer stretches instead of one even corridor (framework and coral heads thin to ~60 % on the poorest ground)
+const rich = (x, s) => Math.min(1, 0.6 + 0.8 * habitat(x, s));
 const pathYaw = (ctx, s) => Math.atan2(-(ctx.pathX(s + 3) - ctx.pathX(s - 3)), 6);
 
 // per-segment set pieces: one cleaning station, natural arches every 300-700 m, and a showpiece every
@@ -850,7 +856,7 @@ export function layoutReef(ctx) {
     for (let s0 = ctx.s0 + rng() * band.cell; s0 < ctx.s1; s0 += band.cell) more.push(() => {
       for (let d = band.d[0] + rng() * band.cell * 0.5; d < band.d[1]; d += band.cell * (0.8 + 0.4 * rng())) {
         const s = s0 + (rng() - 0.5) * band.cell * 0.8, x = ctx.pathX(s) + side * d;
-        if (rng() > ctx.weightOf(s, 'reef') || spurs(x, s) < REEF_SPUR_THR) continue;
+        if (rng() > ctx.weightOf(s, 'reef') * rich(x, s) || spurs(x, s) < REEF_SPUR_THR) continue;
         const spec = band.lo ? R.knollLo : R[pickW(rng, knollAt(ctx, comm, s)).k];
         const sc = putFloor(ctx, fs, frame, { ...spec, tint: (r) => commTint(spec, comm, r) }, x, s, rng, band.k);
         if (!sc || !band.col) continue;
@@ -875,7 +881,7 @@ export function layoutReef(ctx) {
   // coral banks: a few steps per coral head (its parameters are drawn now, so the draw order is fixed)
   for (const row of ROWS) for (const side of [-1, 1]) {
     for (let s = ctx.s0 + rng() * row.step; s < ctx.s1; s += row.step * (0.75 + 0.5 * rng()) / ((comm.rows || 1) * ((patchAt(ctx, s) || {}).rows || 1))) {
-      if (rng() > ctx.weightOf(s, 'reef')) continue;
+      if (rng() > ctx.weightOf(s, 'reef') * rich(ctx.pathX(s), s)) continue;
       const x = ctx.pathX(s) + side * lerp(row.d[0], row.d[1], rng()), m = row.m * (0.8 + 0.4 * rng()), n = row.n + (rng() < 0.5 ? 1 : 0);
       more.push(...bommie(ctx, fs, st, mid.sw, rng, x, s, m, n, row.k, listAt(ctx, comm, s), head));
     }

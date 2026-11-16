@@ -1026,3 +1026,18 @@ export class WorldShape {
   }
 }
 export const NO_CEILING = NO_CEIL;
+
+// --- far field --- (props/farfield.js; the encrusting-life tint in worker/terrain_gen.js)
+// Habitat richness 0..1 of the seabed, in world space: gardens, bare stretches and ridges that cross the route
+// instead of following it, so the richest patches can lie 30-60 m off the route and the route now and then
+// crosses a poorer stretch. k scales the patches (1: ~50 m gardens with ~17 m clusters in them).
+export function habitat(x, s, k = 1, seed = 0) {
+  const a = fbm2(x / (52 * k), s / (52 * k), 2, 701 + seed), b = noise2(x / (17 * k), s / (17 * k), 703 + seed);
+  return smoothstep(-0.3, 0.32, a * 0.85 + b * 0.4);
+}
+// Seagrass meadow field (> the community's gap: grass) and its scoured sand channels (1 = channel), shared by
+// props/seagrass.js, the far field and the meadow's seabed tint below.
+export const seagrassMeadow = (x, s) => noise2(x / 13, s / 13, 501) * 0.7 + noise2(x / 4.5, s / 4.5, 502) * 0.3;
+export const seagrassChannel = (x, s) => 1 - smoothstep(0.04, 0.16, Math.abs(noise2(x / 24 + 1.6 * noise2(s / 70, 3.1, 504), s / 90, 503)));
+// darker, greener sediment under the meadow, so the beds read from afar where no blades are drawn
+BIOMES.seagrass.floorTint = (x, s, nn, T) => { const p = smoothstep(-0.36, -0.2, seagrassMeadow(x, s)) * (0.75 + 0.25 * nn); T[0] -= 0.17 * p; T[1] -= 0.08 * p; T[2] -= 0.15 * p; };

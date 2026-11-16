@@ -2,7 +2,7 @@
 // Run by the world workers (world.worker.js) and, as a fallback, time-sliced on the main thread (terrain.js).
 // No three.js in this module graph (workers cannot rely on the import map): results are plain typed arrays.
 // Generators yield between slices of work and return their result.
-import { BIOMES, sv } from '../biomes.js';
+import { BIOMES, sv, habitat } from '../biomes.js';
 import { noise2, smoothstep, clamp } from '../noise.js';
 
 export const CHUNK = 64;          // metres of travel per chunk
@@ -83,9 +83,16 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
   const pos = new Float32Array(n * 3), nor = new Float32Array(n * 3), col = new Float32Array(n * 3);
   const det = isCeil ? new Float32Array(n) : new Float32Array(n * 4);
   const dz = CHUNK / (NZ - 1);
+  // habitat richness along each row (the encrusting life follows it): sampled every 4th column and interpolated,
+  // since it varies over tens of metres
+  const HS = 4, hab = new Float32Array(NX + HS);
   let k = 0;
   for (let j = 0; j < NZ; j++) {
     const r = rows[j + 1];
+    if (!isCeil && r.ws.some((e) => LIFE[e.key] && LIFE[e.key][0] > 0)) {
+      for (let i = 0; i < NX + HS; i += HS) hab[i] = habitat(x0 + i * DX, r.s);
+      for (let i = 0; i < NX; i++) { const a = i - (i % HS); hab[i] = hab[a] + (hab[a + HS] - hab[a]) * (i % HS) / HS; }
+    }
     for (let i = 0; i < NX; i++, k++) {
       const g = (j + 1) * W + (i + 1);
       const h = hgt[g];
@@ -124,7 +131,10 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
         cb += (T[2] + (T[5] - T[2]) * ro) * e.w;
         rip += (b.ripple ?? 1) * T[6] * e.w; rk += ro * e.w;
         const L = LIFE[e.key];
-        if (L) { life += L[0] * (0.65 + 0.7 * sv(e.g, 21)) * e.w; hue += L[1] * e.w; }
+        if (L) {
+          // encrusting life follows the habitat patches (as the far-field props do): richer gardens, poorer stretches
+          life += L[0] * (0.65 + 0.7 * sv(e.g, 21)) * (0.5 + 0.8 * hab[i]) * e.w; hue += L[1] * e.w;
+        }
       }
       const v = 0.9 + 0.2 * nn;
       col[k * 3] = cr * ao * v; col[k * 3 + 1] = cg * ao * v; col[k * 3 + 2] = cb * ao * v;

@@ -4,7 +4,8 @@ import { Builder, Batch, Inst, T, TAU, sat, sstep, lerp, vn3, floorSampler, pres
 import { seastar } from './shapes.js';
 import { putFloor, pickW, tintFrom, spot, putBend, microDetail, microSteps, steps, clusterer, groundY } from './scatter.js';
 import { MAT } from './materials.js';
-import { mulberry32, noise2 } from '../noise.js';
+import { mulberry32 } from '../noise.js';
+import { seagrassMeadow, seagrassChannel } from '../biomes.js';
 
 function conch(seed) {
   const b = new Builder();
@@ -153,9 +154,8 @@ function specs() {
   return S;
 }
 
-const meadow = (x, s) => noise2(x / 13, s / 13, 501) * 0.7 + noise2(x / 4.5, s / 4.5, 502) * 0.3;
-// meandering bare-sand channels (current-scoured) for the channelled community
-const channel = (x, s) => 1 - sstep(0.04, 0.16, Math.abs(noise2(x / 24 + 1.6 * noise2(s / 70, 3.1, 504), s / 90, 503)));
+// the meadow field and the meandering bare-sand channels (current-scoured) of the channelled community
+const meadow = seagrassMeadow, channel = seagrassChannel;
 
 // ---------- per-segment communities: dominant species, density, sand pattern ----------
 const COMMUNITIES = [
