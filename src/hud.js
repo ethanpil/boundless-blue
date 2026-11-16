@@ -23,6 +23,8 @@ const IDLE_MS = 8000, IDLE_SHEET_MS = 20000;
 const CAP_EM = 13, CAP_MIN_FS = 14;
 const TOAST_MS = 4800;
 const PICK_MS = 4000, PICK_NONE_MS = 1600;     // identify card: a name, or "nothing to identify here"
+const TAP_PX = 14, DBL_MS = 300;               // a tap travels at most TAP_PX (beyond: a drag to look); double tap
+const LOOK_HINT = 'ocean.look.hinted';         // the drag-to-look hint is shown once
 const CARD = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
 const LAMP_NEXT = { auto: 'on', on: 'off', off: 'auto' };
 // More-sheet switches (data-tog) and the app getter each one shows (inst and pin are the deck's own)
@@ -82,7 +84,10 @@ export class Hud {
     setTimeout(() => {
       if (this.open || this.everOpened || app.identifyOn) return;
       const snd = app.soundOn && !app.soundActive ? ' and sound' : '';   // browsers start audio on the first tap
-      this.hint.innerHTML = `<i></i>${this.coarse ? `tap anywhere for controls${snd}` : `click anywhere for controls${snd} <kbd>M</kbd>`}`;
+      // (the first time, it also says the view can be dragged)
+      const look = app.lookMode && app.lookMode !== 'off' && !store.get(LOOK_HINT) ? ` · drag to look around` : '';
+      if (look) store.set(LOOK_HINT, '1');
+      this.hint.innerHTML = `<i></i>${this.coarse ? `tap anywhere for controls${snd}${look}` : `click anywhere for controls${snd} <kbd>M</kbd>${look}`}`;
       this.hint.classList.add('on');
     }, 3800);
     setTimeout(() => this.hint.classList.remove('on'), 11500);
@@ -159,6 +164,7 @@ export class Hud {
     this.togs = deck.querySelectorAll('[data-tog]');
     this.lampBtns = deck.querySelectorAll('[data-lamp]');
     this.camBtns = deck.querySelectorAll('[data-cam]');
+    this.lookBtns = deck.querySelectorAll('[data-look]');
     this.qBtns = deck.querySelectorAll('[data-q]');
     this.timeBtns = deck.querySelectorAll('[data-time]');
     this.wxBtns = deck.querySelectorAll('[data-weather]');
@@ -204,21 +210,60 @@ export class Hud {
     const inUI = (t) => !!(t && t.closest && t.closest('.dk-p, .dk-sheet, #dk-toast, #dk-handle button, #dk-fade, #dk-pick .dk-pb'));
     // A tap on the view (not on the deck) toggles the deck, or in identify mode names what is under it.
     // An open sheet is closed first either way. Pointer events cover mouse, touch and pen.
-    let down = null;
+    // Drag to look: a press on the view that travels beyond the tap threshold turns the view instead (one finger or the
+    // primary mouse button; app.lookMode 'off' leaves it doing nothing), and is never a tap. A second finger cancels
+    // it (pinches are the browser's: the canvas has touch-action: pinch-zoom, index.html). While the view is turned
+    // away, a double tap brings it back, so a tap's own action waits DBL_MS for a second tap then.
+    let down = null, lastTap = null;
+    const tapAct = (x, y) => {
+      if (this.open && this.sheet) { this.closeSheet(false); this.poke(); return; }
+      if (this.app.identifyOn) { this._identify(x, y); this.poke(); return; }
+      this.toggle(false);
+    };
     addEventListener('pointerdown', (e) => {
-      if (!e.isPrimary || e.button > 0) { down = null; return; }
+      if (!e.isPrimary || e.button > 0) {
+        if (down && down.drag) this.app.lookEnd(e.timeStamp, true);
+        down = null; return;
+      }
       if (inUI(e.target)) { down = null; this.poke(); return; }
-      down = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
+      down = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId, drag: false, moved: false, lx: 0, ly: 0 };
+    }, { passive: true });
+    addEventListener('pointermove', (e) => {
+      const d = down;
+      if (!d || e.pointerId !== d.id || d.moved && !d.drag) return;
+      if (!d.drag) {
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) <= TAP_PX) return;
+        d.moved = true;                       // no longer a tap, whatever happens next
+        if (!this.app.lookStart || !this.app.lookStart()) return;
+        d.drag = true; d.lx = d.x; d.ly = d.y; // (the travel so far counts: the view catches up under the finger)
+        if (this.hint.classList.contains('on')) this.hint.classList.remove('on');
+      }
+      this.app.lookMove(e.clientX - d.lx, e.clientY - d.ly, e.timeStamp, e.clientX, e.clientY);
+      d.lx = e.clientX; d.ly = e.clientY;
     }, { passive: true });
     addEventListener('pointerup', (e) => {
       const d = down; down = null;
-      if (!d || e.pointerId !== d.id || inUI(e.target)) return;
-      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 14 || performance.now() - d.t > 800) return;
-      if (this.open && this.sheet) { this.closeSheet(false); this.poke(); return; }
-      if (this.app.identifyOn) { this._identify(e.clientX, e.clientY); this.poke(); return; }
-      this.toggle(false);
+      if (!d || e.pointerId !== d.id) return;
+      if (d.drag) { this.app.lookEnd(e.timeStamp); return; }
+      if (d.moved || inUI(e.target)) return;
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > TAP_PX || performance.now() - d.t > 800) return;
+      const now = performance.now(), x = e.clientX, y = e.clientY, look = this.app.look;
+      if (lastTap && now - lastTap.t < DBL_MS && Math.hypot(x - lastTap.x, y - lastTap.y) < 40) {
+        // a double tap: with the view turned away it looks ahead again (the first tap's action is dropped)
+        if (lastTap.timer) { clearTimeout(lastTap.timer); lastTap = null; this.app.lookRecentre(); return; }
+        lastTap = null;
+      }
+      if (look && look.active) {
+        lastTap = { t: now, x, y, timer: setTimeout(() => { lastTap = null; tapAct(x, y); }, DBL_MS) };
+        return;
+      }
+      lastTap = { t: now, x, y, timer: 0 };
+      tapAct(x, y);
     }, { passive: true });
-    addEventListener('pointercancel', () => { down = null; }, { passive: true });
+    addEventListener('pointercancel', (e) => {
+      if (down && down.drag && e.pointerId === down.id) this.app.lookEnd(e.timeStamp, true);
+      down = null;
+    }, { passive: true });
     // Wheel or trackpad scrolling, pointer movement and scrolling inside the deck (e.g. reading a sheet) are use
     // too, so the deck does not auto-hide under the reader. Throttled: pointermove fires at the display rate.
     const nudge = (e) => { if (e.timeStamp - this.nudgeT > 250) { this.nudgeT = e.timeStamp; this.poke(); } };
@@ -379,6 +424,7 @@ export class Hud {
     else if (ds.weather) a.setWeather(ds.weather);
     else if (ds.lamp) a.setLamp(ds.lamp);
     else if (ds.cam) a.setCuriosity(ds.cam === '1' ? 1 : 0);
+    else if (ds.look) a.setLookMode(ds.look);
     else if (ds.q) { if (ds.q !== a.quality) this._reload(() => a.setQuality(ds.q)); }
     else if (ds.tog) this._toggle(ds.tog, kb);
     else if (ds.act) {
@@ -797,6 +843,7 @@ export class Hud {
         flag(R.tg_wake, 'ok', supported && a.wakeLock && a.wakeLockActive);
         for (const b of this.lampBtns) pressed(b, b.dataset.lamp === a.lampMode);
         for (const b of this.camBtns) pressed(b, (b.dataset.cam === '1') === (a.curiosity >= 0.5));
+        for (const b of this.lookBtns) pressed(b, b.dataset.look === a.lookMode);
         for (const b of this.qBtns) pressed(b, b.dataset.q === a.quality);
         txt(R.qnote, `Running at ${o.tier} quality${a.quality === 'auto' ? ' (chosen for this device)' : ''}. Changing it reloads the dive.`);
         txt(R.fps, o.fps.toFixed(0));

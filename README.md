@@ -20,6 +20,8 @@ Then open http://localhost:8000. (`tools/serve.py` disables caching so edited mo
 
 Tap or click anywhere to open the **controls**: a single bar with the current zone, what comes next, and labelled buttons for pause, next zone, zones, time, weather, sound, identify, fullscreen and More (lamps, speed, camera, captions, names, alerts, wake lock, quality, share link). It hides itself when idle. For the full **instrument cockpit** (depth gauge, compass, sonar, clock, environment readouts, dive log), turn on More > Instruments or press `G`; the choice is remembered. Everything works by touch or mouse; the keyboard shortcuts remain. With identify mode on, a tap names whatever is under it, and the controls open from their handle instead. New-species alerts can be switched off under More.
 
+Drag the view with the mouse or one finger to **look around** (up to 150° either way) while the craft keeps to its route; a few seconds after you let go the view drifts back to the camera's own gaze. Double-tap or double-click to look ahead again. More → Drag to look: On / Hold / Off. With Identify on, tap the name card to dismiss it at once.
+
 Ambient sound (generated in the browser, no audio files) starts on the first tap or key press, because browsers block autoplay.
 
 The screen is kept awake while the dive is visible (where the browser supports it; `wake=0` turns this off).

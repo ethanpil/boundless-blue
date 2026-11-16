@@ -9,6 +9,8 @@
   <style>
     html, body { margin: 0; height: 100%; background: #021826; overflow: hidden; cursor: none; touch-action: manipulation; }
     canvas { display: block; width: 100vw; height: 100vh; }
+    /* one-finger drags on the view turn it (drag to look, hud.js): the browser keeps pinches only */
+    body > canvas { touch-action: pinch-zoom; }
     #loader { position: fixed; inset: 0; display: grid; place-items: center; text-align: center; color: #cfeef8;
       background: radial-gradient(ellipse at 50% 12%, #0e5f82 0%, #06324a 38%, #021826 75%); transition: opacity 2.5s ease; z-index: 5; }
     #loader h1 { margin: 0; font: 200 clamp(28px, 5vw, 64px)/1 Georgia, 'Times New Roman', serif; letter-spacing: .42em;

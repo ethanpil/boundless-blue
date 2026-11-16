@@ -286,6 +286,9 @@ export function deckHTML(app) {
     <div class="dk-segrow"><span class="dk-k">${icon('camera')}CAMERA</span><div class="dk-seg" role="group" aria-label="Camera mode">
       <button type="button" data-cam="1" aria-pressed="false">DOCUMENTARY</button><button type="button" data-cam="0" aria-pressed="false">STEADY</button></div>
       <small class="dk-help">Documentary turns to follow animals; steady keeps a calm glide ahead.</small></div>
+    <div class="dk-segrow"><span class="dk-k">${icon('eye')}DRAG TO LOOK</span><div class="dk-seg" role="group" aria-label="Drag to look">
+      <button type="button" data-look="on" aria-pressed="false">ON</button><button type="button" data-look="hold" aria-pressed="false">HOLD</button><button type="button" data-look="off" aria-pressed="false">OFF</button></div>
+      <small class="dk-help">Drag the view to look around. On: it drifts back a few seconds after you let go; hold: it stays. Double-tap to look ahead again.</small></div>
     ${grp('On screen')}
     <div class="dk-togs">
       ${tog('labels', 'eye', 'Names', 'label creatures and objects', 'I')}

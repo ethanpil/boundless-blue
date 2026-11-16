@@ -4,7 +4,12 @@ All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepac
 
 ## [2026-11-16]
 
+### Added
+- Drag to look: drag the view with the mouse or one finger to turn it, like a video game (1:1 with the pointer, up to 150° either way). The craft keeps flying its route; the view eases back a few seconds after you let go, or stays if you choose Hold. Double-tap or double-click recentres. Setting under More.
+- With Identify on, a tap on the name card dismisses it at once (left alone, it still fades by itself).
+
 ### Changed
+- Turns feel like riding a small submersible instead of a camera pan: the heading eases into and out of bends, ignores the route's small wiggles and banks into turns (up to about 12°), and the camera's looks at animals are slower, eased head turns.
 - Sound, more variety in the same muffled style. Every zone family has its own water: lapping and small breakers in the shallows, a heavy swell with shifting sand on reefs, creaks and knocks in kelp, hollow glugs in caves, a wide rumble with distant booms in open water, squeaks of trapped air under ice, near silence in the deep, gas streams at Champagne Reef. Calmer and busier spells come and go, and nights are calmer.
 - New water sounds tied to what is on screen: bubble curtains and belches, the wake of a big animal passing, splashes and breach thumps from the surface, strikes, and the tearing and thrashing at the whale fall.
 - Animals have several call types, their own pitch, signature whistles and pod dialects, and answer each other. Soldierfish, Picasso triggerfish and Arctic cod now call.

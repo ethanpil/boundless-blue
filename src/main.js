@@ -172,9 +172,11 @@ function framingBias() {
   }
   director.biasYaw = by; director.biasPitch = bp;
 }
-function placeCamera(dt, time, C) {
+// lookDt: the frame time for the viewer's drag-to-look, which also turns the view while the dive is paused
+function placeCamera(dt, time, C, lookDt = dt) {
   rebase(-s);
   framingBias();
+  director.lookTick(lookDt);
   // sun-shaft pauses (camera 'light-shaft' POIs): by day, sun well up, clear sky
   director.lightOK = C.daylight > 0.85 && C.elevAir > 0.35 && C.shaftMul > 0.9 && C.cloud < 0.45;
   const r = director.update(dt, time, s, Oz, Math.max(0.005, U.uSigma.value.y), C.surge, subjectsFn, poisFn);
@@ -340,6 +342,31 @@ const app = {
   },
   setLamp(mode) { lampMode = mode; },              // 'auto' | 'on' | 'off'
   setCuriosity(v) { director.curiosity = Math.max(0, Math.min(1, v)); },
+  // Drag to look (hud.js sends the drags on the view): 'on' (the view drifts back to the pilot's gaze a few seconds
+  // after release), 'hold' (it stays where it was left) or 'off'. A viewer setting: not in the share link.
+  get lookMode() { return director.look.mode; },
+  setLookMode(m) {
+    if (m !== 'on' && m !== 'hold' && m !== 'off') return;
+    director.look.mode = m; savePref('look', m);
+    if (m === 'off') director.lookRecentre(true);
+    else if (m === 'on') director.look.idle = 0; // (from hold: the wait before drifting back starts now)
+  },
+  // state for tests: offsets from the craft's heading (radians, + = left / up), active while the viewer's look holds
+  // the view (until it has returned), dragging, returning
+  get look() { const L = director.look; return { yaw: L.yaw, pitch: L.pitch, active: L.w > 0, dragging: L.drag, returning: !!L.back, mode: L.mode }; },
+  setLook(yaw, pitch = 0) { director.lookSet(yaw, pitch); },   // debug: set the offset (radians) as if dragged there
+  // A drag on the view: start, move by (dx, dy) CSS px to (x, y), end (t: event time stamps in ms, for the release's
+  // coast), recentre (double tap). 1:1: the angles are those between the two points through the lens, so the point
+  // under the finger stays under it (exactly across the view's width while the view is level).
+  lookStart() { return director.lookStart(); },
+  lookMove(dx, dy, t, x = innerWidth / 2 + dx, y = innerHeight / 2 + dy) {
+    // (the canvas fills the window: index.html)
+    const k = 2 * Math.tan(camera.fov * Math.PI / 360) / Math.max(1, innerHeight);
+    const ux = (x - innerWidth / 2) * k, uy = (y - innerHeight / 2) * k;
+    director.lookBy(Math.atan(ux) - Math.atan(ux - dx * k), Math.atan(uy) - Math.atan(uy - dy * k), t);
+  },
+  lookEnd(t, cancel = false) { director.lookEnd(t, cancel); },
+  lookRecentre() { director.lookRecentre(true); },
   setWakeLock(v) { wakeWanted = !!v; wakeError = ''; if (wakeWanted) acquireWake(true); else if (wakeLock) { wakeLock.release(); wakeLock = null; } },
   setQuality(t) { reloadWith({ quality: t === 'auto' ? null : t }); },
   // The world only: seed and starting zone (plus start, if set). Quality, wake, fps and the time/weather locks
@@ -356,7 +383,7 @@ const app = {
     const o = _info, g = seq.segs[seq.segAt(s)], b = BIOMES[g.key];
     const ng = seq.segs[seq.segAt(g.end + 1)];
     const depth = Math.max(0, -camera.position.y), floorY = shape.floorAt(camState.x, s);
-    const f = camState.forward;
+    const f = director.heading; // the craft's heading, not where the viewer is looking
     o.zoneKey = g.key; o.zone = b.label; o.subtitle = b.subtitle || '';
     o.nextZone = BIOMES[ng.key].label; o.zoneProgress = Math.min(1, Math.max(0, (s - g.start) / (g.end - g.start)));
     o.metresToNext = Math.max(0, g.end - s);
@@ -368,7 +395,7 @@ const app = {
     // faux compass: a slowly wandering base heading plus where the camera actually points
     const base = 180 + 170 * noise1(s / 4000, 501) + 80 * noise1(s / 1300, 502);
     o.heading = (((base + Math.atan2(f.x, -f.z) * 180 / Math.PI) % 360) + 360) % 360;
-    o.pitch = Math.asin(Math.max(-1, Math.min(1, f.y))) * 180 / Math.PI;
+    o.pitch = Math.asin(Math.max(-1, Math.min(1, camState.forward.y))) * 180 / Math.PI; // (the view's tilt)
     o.currentDir = (((base + 140 * noise1(s / 900 + simTime / 500, 503)) % 360) + 360) % 360;
     o.currentKnots = 0.2 + 0.7 * Math.abs(noise1(simTime / 300, 504)) + C.surge * 1.3;
     const deep = P.tempC <= 6;
@@ -392,11 +419,11 @@ const app = {
     for (const e of _cands) if (e.name === name) return true;
     return !!(creatures && creatures.director.eventRare(name)); // rare wildlife events (creatures/events.js)
   },
-  // Sonar contacts within 90 m, relative to the camera heading: dx right, dz ahead (m), dy up.
+  // Sonar contacts within 90 m, relative to the craft's heading: dx right, dz ahead (m), dy up.
   // kind: 'rare' (surprise encounter) | 'big' | 'school' | 'animal' | 'poi' (set piece; type, name).
   // The entry objects are pooled and reused between calls.
   contacts(out) {
-    const cam = camera.position, f = camState.forward, pool = app._cpool;
+    const cam = camera.position, f = director.heading, pool = app._cpool;
     const fl = Math.hypot(f.x, f.z) || 1, fx = f.x / fl, fz = f.z / fl;
     let n = 0;
     for (let pass = 0; pass < 3; pass++) {
@@ -421,6 +448,7 @@ const app = {
   },
 };
 window.__ocean.app = app;
+{ const m = loadPref('look', 'on'); director.look.mode = m === 'hold' || m === 'off' ? m : 'on'; }
 
 addEventListener('keydown', (e) => {
   if (e.target && /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
@@ -742,7 +770,7 @@ function tick(dt, draw) {
   }
   time = simTime % 4096; // shader time wraps to keep float precision
   U.uTime.value = time;
-  placeCamera(paused ? 0 : dt, simTime, C);
+  placeCamera(paused ? 0 : dt, simTime, C, dt);
   terrain.update(s, 4, Math.min(330, Math.max(90, 4.5 / Math.min(U.uSigma.value.y, U.uSigma.value.z))));
   terrain.sky.syncUniforms(Oz);
   updateEnvironment(C);
