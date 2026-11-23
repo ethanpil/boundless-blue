@@ -483,6 +483,15 @@ if (crPart == 4.0) {            // eye: glossy black pupil, iris ring
 }
 // faint scale / skin micro-variation
 crCol *= 0.93 + 0.14 * crNoise(q * 23.0 + sd);
+#if WQ > 0
+if (crPart == 0.0 && (crMode == 1.0 || (crMode == 0.0 && crNoGill > 0.5))) {
+  // big smooth skins (cetaceans, sharks) read as plastic up close: broad blotches break up the flat flanks, and fine
+  // creases run along the body (wrinkles, healed scuffs). Not on low: three more noise taps
+  float bm = crFbm(qw * vec2(3.0, 5.0) + sd * 0.7);
+  float wr = crNoise(qw * vec2(40.0, 170.0) + sd);
+  crCol *= (0.9 + 0.2 * bm) * (0.95 + 0.1 * wr);
+}
+#endif
 if (crMode == 0.0 && crPart == 0.0 && vPat2.z > 0.12) {
   vec2 sq = qw * vec2(68.0, 92.0);
   float scl = abs(sin(sq.x + sq.y * 0.5)) * abs(sin(sq.x - sq.y * 0.5));
@@ -606,7 +615,8 @@ const FRAG_SHEEN = /* glsl */`
     // catchlight: the wet cornea mirrors a small bright point of Snell's window (or the lamps beside the lens), so a
     // near eye reads as alive rather than a painted disc
     float cl = smoothstep(0.7, 0.9, rd.y) * uSunScatter * sk * (1.0 - 0.6 * uNight);
-    reflectedLight.indirectSpecular += uSunColor * cl * 0.7 * exp(-uLightSigma * dB) + vec3(1.0, 0.94, 0.85) * (uLamp * pow(nv, 60.0) * exp(-uSigma * length(vViewPosition)) * 1.2);
+    reflectedLight.indirectSpecular += uSunColor * cl * 0.7 * exp(-uLightSigma * dB) + vec3(1.0, 0.94, 0.85) * (uLamp * pow(nv, 60.0) * exp(-uSigma * length(vViewPosition)) * 1.2
+      * smoothstep(0.6, 0.9, -normalize(vViewPosition).z)); // only inside the beams (an eye beside the lens stays dark)
   }
   if (uLamp > 0.001) {
     // ROV lamps: white bellies and silver flanks (albedo ~0.85, several times the reef's) facing the lamps clipped to
@@ -655,6 +665,9 @@ function patchShader(shader, jelly) {
          float fr0 = 1.0 - abs(dot(normalize(vViewPosition), normal));
          float dBj = max(0.0, uSurfaceY - vWPos.y);
          crGlow += diffuseColor.rgb * uSunColor * uSunScatter * exp(-uLightSigma * dBj) * skyVis(vWPos) * (0.1 + 0.55 * fr0 * fr0);
+         // under the lamps the same: the beam scatters in the bell's tissue and the rim glows softly
+         float dL = length(vViewPosition);
+         crGlow += diffuseColor.rgb * vec3(1.0, 0.94, 0.85) * uLamp * (0.03 + 0.3 * fr0 * fr0) * exp(-uSigma * dL) / (1.0 + 0.04 * dL * dL);
        }
        totalEmissiveRadiance += crGlow;
        {
@@ -666,7 +679,11 @@ function patchShader(shader, jelly) {
        }`
     : 'totalEmissiveRadiance += crGlow;');
   fs = fs.replace('#include <emissivemap_fragment>', emis);
-  if (jelly) fs = fs.replace('float crSheen = vPat2.z;', 'float crSheen = 0.35;');
+  if (jelly) {
+    fs = fs.replace('float crSheen = vPat2.z;', 'float crSheen = 0.35;');
+    // a bell is a soft gel, not a mirror: no flank flash
+    fs = fs.replace('crWin * crSheen * crSheen', '0.0');
+  }
   shader.fragmentShader = fs;
 }
 
