@@ -103,16 +103,27 @@ export class Post {
           // clear water carries distinct beams; in murk they melt into the haze (and the in-scatter already glows)
           vec3 cur = acc * uSunColor * phase * uStrength * (0.17 + 0.12 * (1.0 - smoothstep(0.03, 0.08, uSigma.y)));
           if (uLamp > 0.001) {
-            // forward-scattered lamp beams (camera-space cone around the view axis)
-            vec3 fwd = normalize((uCamWorld * vec4(0.0, 0.0, -1.0, 0.0)).xyz);
-            float cone = smoothstep(0.55, 1.0, dot(dir, fwd));
+            // Lamp backscatter, as in ROV footage: the particles in each of the two beams (the same lamps,
+            // cones and falloff as the surface lighting in water.js) light up, so two soft wedges of glow rise
+            // from the lower corners and meet ahead. Brighter in murkier water (more particles to scatter);
+            // samples crowd toward the lens, where the beams are widest on screen.
+            vec3 dV = normalize(vp.xyz);
+            float sg = dot(uSigma, vec3(0.33));
             float L = 0.0;
-            float ld = min(dist, 40.0), st = ld / 8.0;
+            float ld = min(dist, 40.0);
             for (int i = 0; i < 8; i++) {
-              float t = (float(i) + j) * st + 0.3;
-              L += exp(-dot(uSigma, vec3(0.33)) * 2.0 * t) / (1.0 + 0.15 * t * t) * st;
+              float u = (float(i) + j) / 8.0;
+              float t = ld * u * u + 0.2, st = ld * 2.0 * u / 8.0 + 0.01;
+              for (int k = 0; k < 2; k++) {
+                vec3 lp = vec3(k == 0 ? -0.8 : 0.8, -0.3, 0.0);
+                vec3 toS = dV * t - lp;
+                float dl = length(toS);
+                float ca2 = dot(toS / dl, normalize(vec3(-lp.x * 0.04, 0.02, -1.0)));
+                float cone = smoothstep(0.6, 0.92, ca2) * 0.75 + smoothstep(0.88, 0.99, ca2) * 0.5;
+                L += cone * exp(-sg * (dl + t)) / (1.0 + 0.04 * dl * dl) * (dl * dl / (dl * dl + 1.0)) * st;
+              }
             }
-            cur += vec3(0.0025, 0.0045, 0.005) * L * cone * uLamp;
+            cur += vec3(0.0009, 0.0016, 0.0018) * L * uLamp * clamp(0.5 * (uSigma.g + uSigma.b) / 0.035, 0.7, 1.5);
           }
           gl_FragColor = vec4(mix(cur, texture2D(tHist, vUv).rgb, uHist), 1.0);
         }`,

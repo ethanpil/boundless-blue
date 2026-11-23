@@ -94,6 +94,18 @@ vec4 nrTri(vec3 p, vec3 w, float P, float k) {
 }
 `;
 
+// Swell focusing: in the shallows the whole sunlit field brightens and dims (direct sun up to +-15% near the
+// surface, about 1-2% of the frame on a reef floor at 10 m) as each swell passes over: a 68 m swell at ~9 s and a
+// 28 m one, both wave vectors whole cycles per 1024 m, so the rebase cannot jump them. Gone below ~20 m and under
+// a grey sky, where the light is diffuse. Needs uTime, uCloud, uSurge; xz in render space, dB = depth.
+export const SWELL_GLSL = /* glsl */`
+float swellFocus(vec2 xz, float dB) {
+  float kS = (1.0 - smoothstep(4.0, 22.0, dB)) * (1.0 - 0.8 * uCloud) * (1.0 + 0.6 * uSurge);
+  return 1.0 + kS * (0.1 * sin(dot(xz, vec2(0.0736311, 0.0552233)) - uTime * 0.7)
+                   + 0.05 * sin(dot(xz, vec2(-0.1227185, 0.1902136)) - uTime * 1.3));
+}
+`;
+
 export const WATER_PARS = /* glsl */`
 #ifndef WQ
 #define WQ 1
@@ -125,6 +137,7 @@ uniform vec2 uSkyOrigin;
 uniform float uSkySize;
 uniform float uSkyActive;
 ${TILE_BREAKUP}
+${SWELL_GLSL}
 float skyVis(vec3 wp) {
   if (uSkyActive < 0.5) return 1.0;
   vec2 p = wp.xz - uSunDir.xz / max(uSunDir.y, 0.35) * (wp.y - uSurfaceY) * 0.5;
@@ -212,6 +225,7 @@ const LIGHT_PATCH = /* glsl */`
   float dB = max(0.0, uSurfaceY - vWPos.y);
   float sky = skyVis(vWPos);
   vec3 Tl = exp(-uLightSigma * dB) * sky;
+  Tl *= swellFocus(vWPos.xz, dB);   // the swell focusing and defocusing the sun (SWELL_GLSL)
   vec3 ca = vec3(0.0);
   if (uCausticStr > 0.001) ca = causticRGB(vWPos) * uCausticStr * smoothstep(-0.1, 0.8, wN.y) * exp(-dB * 0.035);
   reflectedLight.directDiffuse *= Tl * (0.45 + 2.0 * ca);

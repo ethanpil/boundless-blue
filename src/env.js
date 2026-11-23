@@ -1,7 +1,7 @@
 // Ambient environment: water-volume background, the surface seen from below (Snell's window),
 // and drifting marine snow / bioluminescent motes.
 import * as THREE from 'three';
-import { U, WATER_PARS, waterQuality } from './water.js';
+import { U, WATER_PARS, SWELL_GLSL, waterQuality } from './water.js';
 import { currentPreset } from './quality.js';
 
 const WORLD_VERT = /* glsl */`
@@ -218,14 +218,29 @@ export class MarineSnow {
         attribute float aNear;
         uniform float uBox, uDensity, uGlowAmt, uPx, uTime, uSpawn, uCamSpeed, uNight, uLamp, uSizeK;
         uniform vec3 uCamR, uSigma, uLightSigma, uSunColor, uWaterUp, uSunDir;
-        uniform float uSunScatter, uSurfaceY;
+        uniform float uSunScatter, uSurfaceY, uSurge, uCloud;
+        ${SWELL_GLSL}
         varying vec4 vCol;
         varying vec3 vShape;   // flake rotation (cos, sin) and elongation; z < 0: an out-of-focus disc
+        // how far a view-space point sits inside the two lamp beams (the lamps of the surface lighting in water.js)
+        float lampBeams(vec3 v) {
+          float b = 0.0;
+          for (int k = 0; k < 2; k++) {
+            vec3 lp = vec3(k == 0 ? -0.8 : 0.8, -0.3, 0.0);
+            float ca = dot(normalize(v - lp), normalize(vec3(-lp.x * 0.04, 0.02, -1.0)));
+            b += smoothstep(0.6, 0.92, ca) * 0.75 + smoothstep(0.88, 0.99, ca) * 0.5;
+          }
+          return b;
+        }
         void main() {
+          // Surge: in the shallows the swell's orbital motion rocks all the suspended matter back and forth
+          // together (same 11 s beat as the swaying plants), fading out by ~25 m; a heavy swell rocks it further.
+          float kSg = (1.0 - smoothstep(6.0, 25.0, uSurfaceY - uCamR.y)) * (0.3 + 0.5 * uSurge);
+          vec3 surge = vec3(sin(uTime * 0.55), 0.35 * sin(uTime * 0.55 + 1.4), 0.5 * cos(uTime * 0.55)) * kSg;
           if (aNear > 0.5) {
             // Near motes, 0.4-3 m from the lens, far out of focus: dim soft discs carried by a slow current
             // (one drift for all, so they move together). More of them in turbid water (uDensity).
-            vec3 p = position + vec3(0.11, -0.025, 0.06) * uTime
+            vec3 p = position + surge + vec3(0.11, -0.025, 0.06) * uTime
               + vec3(sin(uTime * 0.21 + aRand.x * 6.28), sin(uTime * 0.17 + aRand.z * 6.28), cos(uTime * 0.19 + aRand.y * 6.28)) * 0.15;
             vec3 r = mod(p - uCamR, 8.0) - 4.0;   // 8 m divides the 1024 m rebase: no jump
             p = r + uCamR;
@@ -238,14 +253,15 @@ export class MarineSnow {
             // invisible ones are moved off screen so they cost no fill
             gl_Position = vis > 0.004 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
             float dB = max(0.0, uSurfaceY - p.y);
-            vec3 lit = uSunColor * uSunScatter * exp(-uLightSigma * dB) * 0.7 + uWaterUp * 0.5;
-            lit += vec3(1.0, 0.94, 0.85) * uLamp * 1.2 / (1.0 + 0.2 * d * d);
+            vec3 lit = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB) * 0.7 + uWaterUp * 0.5;
+            // a mote drifting through a lamp beam right in front of the port flares (classic ROV backscatter)
+            if (uLamp > 0.001) lit += vec3(1.0, 0.94, 0.85) * uLamp * (0.5 + 1.4 * lampBeams(mv.xyz)) / (1.0 + 0.2 * d * d);
             vCol = vec4(lit * exp(-uSigma * d), vis * 0.09);
             vShape = vec3(1.0, 0.0, -1.0);
             return;
           }
           bool spawn = aRand.w > 1.0 - 0.3 * uSpawn;     // coral-spawning bundles rise instead of sink
-          vec3 p = position + vec3(sin(uTime * 0.13 + aRand.x * 6.28) * 0.6,
+          vec3 p = position + surge + vec3(sin(uTime * 0.13 + aRand.x * 6.28) * 0.6,
                                    spawn ? uTime * 0.11 * (0.5 + aRand.y) : -uTime * 0.04 * (0.4 + aRand.y),
                                    cos(uTime * 0.11 + aRand.z * 6.28) * 0.6);
           p = mod(p - uCamR, uBox) - uBox * 0.5 + uCamR;
@@ -263,15 +279,15 @@ export class MarineSnow {
           float vis = step(aRand.y, uDensity) * edge * near;
           vec3 T = exp(-uSigma * d);
           float dB = max(0.0, uSurfaceY - p.y);
-          vec3 sunL = uSunColor * uSunScatter * exp(-uLightSigma * dB);
+          vec3 sunL = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB);   // as the seabed
           // particles glow when backlit by the sun (strong forward scattering), like dust in a sunbeam
           vec3 vdir = normalize(p - cameraPosition);
           float fwd = pow(max(dot(vdir, uSunDir), 0.0), 6.0);
           vec3 lit = sunL * (0.9 + 2.2 * fwd) + uWaterUp * 0.6;
-          vec3 c = lit * T * 0.5;
+          // flakes differ in make-up and reflect differently: a spread of brightness at the same mean
+          vec3 c = lit * T * (0.3 + 0.4 * fract(aRand.y * 13.7));
           // ROV lamps: specks in the beams light up (backscatter), the classic night-dive snowfall
-          float cone = smoothstep(0.82, 0.97, -mv.z / max(length(mv.xyz), 1e-3));
-          c += vec3(1.0, 0.94, 0.85) * uLamp * cone * 2.6 * exp(-dot(uSigma, vec3(0.66)) * d) / (1.0 + 0.09 * d * d);
+          if (uLamp > 0.001) c += vec3(1.0, 0.94, 0.85) * uLamp * lampBeams(mv.xyz) * 1.05 * exp(-dot(uSigma, vec3(0.66)) * d) / (1.0 + 0.09 * d * d);
           if (glow) {
             float tw = 0.5 + 0.5 * sin(uTime * (0.7 + aRand.z * 2.0) + aRand.x * 40.0);
             c = mix(vec3(0.2, 0.9, 1.0), vec3(0.3, 1.0, 0.6), aRand.z) * 2.5 * tw * tw * exp(-uSigma * d * 0.6);
