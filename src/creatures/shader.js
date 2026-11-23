@@ -283,6 +283,7 @@ vec2 crPat(float ty, vec2 q, float t, float vN, float sc, float pr, float sd, fl
     float r = pr * (0.55 + 0.6 * c.z);
     m = 1.0 - smoothstep(r - 0.08, r + 0.02, c.x);
   } else if (T == 4) {     // reticulation (network of lines)
+    if (part > 9.5) return vec2(0.0); // not on a turtle shell: scale netting there read as cracked mud (head and flippers keep it)
     vec3 c = crCell(q * sc + sd);
     m = 1.0 - smoothstep(pr * 0.5, pr * 0.5 + 0.12, c.y - c.x);
   } else if (T == 5) {     // ocellus near the tail
@@ -346,6 +347,9 @@ vec2 crPat(float ty, vec2 q, float t, float vN, float sc, float pr, float sd, fl
     if (part > 9.5) {
       vec3 c = crCell(q * sc + sd);
       m = 0.25 + 0.75 * smoothstep(0.05, 0.75, c.x);
+      // soft streaks across each scute, a direction of its own per plate (hash only, no texture taps)
+      float sa = c.z * 6.2831853;
+      m *= 0.8 + 0.2 * sin(dot(q, vec2(cos(sa), sin(sa))) * sc * 14.0 + c.z * 40.0);
       e = 0.7 * (1.0 - smoothstep(0.03, 0.09, c.y - c.x));
     }
   } else if (T == 21) {    // dorsal saddles
@@ -601,7 +605,8 @@ const FRAG_SHEEN = /* glsl */`
   // the bright surface / Snell's window above: silvery flanks flash as they tilt toward it
   float up = clamp(rd.y, 0.0, 1.0);
   env += uSunColor * uSunScatter * (0.6 * up * up * up + 0.45 * pow(max(dot(rd, uSunDir), 0.0), 8.0)) * exp(-uLightSigma * dB) * sk;
-  vec3 irid = 0.88 + 0.12 * cos(6.2831853 * (nv * 1.4 + vec3(0.0, 0.33, 0.67)));
+  // thin-film colour belongs to silvery guanine skin only (it drew a rainbow arc along sharks' backs)
+  vec3 irid = 1.0 - 0.12 * smoothstep(0.5, 0.8, crSheen) + 0.12 * smoothstep(0.5, 0.8, crSheen) * cos(6.2831853 * (nv * 1.4 + vec3(0.0, 0.33, 0.67)));
   reflectedLight.indirectSpecular += env * irid * crSheen * (0.3 + 0.7 * fr) * 1.5;
   // the flash of a school: a silver flank is a vertical mirror. Seen side-on it reflects the dim blue water; a roll or
   // turn of a few tens of degrees swings the reflection into Snell's window (rd.y above ~0.66) or onto the sun, and the

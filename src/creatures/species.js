@@ -331,7 +331,7 @@ export const SPECIES = {
     eye: { t: 0.05, v: 0.3, r: 0.01 },
     col: C(0x5e4a28, 0xe0d4a8, 0x9a7a44, 0x5a4a30, 0x2a2416, 0x3a2a10), pat: [20, 5.5, 0], pat2: [4, 45, 0.25], cs: [-0.2, 0.3], sheen: 0.15, rough: 0.4,
     mot: { mode: 3, amp: 0.7, beat: 0.5, idle: 0.22 },
-    beh: { ...SOLO, speed: [0.4, 0.8], dist: [6, 25], zone: 'floor', alt: [1, 4] }, size: [0.9, 1.2], barnacles: 0.3, scars: 0.3,
+    beh: { ...SOLO, speed: [0.4, 0.8], dist: [6, 25], zone: 'floor', alt: [1, 4] }, size: [0.9, 1.2], barnacles: 0.08, scars: 0.3,
   }),
   octopus: {
     plan: 'octopus', det: 1, octo: { armLen: 0.55 },
