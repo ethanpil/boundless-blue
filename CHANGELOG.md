@@ -2,6 +2,16 @@
 
 All notable changes to Boundless Blue. Format: [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2026-11-23]
+
+### Changed
+Small touches toward a lifelike picture, each costing a few shader instructions or nothing on low-end devices:
+- Sunlight in the shallows brightens and dims with the swell; marine snow sways with the surge and varies in brightness; with the lamps on, the haze follows the two lamp beams and particles flare as they drift through them.
+- Kelp, sea fans, soft corals, grass and tentacles lean and swing back together in one travelling surge instead of each on its own.
+- Silvery fish flash as they roll and turn, and the flash runs through a school; eyes have a catchlight; fins look set into the body.
+- Sand ripples have darker troughs and paler crests; patches of shell hash and darker damp sand; rare glints of sand grains near the lens on faster devices.
+- Sound: what is behind you is duller and quieter; ice pings are softer; the rush of water follows the craft's speed, and turns stir the water and send bubbles past; distant calls are duller and more reverberant.
+
 ## [2026-11-16]
 
 ### Added
