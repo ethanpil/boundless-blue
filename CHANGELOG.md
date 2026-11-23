@@ -16,6 +16,8 @@ Small touches toward a lifelike picture, each costing a few shader instructions 
 - A long call follows your view as you turn; orca calls are as loud as the other toothed whales; animals to the sides and behind call too.
 - Hovering fish fan their fins and pump their gills, and long fins ripple; under broken cloud, soft shadows sweep the shallow seabed; plankton drifts past in thicker and thinner patches; more scenery in the band beside the route in nine zones at no extra cost.
 - The reef's evening chorus swells after dusk and fades late at night; parrotfish fall quiet at night; at the whale fall, big and small sharks tear with different voices.
+- Looking up, the surface outside the bright window is a darker, streaked mirror of the seabed instead of a flat patch; nearby coral no longer sparkles with aliased texture; rays flex their wings as they glide and jelly bells contract from the top down.
+- A storm sounds like a storm in the shallows and fades to a slow heave at depth; still, clear weather is the calm one; rain is a softer patter.
 
 ## [2026-11-16]
 
