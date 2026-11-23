@@ -113,7 +113,9 @@ float cloudShade(vec2 xz, float dB) {
   vec2 q = xz - vec2(4.0, 3.0) * uTime;
   float f = (sin(dot(q, vec2(0.0490874, 0.0184078))) + sin(dot(q, vec2(-0.0306796, 0.0552233)) + 1.7)
            + 0.6 * sin(dot(q, vec2(0.0797670, -0.0245437)) + 4.1)) / 2.6;
-  return 1.0 - 0.4 * k * smoothstep(-0.05, 0.4, f); // (0.4, kept gentle: it was not judged in motion)
+  // 0.7 of the direct sun: the caustics fade inside a patch and the sand dims ~5-8% (direct sun is a minor part of
+  // a reef frame at 8 m); at 0.4 the patch changed the frame by under 4%, too little to see as it crossed
+  return 1.0 - 0.7 * k * smoothstep(-0.05, 0.4, f);
 }
 `;
 
