@@ -102,6 +102,7 @@ export class Post {
           }
           // clear water carries distinct beams; in murk they melt into the haze (and the in-scatter already glows)
           vec3 cur = acc * uSunColor * phase * uStrength * (0.17 + 0.12 * (1.0 - smoothstep(0.03, 0.08, uSigma.y)));
+          cur *= cloudShade(uCamR.xz, uSurfaceY - uCamR.y);   // the beams go out under a cloud shadow overhead
           if (uLamp > 0.001) {
             // Lamp backscatter, as in ROV footage: the particles in each of the two beams (the same lamps,
             // cones and falloff as the surface lighting in water.js) light up, so two soft wedges of glow rise

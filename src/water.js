@@ -104,6 +104,17 @@ float swellFocus(vec2 xz, float dB) {
   return 1.0 + kS * (0.1 * sin(dot(xz, vec2(0.0736311, 0.0552233)) - uTime * 0.7)
                    + 0.05 * sin(dot(xz, vec2(-0.1227185, 0.1902136)) - uTime * 1.3));
 }
+// Cloud shadows: under broken cloud (uCloud ~0.35-0.8; none in clear weather at 0.3, and full overcast is already
+// a uniform dimming) large soft patches of shade sweep the shallows with the wind (5 m/s). Three waves of
+// 120 / 99 / 75 m, whole cycles per 1024 m like the swell; the shade thins out with depth as diffuse light takes over.
+float cloudShade(vec2 xz, float dB) {
+  float k = smoothstep(0.32, 0.5, uCloud) * (1.0 - smoothstep(0.75, 0.95, uCloud)) * (1.0 - smoothstep(10.0, 45.0, dB));
+  if (k < 0.001) return 1.0;
+  vec2 q = xz - vec2(4.0, 3.0) * uTime;
+  float f = (sin(dot(q, vec2(0.0490874, 0.0184078))) + sin(dot(q, vec2(-0.0306796, 0.0552233)) + 1.7)
+           + 0.6 * sin(dot(q, vec2(0.0797670, -0.0245437)) + 4.1)) / 2.6;
+  return 1.0 - 0.4 * k * smoothstep(-0.05, 0.4, f); // (0.4, kept gentle: it was not judged in motion)
+}
 `;
 
 export const WATER_PARS = /* glsl */`
@@ -225,7 +236,7 @@ const LIGHT_PATCH = /* glsl */`
   float dB = max(0.0, uSurfaceY - vWPos.y);
   float sky = skyVis(vWPos);
   vec3 Tl = exp(-uLightSigma * dB) * sky;
-  Tl *= swellFocus(vWPos.xz, dB);   // the swell focusing and defocusing the sun (SWELL_GLSL)
+  Tl *= swellFocus(vWPos.xz, dB) * cloudShade(vWPos.xz, dB);   // the swell focusing and defocusing the sun (SWELL_GLSL)
   vec3 ca = vec3(0.0);
   if (uCausticStr > 0.001) ca = causticRGB(vWPos) * uCausticStr * smoothstep(-0.1, 0.8, wN.y) * exp(-dB * 0.035);
   reflectedLight.directDiffuse *= Tl * (0.45 + 2.0 * ca);

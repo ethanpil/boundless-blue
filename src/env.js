@@ -259,7 +259,7 @@ export class MarineSnow {
             // invisible ones are moved off screen so they cost no fill
             gl_Position = vis > 0.004 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
             float dB = max(0.0, uSurfaceY - p.y);
-            vec3 lit = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB) * 0.7 + uWaterUp * 0.5;
+            vec3 lit = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB) * cloudShade(p.xz, dB) * 0.7 + uWaterUp * 0.5;
             // a mote drifting through a lamp beam right in front of the port flares (classic ROV backscatter)
             if (uLamp > 0.001) lit += vec3(1.0, 0.94, 0.85) * uLamp * (0.5 + 1.4 * lampBeams(mv.xyz)) / (1.0 + 0.2 * d * d);
             vCol = vec4(lit * exp(-uSigma * d), vis * 0.09);
@@ -311,7 +311,7 @@ export class MarineSnow {
           float vis = step(aRand.y, uDensity) * edge * near;
           vec3 T = exp(-uSigma * d);
           float dB = max(0.0, uSurfaceY - p.y);
-          vec3 sunL = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB);   // as the seabed
+          vec3 sunL = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB) * cloudShade(p.xz, dB);   // as the seabed
 #if WQ > 0
           // medium and up: flakes inside a sun shaft catch its light and those in the shade between shafts dim,
           // from the same focusing bands (caustics B, 16 m) and the same contrast fade as the god rays in post.js
@@ -348,7 +348,11 @@ export class MarineSnow {
             vis = edge * near;
           }
           // big out-of-focus motes are dimmer per pixel (their light spreads over the disc)
-          vCol = vec4(c, vis / (1.0 + bokeh * 7.0));
+          // plankton lies in patches: thicker clouds and clearer gaps 15-17 m across, and in layers (periods of
+          // 32-34 m in xz, whole cycles per 1024 m), more contrasty in turbid water
+          float pf = sin(dot(p.xz, vec2(0.1840777, 0.0736311)) + 0.4 * p.y) + sin(dot(p.xz, vec2(-0.0859029, 0.1656699)) - 0.3 * p.y + 2.0);
+          float dens = 1.0 + (0.35 + 0.35 * smoothstep(0.03, 0.08, uSigma.g)) * clamp(pf * 0.6, -1.0, 1.0);
+          vCol = vec4(c, vis * dens / (1.0 + bokeh * 7.0));
           float a = aRand.z * 6.2831853 + uTime * (0.2 + aRand.y * 0.3);
           vShape = vec3(cos(a), sin(a), (glow || spawn) ? 1.0 : 1.0 + 1.4 * aRand.w * aRand.w * (1.0 - bokeh));
         }`,
