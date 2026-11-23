@@ -91,6 +91,9 @@ function floorMaterial() {
             fN2 = nrTexK(uNoiseTex, vWPos.xz * 0.03125, k + 3.0);
 #endif
             vec4 n3 = texture2D(uNoiseTex, vWPos.xz * 0.5);
+            // the finest layers ease to their mean once their features shrink under ~2 px (no sparkle at range)
+            float fFw = length(fwidth(vWPos));
+            n3 = mix(vec4(0.5), n3, 1.0 - smoothstep(0.02, 0.07, fFw));
             fRock = clamp(max(vDetail.y, smoothstep(0.35, 0.7, steep)), 0.0, 1.0);
             float sandDet = 0.7 + 0.46 * (fN1.r * 0.45 + fN2.g * 0.35 + n3.b * 0.2);
 #if WQ == 0
@@ -98,6 +101,7 @@ function floorMaterial() {
 #else
             fSandH = texture2D(uNoiseTex, vWPos.xz * 0.3125 + fN2.ba).a;
 #endif
+            fSandH = mix(0.5, fSandH, 1.0 - smoothstep(0.03, 0.1, fFw));
             fSandH *= 1.0 - smoothstep(0.3, 0.6, steep);   // planar grain: it would streak down walls
             vec4 tri = vec4(0.5);
             vec3 bw = pow(abs(wNg), vec3(4.0)); bw /= (bw.x + bw.y + bw.z);

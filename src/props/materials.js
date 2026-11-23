@@ -105,6 +105,11 @@ vec3 pN = normalize((vec4(vNormal, 0.0) * viewMatrix).xyz);
 vec3 pW = pTriW(pN);
 vec4 pA = pTri(vWPos, pW, 4.0);
 vec4 pB = pTri(vWPos, pW, 1.0);
+// Pixel footprint (m): each noise layer eases to its mean before its features (~1/32 of its period) shrink under
+// ~2 px, so thresholds (speckle, pores, cracks) and the derivative bump built on them cannot sparkle at range.
+float pFw = length(fwidth(vWPos));
+pB = mix(vec4(0.5), pB, 1.0 - smoothstep(0.01, 0.035, pFw));
+pA = mix(vec4(0.5), pA, 1.0 - smoothstep(0.04, 0.14, pFw));
 float pH = pA.r * 0.5 + pB.g * 0.5;
 float pBumpK = 0.035;
 float pMode = vFx.y;
@@ -132,7 +137,7 @@ if (pMode > 0.5 && pMode < 1.5) {
   pBumpK = 0.05;
 } else if ((pMode > 1.5 && pMode < 2.5) || (pMode > 7.5 && pMode < 8.5)) {
   // massive coral polyps / rough sponge pores / clam mantle spots: two scales of rugosity
-  vec4 pC = pTri(vWPos, pW, 0.5);
+  vec4 pC = mix(vec4(0.5), pTri(vWPos, pW, 0.5), 1.0 - smoothstep(0.005, 0.018, pFw));
   float d = smoothstep(0.42, 0.68, pC.a);
   diffuseColor.rgb *= 0.8 + 0.34 * d;
   pH = d * 0.6 + pA.r * 0.3 + pB.a * 0.3;
@@ -160,7 +165,7 @@ if (pMode > 0.5 && pMode < 1.5) {
   // bushy coral (corymbose Acropora, Pocillopora): a mass of rounded branch tips, raised and pale, with
   // shadowed gaps between. Once the ~6 cm tips shrink to a few pixels the pattern eases to its mean (no
   // shimmer); fract(mode) pales the tips toward white-blue.
-  vec4 pC = pTri(vWPos, pW, 0.5);
+  vec4 pC = mix(vec4(0.5), pTri(vWPos, pW, 0.5), 1.0 - smoothstep(0.005, 0.018, pFw));
   float tip = smoothstep(0.46, 0.6, pC.g * 0.75 + pB.b * 0.25);
   tip = mix(tip, 0.45, smoothstep(0.02, 0.07, length(fwidth(vWPos))));
   diffuseColor.rgb *= 0.52 + 0.75 * tip;
@@ -180,7 +185,7 @@ if (pMode > 0.5 && pMode < 1.5) {
   diffuseColor.rgb *= 1.0 + sp * 0.35 - step(pB.a, 0.18) * 0.2;
   float band = sin(vWPos.y * (5.0 + rk * 12.0) + r1.r * 5.0);         // strata
   diffuseColor.rgb *= 1.0 - step(0.55, fract(rk * 2.3)) * 0.13 * band;
-  float crack = smoothstep(0.9, 0.975, pTri(vWPos + vec3(rk * 3.0), pW, 2.0).a);
+  float crack = smoothstep(0.9, 0.975, pTri(vWPos + vec3(rk * 3.0), pW, 2.0).a) * (1.0 - smoothstep(0.02, 0.07, pFw));
   diffuseColor.rgb *= 1.0 - crack * 0.6;
   pH = n * 0.8 - crack * 0.7 + pB.g * 0.2;
   pBumpK = 0.055;
