@@ -11,6 +11,9 @@ Small touches toward a lifelike picture, each costing a few shader instructions 
 - Silvery fish flash as they roll and turn, and the flash runs through a school; eyes have a catchlight; fins look set into the body.
 - Sand ripples have darker troughs and paler crests; patches of shell hash and darker damp sand; rare glints of sand grains near the lens on faster devices.
 - Sound: what is behind you is duller and quieter; ice pings are softer; the rush of water follows the craft's speed, and turns stir the water and send bubbles past; distant calls are duller and more reverberant.
+- On faster devices marine snow lights up inside the sun shafts; rain shows as a restless speckle on the surface from below; a few small bubbles rise past the lens; anemones and sargassum move with the same surge as everything else; sand is paler in hollows; steep rock has faint seep streaks.
+- Jellies are soft and glow at the rim under the lamps instead of flashing; sharks and whales have subtle skin detail on faster devices; turtle shells show clean scutes.
+- A long call follows your view as you turn; orca calls are as loud as the other toothed whales; animals to the sides and behind call too.
 
 ## [2026-11-16]
 
