@@ -388,11 +388,11 @@ export class Ambience {
     this._due = new Map(); // encounter uid -> time of its next call
     this.diverD = 1e9; this.diverPan = 0; this.diverRear = 0; this.closeN = 0;
     this._turn = 0; this._v0 = -1; this._acc = 0; this._stirT = 0; // the craft: yaw rate, speed, its change; next stir
-    this._rear = 0; this._rr = 0;
+    this._rear = 0; this._rr = 0; this._sz = 1; // _sz: a tear's pitch factor from the biter's size (big: lower, longer)
     // long calls (songs, moans, trills) follow their animal and the view while they last: _far files the call's head
     // here when _trackE is set, and _steer re-aims its pan, rear lowpass and gain at 4 Hz
     this._trackE = null; this._trk = Array.from({ length: 4 }, () => ({ e: null, h: null })); // how far behind the view the voice being made is (0 ahead or beside, 1 straight behind)
-    this._next = 0; this._scan = 0; this._susT = 0; this._lifeFar = true; this._lastS = null; this.speed = 0; this.night = 0;
+    this._next = 0; this._scan = 0; this._susT = 0; this._lifeFar = true; this._lastS = null; this.speed = 0; this.night = 0; this.eve = 1;
     this._dueE = { slap: 0, drip: 0, ice: 0, kelp: 0, life: 0, diver: 0, trail: 0, glug: 0 };
     this._curve = new Float32Array(16); // reused frequency contours (setValueCurveAtTime copies it)
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => (document.hidden ? this._suspend() : this._resume()));
@@ -575,6 +575,10 @@ export class Ambience {
     const head = env.shape.ceilingAt(cam.x, s) - cam.y;           // ice, cave roof or rock overhead
     const cover = clamp01((60 - head) / 50), open = 1 - cover;
     const night = this.night = C.night || 0, rain = C.rain || 0, surge = this.surge = C.surge || 0;
+    // the evening: the sweepers' chorus starts after sunset and lasts up to about 3 h (docs/SOURCES.md), so it is full
+    // from dusk to ~22:30 and eases to a third by ~01:00 (clock time from conditions; 1 when it is not known)
+    const hr = O.conditions && O.conditions.clockHours, h = typeof hr === 'number' ? (hr + 12) % 24 : 0; // (h: hours since noon)
+    this.eve = h < 10.5 ? 1 : h > 13 ? 0.35 : 1 - 0.65 * (h - 10.5) / 2.5;
     const shallow = Math.exp(-camD / 9), bright = Math.exp(-D / 45);
     Z.wash *= shallow * open; Z.iceAmt = Z.ice * (0.4 + 0.6 * cover); Z.caveAmt = Z.cave * cover; Z.open = open; Z.camD = camD;
     // calmer and busier spells of a minute or so; calm nights (unless a storm is up) quieten the water further
@@ -591,7 +595,7 @@ export class Ambience {
     m.shrimp = 0.15 * Z.shrimp * (0.8 + 0.5 * night) * Math.exp(-camD / 70);
     m.vent = 0.4 * Z.vent;
     m.bubbles = 0.3 * Z.bubbles;
-    m.chorus = 0.3 * Z.chorus * clamp01((night - 0.2) / 0.5) * Math.exp(-camD / 80);
+    m.chorus = 0.3 * Z.chorus * clamp01((night - 0.2) / 0.5) * this.eve * Math.exp(-camD / 80);
     m.rain = 0.18 * rain * Math.exp(-camD / 20) * open;
     m.lap = 0.5 * F.lap * Math.exp(-camD / 5) * open * (0.7 + 0.3 * Z.act + 0.5 * surge);
     m.sand = 0.9 * F.swell * Math.exp(-camD / 40) * (0.6 + 0.4 * Z.act + 0.6 * surge);
@@ -668,6 +672,7 @@ export class Ambience {
       const kind = e.sp && CALLS[e.sp.key];
       if (!kind || e.dist > VOICE[kind][0]) continue;
       if (kind === 'sweeper' && this.night < 0.25) continue; // sweepers call after dusk
+      if (kind === 'crunch' && Math.random() < this.night) continue; // parrotfish graze by day (fading out through dusk)
       // insert into the sorted list of the nearest K
       let i;
       if (nc < K) i = nc++;
@@ -795,7 +800,7 @@ export class Ambience {
       if (full()) { this._due.set(n.uid, now + R(0.5, 2)); continue; }
       const v = VOICE[n.kind], member = n.n > 1 ? ri(Math.min(n.n, 8)) : 0;
       this._rear = n.rear; this._trackE = v[3] >= 1.5 ? n.e : null; this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan, n.uid * 16 + member); this._trackE = null; this._duckFor(now, v[3], n.d); calls++; this._lifeGap = now + R(0.35, 0.8); this._lastKind = n.kind; this._lastKindT = now + R(1.5, 3);
-      this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : n.bg ? 2 : 1) / Math.min(1.3, 1 + 0.1 * (n.n - 1)));
+      this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : n.bg ? 2 : 1) * (n.kind === 'sweeper' ? 1 / this.eve : 1) / Math.min(1.3, 1 + 0.1 * (n.n - 1)));
       // a group mate answers; a big group sometimes calls together
       if (n.n > 1 && ANSWER.has(n.kind) && Math.random() < (VOICE[n.kind][0] < 50 ? 0.25 : 0.45) && !this._ans.kind) {
         const A = this._ans; A.kind = n.kind; A.t = now + v[3] * 0.7 + R(0.3, 1.2); A.d = n.d * R(0.85, 1.2); A.pan = Math.max(-0.8, Math.min(0.8, n.pan + R(-0.4, 0.4))); A.rear = n.rear; A.e = n.e; A.uid = n.uid * 16 + ((member + 1 + ri(3)) % 8);
@@ -828,12 +833,14 @@ export class Ambience {
       const dx = x - cam.x, dy = y - cam.y, dz = z - Oz - cam.z, d = Math.hypot(dx, dy, dz);
       if (d > 70) continue;
       const pan = this._dir(dx, dy, dz), t = now + R(0.02, 0.2); this._rear = this._rr;
+      // the biter's length (wf_crowd ll: whitetips 1.5-2.5 m, tigers 3-4 m, a white 5-6 m): each shark its own tear
+      const ll = (k === 'bite' || k === 'chunk') && W.ll > 0 ? W.ll : 3; this._sz = Math.max(0.78, Math.min(1.25, Math.pow(3 / ll, 0.45)));
       if (k === 'bite') this._water('tear', t, 0.8, pan, d);
       else if (k === 'chunk') { this._water('tear', t, 1.3, pan, d); this._water('scatter', t + 0.5, 1, pan, d); }
       else if (k === 'displace') this._water('thrash', t, 1, pan, d);
       else if (k === 'snap') this._water('snap', t, 0.8, pan, d);
       else this._water(k === 'sweep' ? 'scatter' : 'wake', t, 0.8, pan, d);
-      this._rear = 0;
+      this._rear = 0; this._sz = 1;
     }
   }
 
@@ -1057,12 +1064,12 @@ export class Ambience {
       this._noise(t + 0.03, R(2, 3), 220, 120, 1, head, 1.2, 0.1);
       this._L(this._shot(pick(this._bank('belch')), t + 0.15, R(0.8, 1), this._gain(0.6, head)), t + 1.6);
     } else if (k === 'tear' || k === 'thrash') { // sharks biting and shaking flesh loose; a shark shoved off its place
-      const tear = k === 'tear';
+      const tear = k === 'tear', z = tear ? this._sz : 1; // (z > 1: a small shark, higher and quicker)
       head = this._out(pan, Math.min(lpD, 1500), 1.1 * a * near, wet, B.fx);
       let tt = t;
-      for (let i = tear ? 3 + ri(4) : 4 + ri(5); i > 0; i--) { this._noise(tt, R(0.12, 0.22), R(180, 450), 140, 1.3, head, R(0.6, 1), 0.03); tt += tear ? R(0.25, 0.4) : R(0.15, 0.28); }
+      for (let i = tear ? 3 + ri(4) : 4 + ri(5); i > 0; i--) { this._noise(tt, R(0.12, 0.22) / z, R(180, 450) * z, 140 * z, 1.3, head, R(0.6, 1), 0.03); tt += (tear ? R(0.25, 0.4) : R(0.15, 0.28)) / z; }
       if (tear) { // the low grind of the bite itself
-        const e = this._gain(0, this._filt('lowpass', 260, 0.7, this._gain(0.35, head))), o = this._osc('sawtooth', R(45, 70), e), j = this._osc('sine', R(9, 15));
+        const e = this._gain(0, this._filt('lowpass', 260 * z, 0.7, this._gain(0.35, head))), o = this._osc('sawtooth', R(45, 70) * z, e), j = this._osc('sine', R(9, 15) * z);
         j.connect(this._gain(12, o.frequency));
         const end = this._env(e.gain, t, 0.08, 1, tt - t - 0.2, 0.15);
         o.start(t); j.start(t); o.stop(end + 0.02); j.stop(end + 0.02); this._L(o, end);

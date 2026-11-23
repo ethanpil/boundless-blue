@@ -34,7 +34,7 @@ export class WhaleCrowd {
     this.schools = []; this.mill = null; this.mahi = null; this.cam = null; // schools: the fish at the wounds (_school)
     // event counters (dev tools, the pass harness): bites begun, chunks torn free, displacements, arrivals, sweeps, scraps
     this.ev = { bite: 0, chunk: 0, displace: 0, arrive: 0, sweep: 0, snap: 0 };
-    this.lx = 0; this.ly = 0; this.lz = 0; // where the latest event happened (global; the sound reads it, src/audio)
+    this.lx = 0; this.ly = 0; this.lz = 0; this.ll = 0; // where the latest event happened (global) and the biter's length (m; 0: none); the sound reads them (src/audio)
     this.nextFeed = 0; this.nextArr = 0; this.nextSweep = 0; this.nextCycle = 0; this.nextDisp = 0; this.open = 0; this.uv = 0;
     this.rushT = 0; this.rx = 0; this.ry = 0; this.rz = 0; this.bA = null; this.bB = null; // rush point (a chunk torn free); the biters the fish crowd
     this.gx = 0; this.gy = 0; this.gz = 0; this.gw = 0; this.gT = 0; this.gp = 0; // gaze pull (camera.js)
@@ -361,8 +361,8 @@ export class WhaleCrowd {
     return c.frustum.containsPoint(_v);
   }
   // an event at (x, y, z): a highlight for the pacing governor and a pull of the gaze, when the camera can see it
-  _event(kind, x, y, z) {
-    this.ev[kind]++; this.lx = x; this.ly = y; this.lz = z;
+  _event(kind, x, y, z, len = 0) {
+    this.ev[kind]++; this.lx = x; this.ly = y; this.lz = z; this.ll = len;
     if (!this._inView(x, y, z, 45)) return;
     this.dir.pace.mark();
     if (this.gT < 0.5 || kind !== 'bite') { this.gx = x; this.gy = y; this.gz = z; this.gT = kind === 'arrive' ? 4 : 3; }
@@ -426,7 +426,7 @@ export class WhaleCrowd {
       this._head(S, vx / vl * (1 - kf) + S.fbx * kf, vy / vl * (1 - kf) + S.fby * kf, vz / vl * (1 - kf) + S.fbz * kf, dt);
       H[6] = vx / S.T; H[7] = vy / S.T; H[8] = vz / S.T; H[11] = 0.9; H[12] = 0; H[13] = 1;
       this._lead(S, H[0], H[1], H[2]);
-      if (u >= 1) { S.st = BITE; S.t = 0; S.dur = S.big ? 14 + r() * 10 : r() < 0.3 ? 6 + r() * 3 : 13 + r() * 8; this._event('bite', S.sx, S.sy, S.sz); }
+      if (u >= 1) { S.st = BITE; S.t = 0; S.dur = S.big ? 14 + r() * 10 : r() < 0.3 ? 6 + r() * 3 : 13 + r() * 8; this._event('bite', S.sx, S.sy, S.sz, S.len); }
       return;
     }
     if (S.st === BITE) { // clamped on: shaking about the snout, the tail thrashing
@@ -551,7 +551,7 @@ export class WhaleCrowd {
     if (chunk) {
       this._burst(S.sx, S.sy, S.sz, 26, true);
       S.carry = 3.2;
-      this._event('chunk', S.sx, S.sy, S.sz);
+      this._event('chunk', S.sx, S.sy, S.sz, S.len);
       // the fish rush in at the scraps
       this.rushT = 5; this.rx = S.sx + S.nx * 0.9; this.ry = S.sy + 0.3; this.rz = S.sz + S.nz * 0.9;
       if (this.nScr < 6) {
