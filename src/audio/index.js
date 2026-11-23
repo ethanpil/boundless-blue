@@ -379,16 +379,19 @@ export class Ambience {
     this._seen = new WeakSet(); // encounter events already heard (strike, lunge, play...)
     this._sfx = new Map();      // encounter uid -> time its next splash / wake may sound
     this._wf = { bite: 0, chunk: 0, displace: 0, arrive: 0, sweep: 0, snap: 0 }; // whale-fall crowd events heard
-    this._ans = { kind: '', t: 0, d: 0, pan: 0, rear: 0, uid: 0 }; // a pending answer from a group mate
+    this._ans = { kind: '', t: 0, d: 0, pan: 0, rear: 0, uid: 0, e: null }; // a pending answer from a group mate
     this._cents = 0; this._T = 1; this._lifeGap = 0; this._lastKind = ''; this._lastKindT = 0; this._warmK = ''; this._wakeT = 0; // pitch (cents) and tempo of the animal calling now; next call start
     this.Z = { ...Z0 };   // blended zone amounts
     this.mix = {};        // latest bus targets (debug)
-    this.cand = Array.from({ length: low ? 3 : 5 }, () => ({ kind: '', d: 1e9, pan: 0, rear: 0, uid: 0, vis: false, n: 1 })); // nearest callers
+    this.cand = Array.from({ length: low ? 3 : 5 }, () => ({ kind: '', d: 1e9, pan: 0, rear: 0, uid: 0, vis: false, n: 1, bg: false, e: null })); // nearest callers
     this.nCand = 0;
     this._due = new Map(); // encounter uid -> time of its next call
     this.diverD = 1e9; this.diverPan = 0; this.diverRear = 0; this.closeN = 0;
     this._turn = 0; this._v0 = -1; this._acc = 0; this._stirT = 0; // the craft: yaw rate, speed, its change; next stir
-    this._rear = 0; this._rr = 0; // how far behind the view the voice being made is (0 ahead or beside, 1 straight behind)
+    this._rear = 0; this._rr = 0;
+    // long calls (songs, moans, trills) follow their animal and the view while they last: _far files the call's head
+    // here when _trackE is set, and _steer re-aims its pan, rear lowpass and gain at 4 Hz
+    this._trackE = null; this._trk = Array.from({ length: 4 }, () => ({ e: null, h: null })); // how far behind the view the voice being made is (0 ahead or beside, 1 straight behind)
     this._next = 0; this._scan = 0; this._susT = 0; this._lifeFar = true; this._lastS = null; this.speed = 0; this.night = 0;
     this._dueE = { slap: 0, drip: 0, ice: 0, kelp: 0, life: 0, diver: 0, trail: 0, glug: 0 };
     this._curve = new Float32Array(16); // reused frequency contours (setValueCurveAtTime copies it)
@@ -605,6 +608,7 @@ export class Ambience {
     this.lifeRev.gain.setTargetAtTime(0.3 + 0.5 * Z.caveAmt, now, 1);
     for (let i = 0; i < this.slosh.length; i++) { const v = this.slosh[i]; if (now >= v.due) this._surge(v, now + R(0, 0.2), Z.slosh, i === 0); }
     this._craft(now, dt);
+    this._retrack(now);
   }
 
   // The craft (camera.js): the water rushes past a little louder and brighter as it speeds up; a turn or a change of
@@ -672,8 +676,27 @@ export class Ambience {
       while (i > 0 && cand[i - 1].d > e.dist) { cand[i] = cand[i - 1]; i--; }
       cand[i] = slot;
       const dx = b.x - cam.x, dy = b.y - cam.y, dz = e.anchorZ + b.z - Oz - cam.z;
-      slot.kind = kind; slot.d = e.dist; slot.uid = e.uid; slot.vis = !!e.visible; slot.n = e.n || 1;
+      slot.kind = kind; slot.d = e.dist; slot.uid = e.uid; slot.vis = !!e.visible; slot.n = e.n || 1; slot.bg = false; slot.e = e;
       slot.pan = this._dir(dx, dy, dz); slot.rear = this._rr;
+    }
+    // background life (creatures.bg: groups beside and behind the route) fills free slots, the nearest two at most,
+    // after the near callers: they call half as often and are coloured by distance like any far call
+    const bg = O.creatures && O.creatures.bg;
+    if (bg && nc < K) {
+      let b0 = null, b1 = null;
+      for (const e of bg) {
+        if (e.done || !(e.fade > 0.3) || !e.sp || !e.bounds) continue;
+        const kind = CALLS[e.sp.key];
+        if (!kind || !(e.dist <= VOICE[kind][0]) || (kind === 'sweeper' && this.night < 0.25)) continue;
+        if (!b0 || e.dist < b0.dist) { b1 = b0; b0 = e; } else if (!b1 || e.dist < b1.dist) b1 = e;
+      }
+      for (let j = 0; j < 2; j++) {
+        const e = j ? b1 : b0;
+        if (!e || nc >= K) continue;
+        const slot = cand[nc++], b = e.bounds, kind = CALLS[e.sp.key];
+        slot.kind = kind; slot.d = e.dist; slot.uid = e.uid; slot.vis = false; slot.n = e.n || 1; slot.bg = true; slot.e = e;
+        slot.pan = this._dir(b.x - cam.x, b.y - cam.y, e.anchorZ + b.z - Oz - cam.z); slot.rear = this._rr;
+      }
     }
     this.nCand = nc; this.closeN = close;
     for (let i = nc; i < K; i++) cand[i].d = 1e9;
@@ -770,17 +793,17 @@ export class Ambience {
       if (n.kind === this._lastKind && now < this._lastKindT) continue; // (and not the same voice twice running)
       if (full()) { this._due.set(n.uid, now + R(0.5, 2)); continue; }
       const v = VOICE[n.kind], member = n.n > 1 ? ri(Math.min(n.n, 8)) : 0;
-      this._rear = n.rear; this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan, n.uid * 16 + member); this._duckFor(now, v[3], n.d); calls++; this._lifeGap = now + R(0.35, 0.8); this._lastKind = n.kind; this._lastKindT = now + R(1.5, 3);
-      this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : 1) / Math.min(1.3, 1 + 0.1 * (n.n - 1)));
+      this._rear = n.rear; this._trackE = v[3] >= 1.5 ? n.e : null; this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan, n.uid * 16 + member); this._trackE = null; this._duckFor(now, v[3], n.d); calls++; this._lifeGap = now + R(0.35, 0.8); this._lastKind = n.kind; this._lastKindT = now + R(1.5, 3);
+      this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : n.bg ? 2 : 1) / Math.min(1.3, 1 + 0.1 * (n.n - 1)));
       // a group mate answers; a big group sometimes calls together
       if (n.n > 1 && ANSWER.has(n.kind) && Math.random() < (VOICE[n.kind][0] < 50 ? 0.25 : 0.45) && !this._ans.kind) {
-        const A = this._ans; A.kind = n.kind; A.t = now + v[3] * 0.7 + R(0.3, 1.2); A.d = n.d * R(0.85, 1.2); A.pan = Math.max(-0.8, Math.min(0.8, n.pan + R(-0.4, 0.4))); A.rear = n.rear; A.uid = n.uid * 16 + ((member + 1 + ri(3)) % 8);
+        const A = this._ans; A.kind = n.kind; A.t = now + v[3] * 0.7 + R(0.3, 1.2); A.d = n.d * R(0.85, 1.2); A.pan = Math.max(-0.8, Math.min(0.8, n.pan + R(-0.4, 0.4))); A.rear = n.rear; A.e = n.e; A.uid = n.uid * 16 + ((member + 1 + ri(3)) % 8);
       }
       if (n.n >= 6 && CHORUS.has(n.kind) && Math.random() < 0.3) for (let k = 1 + ri(2); k > 0 && !full(); k--) this._call(n.kind, now + R(0.2, 1), n.d * R(0.9, 1.3), Math.max(-0.8, Math.min(0.8, n.pan + R(-0.5, 0.5))), n.uid * 16 + 8 + k);
-      this._rear = 0;
+      this._rear = 0; this._trackE = null;
     }
     const A = this._ans;
-    if (A.kind && now >= A.t) { this._rear = A.rear; if (!full()) this._call(A.kind, now + 0.05, A.d, A.pan, A.uid); this._rear = 0; A.kind = ''; }
+    if (A.kind && now >= A.t) { this._rear = A.rear; this._trackE = VOICE[A.kind][3] >= 1.5 ? A.e : null; if (!full()) this._call(A.kind, now + 0.05, A.d, A.pan, A.uid); this._rear = 0; this._trackE = null; A.kind = ''; A.e = null; }
     if (this.nCand && this._lifeFar) this._lifeFar = false;
     if (!this.nCand && now >= due.life) { // far away, unseen: whale song in open water, seals under the ice
       const first = !this._lifeFar; this._lifeFar = true;
@@ -827,6 +850,7 @@ export class Ambience {
   // A voice behind the view (this._rear, set around the call) is a little duller and quieter, as the head shadows it.
   _out(pan, lp, gain, wet, bus) {
     const c = this.ctx, g = c.createGain(), f = c.createBiquadFilter(), rr = this._rear;
+    g._lp0 = lp; g._g0 = gain; g._done = false;
     if (rr > 0) { lp *= 1 - 0.55 * rr; gain *= 1 - 0.3 * rr; }
     g.gain.value = gain; f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5;
     g.connect(f);
@@ -841,13 +865,31 @@ export class Ambience {
   // a call heard from d metres: quieter, darker and wetter with distance (unchanged within ~15 m; a far caller reaches
   // the ear mostly through the water's reverberation, so past ~100 m it is mostly tail)
   _far(d, pan, level, lpMax = 9000) {
-    return this._out(pan, Math.min(lpMax, 400 + 9000 * Math.exp(-d / 52)), LIFE_GAIN * level / (1 + d / 45), Math.min(1, 0.12 + d / 140), this.bus.life);
+    const h = this._out(pan, Math.min(lpMax, 400 + 9000 * Math.exp(-d / 52)), LIFE_GAIN * level / (1 + d / 45), Math.min(1, 0.12 + d / 140), this.bus.life);
+    if (this._trackE && h.pan) { // (one head per call: the first)
+      for (const k of this._trk) if (!k.h || k.h._done || !k.e || k.e.done) { k.e = this._trackE; k.h = h; break; }
+      this._trackE = null;
+    }
+    return h;
+  }
+  // re-aim the long calls still sounding (4 Hz, a short ramp): pan, and the rear lowpass and gain, from where the
+  // animal is now in the view
+  _retrack(now) {
+    const cam = this.env.camera.position, Oz = -this.env.world.position.z;
+    for (const k of this._trk) {
+      const h = k.h, e = k.e;
+      if (!h || h._done || !e || e.done || !e.bounds) { k.h = null; k.e = null; continue; }
+      const b = e.bounds, pan = this._dir(b.x - cam.x, b.y - cam.y, e.anchorZ + b.z - Oz - cam.z), rr = this._rr;
+      h.pan.pan.setTargetAtTime(pan, now, 0.1);
+      h.chain[0].frequency.setTargetAtTime(h._lp0 * (1 - 0.55 * rr), now, 0.1);
+      h.gain.setTargetAtTime(h._g0 * (1 - 0.3 * rr), now, 0.1);
+    }
   }
   // count a voice until its last source ends, then drop its chain (bubble voices have their own count)
   _hold(src, head, bub) {
     const k = bub === true ? 'bVoices' : bub ? 'fVoices' : 'voices';
     this[k]++;
-    src.onended = () => { this[k]--; head.disconnect(); for (const n of head.chain) n.disconnect(); };
+    src.onended = () => { this[k]--; head._done = true; head.disconnect(); for (const n of head.chain) n.disconnect(); };
   }
   _env(param, t, a, peak, hold, rel) {
     param.setValueAtTime(0, t); param.linearRampToValueAtTime(peak, t + a);
@@ -1177,7 +1219,7 @@ export class Ambience {
         const head = this._far(d, pan, 0.25, 6000);
         this._hold(this._train(this.buf.tick, t, 20 + ri(40), R(0.01, 0.04), R(0.7, 1), head, 1, 0.2), head);
       } else {
-        const rs = seeded((uid >> 4) * 3 + (P < 0.6 ? 1 : 2)), head = this._far(d, pan, 0.12, 3000), e = this._gain(0, head);
+        const rs = seeded((uid >> 4) * 3 + (P < 0.6 ? 1 : 2)), head = this._far(d, pan, 0.3, 3000), e = this._gain(0, head); // (at 0.12: ~10 dB under the pilot whales' whistles)
         const f0 = (700 + 700 * rs()) * R(0.98, 1.02), dur = (0.6 + 0.9 * rs()) * T, step = 1.2 + 0.4 * rs(), at = 0.3 + 0.3 * rs(), fin = 0.8 + 0.3 * rs();
         const o = this._osc('sawtooth', f0, e);
         o.frequency.setValueAtTime(f0, t); o.frequency.setValueAtTime(f0 * step, t + dur * at);
