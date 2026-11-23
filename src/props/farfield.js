@@ -113,7 +113,8 @@ const tw = (f) => withLo(f(1), f(0)); // f(det): the template at icosahedron det
 // kinds: what grows there { w: weight, t: templates, sc: scale range, ys: y-stretch, fit: stretch to this share of
 // the depth (kelp), tint, sway (sway material), upright (no lean to the slope), n: items per cluster, cr: cluster
 // radius, dMin: only this far out, big: height (m) above which an obstacle is registered, hull: an obstacle along
-// the length, lowSkip: mostly left out on the low tier }.
+// the length, lowSkip: mostly left out on the low tier }, loD: on low, coarse twins from this far out (default 20 m;
+// nearer frees triangles for more items in the band side views see).
 const FAR = {};
 let built = false;
 function tinted(pal, amt = 0.1) {
@@ -328,21 +329,21 @@ export function initFarField() {
   // ---- coral family (habitat zones: covered, with sand channels and bare patches the minority)
   FAR.reef = { capK: 1.0, in: [14, 34], cell: 6, dens: 2.6, floor: 0.35, kinds: reefKinds }; // (kept: the reference)
   const reefFar = [K(3, c.bommie, [1.0, 1.7], { big: 2.5 }), K(2, c.ridge, [0.9, 1.5], { ys: [0.7, 1.1] }), K(2, c.mound, [1.0, 1.6], { ys: [0.8, 1.3] })];
-  FAR.wall = { capK: 1.1, far: reefFar, maxSlope: 0.45, in: [5, 14], cell: 6, dens: 2.5, floor: 0.45, deep: 25, kinds: reefKinds };
+  FAR.wall = { capK: 1.1, far: reefFar, maxSlope: 0.45, in: [5, 14], cell: 5, dens: 2.5, floor: 0.45, deep: 25, loD: 12, kinds: reefKinds };
   FAR.bluehole = { far: reefFar, maxSlope: 0.45, in: [5, 16], cell: 6, dens: 2.0, floor: 0.45, deep: 20, kinds: reefKinds };
-  FAR.softcoral = { capK: 1.3, far: [K(3, c.softRock, [1.1, 1.9], { big: 2.5 }), K(2, c.bommie, [0.9, 1.5], { big: 2.5 }), K(1.5, c.crust, [1.0, 1.7])], maxSlope: 0.45, in: [4, 12], cell: 6, dens: 1.5, floor: 0.5, kinds: [
+  FAR.softcoral = { capK: 1.3, far: [K(3, c.softRock, [1.1, 1.9], { big: 2.5 }), K(2, c.bommie, [0.9, 1.5], { big: 2.5 }), K(1.5, c.crust, [1.0, 1.7])], maxSlope: 0.45, in: [4, 12], cell: 4, dens: 2.0, floor: 0.3, loD: 12, kinds: [
     K(4, c.softRock, [0.9, 1.8], { n: [1, 3], cr: 4, big: 2.5 }), K(2.5, c.softTree, [0.9, 1.8], { n: [3, 6], cr: 3 }), K(1.5, c.crust, [0.9, 1.6], { cr: 4 }),
     K(0.8, c.bommie, [0.8, 1.4], { big: 2.5 }), K(1.2, c.fan, [0.9, 1.6], { sway: true, lowSkip: true }), K(0.8, r.pile, [0.8, 1.6], { tint: rockTint('softcoral') }),
   ] };
-  FAR.champagne = { capK: 0.95, far: [K(2, c.softRock, [1.0, 1.7]), K(2, c.bommie, [0.9, 1.4]), K(1.5, r.outcrop, [0.9, 1.5], { tint: rockTint('champagne', 0.9) })], maxSlope: 0.45, in: [4, 12], cell: 6, dens: 1.3, floor: 0.4, kinds: [
+  FAR.champagne = { capK: 0.95, far: [K(2, c.softRock, [1.0, 1.7]), K(2, c.bommie, [0.9, 1.4]), K(1.5, r.outcrop, [0.9, 1.5], { tint: rockTint('champagne', 0.9) })], maxSlope: 0.45, in: [4, 12], cell: 5, dens: 1.6, floor: 0.35, loD: 12, kinds: [
     K(2, c.head, [0.8, 1.6], { n: [2, 4] }), K(2, c.softRock, [0.8, 1.5]), K(1.5, c.softTree, [0.8, 1.4], { n: [2, 4] }),
     K(1.5, r.pile, [0.7, 1.5], { tint: rockTint('champagne', 0.9) }), K(1.5, c.crust, [0.8, 1.4]), K(1, c.mound, [0.8, 1.3]),
   ] };
-  FAR.anemone = { capK: 0.76, far: [K(3, c.anemRock, [1.1, 1.9], { n: [1, 2] }), K(2, c.carpet, [1.2, 2.0], { n: [1, 3] }), K(1, r.outcrop, [0.9, 1.5], { tint: rockTint('anemone') })], maxSlope: 0.45, in: [4, 12], cell: 5, dens: 1.6, floor: 0.5, kinds: [
-    K(4, c.carpet, [0.9, 1.8], { n: [2, 5], cr: 4 }), K(4, c.anemRock, [0.9, 1.7], { n: [1, 3], cr: 3.5 }), K(1.5, r.rock, [0.7, 1.6], { tint: rockTint('anemone') }),
+  FAR.anemone = { capK: 0.76, far: [K(3, c.anemRock, [1.1, 1.9], { n: [1, 2] }), K(2, c.carpet, [1.2, 2.0], { n: [1, 3] }), K(1, r.outcrop, [0.9, 1.5], { tint: rockTint('anemone') })], maxSlope: 0.45, in: [4, 12], cell: 4, dens: 2.0, floor: 0.3, loD: 8, kinds: [
+    K(4, c.carpet, [0.9, 1.8], { n: [2, 5], cr: 4 }), K(4, c.anemRock, [0.9, 1.7], { n: [1, 3], cr: 3.5 }), K(0.8, r.rock, [0.7, 1.6], { tint: rockTint('anemone') }),
     K(1, r.shells, [0.9, 1.5], { n: [1, 2] }), K(0.4, c.softTree, [0.8, 1.3]),
   ] };
-  FAR.seamount = { capK: 1.3, far: [K(3, r.pile, [1.2, 2.2], { tint: rockTint('seamount'), big: 2 }), K(2, r.outcrop, [1.0, 1.8], { tint: rockTint('seamount') }), K(1, c.softRock, [1.0, 1.6])], maxSlope: 0.45, in: [5, 16], cell: 7, dens: 2.2, floor: 0.4, kinds: [
+  FAR.seamount = { capK: 1.3, far: [K(3, r.pile, [1.2, 2.2], { tint: rockTint('seamount'), big: 2 }), K(2, r.outcrop, [1.0, 1.8], { tint: rockTint('seamount') }), K(1, c.softRock, [1.0, 1.6])], maxSlope: 0.45, in: [5, 16], cell: 5, dens: 2.2, floor: 0.4, loD: 12, kinds: [
     K(3, r.pile, [0.9, 2.0], { tint: rockTint('seamount'), big: 2 }), K(2, r.outcrop, [0.8, 1.6], { tint: rockTint('seamount') }), K(2.5, c.fan, [1.0, 2.0], { sway: true, n: [2, 5] }),
     K(1.5, c.sponge, [0.9, 1.6], { n: [1, 3] }), K(1.5, c.crust, [0.9, 1.5]), K(1, c.softRock, [0.8, 1.4]),
   ] };
@@ -372,7 +373,7 @@ export function initFarField() {
     const shallows = (k) => [K(3, gr.patch, [0.8, 1.1], { sway: true, n: [2, 5], upright: true }), K(2.5, r.algae, [0.7, 1.4], { n: [1, 3] }), K(1.5, r.rock, [0.5, 1.2], { tint: rockTint(k, 1.2) })];
     FAR.mangrove = { capK: 0.95, swayLow: true, in: [5, 14], cell: 5, dens: 1.2, floor: 0.35, maxSlope: 0.45, kinds: shallows('mangrove') };
     FAR.biobay = { swayLow: true, in: [6, 18], cell: 6, dens: 0.7, dark: 60, floor: 0.3, kinds: shallows('biobay') };
-    FAR.sandflat = { capK: 0.6, in: [10, 26], cell: 8, dens: 1.4, floor: 0.3, hk: 1.6, kinds: [
+    FAR.sandflat = { capK: 0.6, in: [8, 18], cell: 7, dens: 1.4, loD: 12, floor: 0.3, hk: 1.6, kinds: [
       K(2, c.head, [0.6, 1.2], { n: [2, 5], cr: 4 }), K(1, c.bush, [0.7, 1.3], { n: [1, 3] }), K(2, r.outcrop, [0.6, 1.2], { tint: rockTint('sandflat', 1.15) }),
       K(2, r.rock, [0.5, 1.3], { tint: rockTint('sandflat', 1.15) }), K(2, r.shells, [0.8, 1.5], { n: [1, 3] }), K(1.5, r.burrow, [0.8, 1.4], { n: [2, 5], cr: 3, tint: sandTint('sandflat', 1.0) }),
       K(1.5, gr.patch, [0.8, 1.1], { sway: true, n: [2, 4], upright: true, lowSkip: true }),
@@ -403,18 +404,18 @@ export function initFarField() {
   FAR.lostcity = { in: [6, 18], cell: 8, dens: 1.2, dark: 60, floor: 0.3, kinds: [
     K(3, cb.spire, [0.5, 1.3], { big: 2.5, cr: 4, n: [1, 4], upright: true }), K(2, cb.rubble, [0.7, 1.5], { n: [1, 3] }),
   ] };
-  FAR.sunkenforest = { capK: 0.85, in: [6, 18], cell: 7, dens: 1.8, floor: 0.35, kinds: [
+  FAR.sunkenforest = { capK: 0.85, in: [6, 18], cell: 5, dens: 1.8, floor: 0.35, loD: 12, kinds: [
     K(3, wd.stump, [0.8, 1.5], { big: 1.8, upright: true, n: [1, 4] }), K(1.5, wd.snag, [0.7, 1.3], { big: 2.5, upright: true }), K(1, wd.tree, [0.8, 1.3], { big: 2.5, upright: true, n: [1, 2] }),
     K(2, wd.log, [0.8, 1.4], { n: [1, 3] }), K(1, r.rock, [0.6, 1.3], { tint: rockTint('sunkenforest', 1.1) }), K(1, r.algae, [0.8, 1.4]),
   ] };
   // ---- wrecks and ruins: debris fields and more hull outlines; a ruined city on a street grid
   const wr = wreckT(), stn = stoneT();
-  FAR.wreck = { capK: 0.55, in: [8, 20], cell: 7, dens: 1.5, floor: 0.25, kinds: [
+  FAR.wreck = { capK: 0.55, in: [6, 16], cell: 5, dens: 1.5, floor: 0.25, loD: 12, kinds: [
     K(3, wr.plate, [1.0, 1.8], { n: [2, 5], cr: 4 }), K(2, wr.frames, [1.0, 1.6], { n: [1, 3], upright: true }), K(1.5, wr.girder, [1.0, 1.6], { n: [1, 3] }),
     K(0.8, wr.boiler, [0.9, 1.3], { n: [1, 1] }), K(1.5, r.pile, [0.9, 1.7], { tint: rockTint('wreck', 1.1) }), K(1, r.outcrop, [0.7, 1.3], { tint: rockTint('wreck', 1.1) }),
     K(0.5, wr.hull, [9, 16], { n: [1, 1], dMin: 50, hull: true, upright: true }),
   ], feats: { n: [1, 2], kind: { t: wr.hull, sc: [10, 16], hull: true, upright: true }, d: [45, 85] } };
-  FAR.ruins = { capK: 0.7, in: [5, 14], cell: 6, dens: 1.8, floor: 0.35, grid: 17, kinds: [
+  FAR.ruins = { capK: 0.7, in: [5, 14], cell: 5, dens: 2.0, floor: 0.35, grid: 17, loD: 10, kinds: [
     K(3, stn.wall, [0.9, 1.3], { big: 2.2, line: true, n: [1, 3] }), K(1.5, stn.colonnade, [0.9, 1.2], { big: 2.2, line: true, n: [1, 2] }),
     K(2, stn.block, [0.8, 1.4], { n: [2, 4], cr: 3.5 }), K(1.5, stn.heap, [0.9, 1.5], { n: [1, 2] }), K(1, stn.fallen, [0.8, 1.2], { upright: true }),
     K(0.8, stn.platform, [0.8, 1.3], { n: [1, 1], dMin: 20, big: 1.5, line: true }),
@@ -643,7 +644,7 @@ function place(env, R, e, K, x, s, cd, big, rng, yaw) {
   const { ctx, gnd, hero } = env;
   if (s < ctx.s0 || s >= ctx.s1) return;
   let tpl = K.t[(rng() * K.t.length) | 0];
-  if (tpl.lo && cd > (env.low ? 20 : LO_D)) tpl = tpl.lo;
+  if (tpl.lo && cd > (env.low ? R.loD ?? 20 : LO_D)) tpl = tpl.lo;
   if (env.left.tris < tpl.tris) return;
   const sc = (K.sc[0] + (K.sc[1] - K.sc[0]) * Math.pow(rng(), 1.4)) * (K.hull || R.feats && K === R.feats.kind ? 1 : big);
   const fy = gnd.floor(x, s), ny = gnd.ny;
