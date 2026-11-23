@@ -560,6 +560,7 @@ export class Ambience {
     const Oz = -env.world.position.z, s = -(cam.z + Oz);
     // camera speed (m/s), for bubble density; a jump (zone change) reads as a stop, not a dash
     const ds = this._lastS === null ? 0 : Math.abs(s - this._lastS); this._lastS = s;
+    if (ds >= 60) for (const k of this._trk) { k.h = null; k.e = null; } // a zone jump: calls still sounding stop following
     this.speed += ((ds < 60 && dt > 0 ? ds / dt : 0) - this.speed) * 0.3;
     const Z = this.Z, F = this.F; for (const k in Z0) Z[k] = 0; for (const k in FAM0) F[k] = 0;
     let off = 0;
@@ -875,10 +876,12 @@ export class Ambience {
   // re-aim the long calls still sounding (4 Hz, a short ramp): pan, and the rear lowpass and gain, from where the
   // animal is now in the view
   _retrack(now) {
-    const cam = this.env.camera.position, Oz = -this.env.world.position.z;
+    const cam = this.env.camera.position, Oz = -this.env.world.position.z, O = window.__ocean || {}, cr = O.creatures;
     for (const k of this._trk) {
       const h = k.h, e = k.e;
-      if (!h || h._done || !e || e.done || !e.bounds) { k.h = null; k.e = null; continue; }
+      if (!h) continue;
+      // (stop following an animal that is gone: done, fading out, or no longer in either list, e.g. after a reset)
+      if (h._done || !e || e.done || !(e.fade > 0.3) || !e.bounds || !cr || !((cr.enc && cr.enc.includes(e)) || (cr.bg && cr.bg.includes(e)))) { k.h = null; k.e = null; continue; }
       const b = e.bounds, pan = this._dir(b.x - cam.x, b.y - cam.y, e.anchorZ + b.z - Oz - cam.z), rr = this._rr;
       h.pan.pan.setTargetAtTime(pan, now, 0.1);
       h.chain[0].frequency.setTargetAtTime(h._lp0 * (1 - 0.55 * rr), now, 0.1);
