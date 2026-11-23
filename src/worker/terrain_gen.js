@@ -143,6 +143,9 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
         const pn = noise2(x / 17, r.s / 17, 9), sw = 1 - rk;
         const sh = smoothstep(0.15, 0.5, pn) * sw, fl = smoothstep(0.15, 0.5, -pn) * sw;
         cr *= 1 + 0.06 * sh - 0.1 * fl; cg *= 1 + 0.045 * sh - 0.06 * fl; cb *= 1 + 0.01 * sh - 0.13 * fl;
+        // fine pale silt settles in the hollows; rises are scoured to coarser, darker grains (local concavity)
+        const sd = (smoothstep(0.004, 0.08, conc) * 0.07 - smoothstep(0.004, 0.08, -conc) * 0.05) * sw;
+        cr *= 1 + sd; cg *= 1 + sd; cb *= 1 + sd * 0.8;
       }
       col[k * 3] = cr * ao * v; col[k * 3 + 1] = cg * ao * v; col[k * 3 + 2] = cb * ao * v;
       if (isCeil) det[k] = ice;

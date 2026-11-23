@@ -23,9 +23,9 @@ varying vec2 vFx;
 uniform float uTime;
 `;
 
-// all spatial frequencies are 2*pi*n/1024 so floating-origin rebases (1024 m) are seamless
-const SWAY = /* glsl */`
-uniform float uSurge;
+// all spatial frequencies are 2*pi*n/1024 so floating-origin rebases (1024 m) are seamless.
+// SURGE is shared with the other sway shaders (nb3_common.js); the including shader declares uTime and uSurge.
+export const SURGE = /* glsl */`
 uniform float uSurfaceY;
 // One swell for the whole scene: water surges back and forth along x (the axis kelp fronds stream along, see
 // kelp.js), so kelp, fans, grass and tentacles all lean the same way and swing back together. The phase travels
@@ -37,6 +37,10 @@ vec2 pSurge(vec3 wq) {
   float k = gust * mix(1.0, 0.35, smoothstep(6.0, 60.0, uSurfaceY - wq.y)) * (1.0 + 0.8 * uSurge);
   return vec2(0.95, 0.3) * (sin(a) + 0.22 * sin(2.0 * a + 0.8)) * k;   // quicker push, slower return
 }
+`;
+const SWAY = /* glsl */`
+uniform float uSurge;
+${SURGE}
 vec3 pSway(vec3 wq, vec2 fx) {
   float w = fx.x;
   if (w <= 0.0) return vec3(0.0);
@@ -224,6 +228,12 @@ const ROUGH_STATIC = /* glsl */`
 if (pMode > 4.5 && pMode < 5.5) roughnessFactor = 0.3;
 else if (pMode > 3.5 && pMode < 4.5) roughnessFactor = 0.7;
 else if (pMode > 6.97 && pMode < 7.5) roughnessFactor = 0.26;
+#if WQ >= 1
+// living coral tissue (brain 1, polyps 2, bushy tips 9) is coated in mucus: up-facing surfaces in the sunlit
+// shallows catch a faint wet sheen
+if ((pMode > 0.5 && pMode < 2.5) || (pMode > 8.5 && pMode < 9.5))
+  roughnessFactor = mix(roughnessFactor, 0.55, smoothstep(0.55, 0.95, pN.y) * (1.0 - smoothstep(5.0, 18.0, uSurfaceY - vWPos.y)) * 0.7);
+#endif
 `;
 
 // style 4: gorgonian fan sheet cut into a net: only the crests of the ridged noise (alpha) survive, so

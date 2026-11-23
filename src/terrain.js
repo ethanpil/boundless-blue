@@ -122,6 +122,10 @@ function floorMaterial() {
             // sedimentary strata on cliffs and walls
             float strata = 0.84 + 0.16 * sin(vWPos.y * 2.6 + tri.g * 6.0) * smoothstep(0.45, 0.85, steep);
             diffuseColor.rgb *= mix(sandDet, rockDet * strata, fRock);
+            // faint vertical streaks where seepage and settling silt run down near-vertical rock (stripes ~2 m
+            // apart, broken up by the triplanar noise; whole multiple of 2 pi / 1024 m along x + z)
+            float streak = smoothstep(0.6, 0.85, steep) * smoothstep(0.35, 0.65, tri.b);
+            diffuseColor.rgb *= 1.0 - 0.07 * streak * (0.5 + 0.5 * sin((vWPos.x + vWPos.z) * 3.0679616 + tri.g * 7.0 + vWPos.y * 0.15));
             {
               // ripple phases (used again by the normal stage). Troughs collect darker, heavier grains and
               // detritus while crests wash pale, so ripples read in the albedo too, not only in the shading.

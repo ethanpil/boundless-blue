@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { applyWater } from '../water.js';
 import { mulberry32 } from '../noise.js';
+import { SURGE } from './materials.js';
 
 export const NB3 = { mat: {} };
 export const rr = (rng, a, b) => a + (b - a) * rng();
@@ -84,16 +85,20 @@ attribute vec2 aFx;
 varying vec2 vFx;
 uniform float uTime;
 uniform float uSurge;
+${SURGE}
 vec3 sgMove(vec3 wq, float w) {
   float k = 1.0 + 1.5 * uSurge;
+  vec2 S = pSurge(wq);   // the scene-wide swell (materials.js): rafts drift with it, dangling strands swing in it
   float p1 = dot(wq.xz, vec2(${K(32)}, ${K(12)}));
   float p2 = dot(wq.xz, vec2(${K(-10)}, ${K(26)}));
   float p3 = dot(wq.xz, vec2(${K(21)}, ${K(-17)}));
   vec3 o = vec3(0.05 * sin(uTime * 0.55 + p2), 0.05 * sin(uTime * 0.7 + p1) + 0.025 * sin(uTime * 1.13 + p3), 0.04 * cos(uTime * 0.6 + p3)) * k;
+  o.xz = o.xz * 0.6 + S * 0.05;
   if (w > 0.0) {
     float ph = dot(wq.xz, vec2(${K(120)}, ${K(90)})) + wq.y * 2.3;
     float ph2 = dot(wq.xz, vec2(${K(156)}, ${K(117)})) + wq.y * 3.1;
-    o += vec3(sin(uTime * 0.9 + ph), 0.12 * sin(uTime * 1.3 + ph2), 0.7 * sin(uTime * 0.73 + ph2 + 1.0)) * w * k;
+    o += vec3(sin(uTime * 0.9 + ph), 0.12 * sin(uTime * 1.3 + ph2), 0.7 * sin(uTime * 0.73 + ph2 + 1.0)) * w * k * 0.55;
+    o.xz += S * 0.7 * w;
   }
   return o;
 }
@@ -212,14 +217,14 @@ attribute vec2 aFx;
 varying vec2 vFx;
 uniform float uTime;
 uniform float uSurge;
+${SURGE}
 vec3 anSway(vec3 wq, float w) {
   if (w <= 0.0) return vec3(0.0);
-  float pl = dot(wq.xz, vec2(${K(8)}, ${K(5)}));
   float pl2 = dot(wq.xz, vec2(${K(-6)}, ${K(9)}));
-  float surge = sin(uTime * 0.55 + pl) * (1.0 + 1.3 * uSurge);
+  vec2 S = pSurge(wq) * 0.85;   // the scene-wide swell (materials.js), as the reef's fans and grass feel it
   float ph = dot(wq.xz, vec2(${K(1485)}, ${K(1142)})) + wq.y * 31.0;
   float ph2 = dot(wq.xz, vec2(${K(-1203)}, ${K(1377)})) + wq.y * 23.0;
-  return vec3(0.8 * surge + 0.32 * sin(uTime * 1.6 + ph), 0.12 * sin(uTime * 1.3 + ph2), 0.45 * cos(uTime * 0.47 + pl2) + 0.32 * cos(uTime * 1.37 + ph2)) * w;
+  return vec3(S.x + 0.32 * sin(uTime * 1.6 + ph), 0.12 * sin(uTime * 1.3 + ph2), S.y + 0.25 * cos(uTime * 0.47 + pl2) + 0.32 * cos(uTime * 1.37 + ph2)) * w;
 }
 `;
 const AN_F = /* glsl */`
