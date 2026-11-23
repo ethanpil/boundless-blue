@@ -97,7 +97,9 @@ void crDeform(inout vec3 p, inout vec3 n) {
     if (isPaired) {
       p.y += aG.w * 0.035 * sin(ph * 0.7 + 1.3);
       // sculling: a hovering fish fans its pectorals (left and right out of phase, ~1.5 Hz), fading out with way on
-      float rest = 1.0 - smoothstep(0.45, 1.1, aAnim.y);
+      // bony fish only (no-gill-cover flag, low byte of aCol2.w >= 8): seals hold their fore flippers to the body and
+      // sharks' pectorals are stiff planes
+      float rest = (1.0 - smoothstep(0.45, 1.1, aAnim.y)) * (1.0 - step(7.5, aCol2.w - floor(aCol2.w / 256.0) * 256.0));
       // (9.400234 = 6128 x 2 pi / 4096: whole cycles per uTime wrap, so the fins do not pop once an hour)
       p.z += aG.w * 0.04 * rest * sin(uTime * 9.400234 + sign(p.x) * 1.7 + aVar.x * 23.0);
     }
@@ -132,6 +134,9 @@ void crDeform(inout vec3 p, inout vec3 n) {
     p.y += A * f * s + A * 0.012 * sin(ph + 1.6) * (tt - 0.25); // gentle pitch bob of the disc
     n.x -= A * (df * s - 2.0 * f * c) * sign(p.x) * n.y;
     n.z -= A * f * c * K * n.y;
+    // gliding: a faint slow wave still runs out along the wing and back (tips trailing the root), fading with the
+    // stroke (pi rad/s = whole cycles per uTime wrap)
+    p.y += w * w * 0.05 * (1.0 - smoothstep(0.4, 1.0, aAnim.y)) * sin(uTime * 3.1415927 - 1.5 * tt - 4.0 * w + aVar.x * 11.0);
     float tail = smoothstep(0.35, 1.0, tt);
     p.x += tail * 0.02 * sin(ph * 0.5 - tt * 6.0);
   } else if (mode < 3.5) {
@@ -158,7 +163,10 @@ void crDeform(inout vec3 p, inout vec3 n) {
       p.x += sin(ph * 0.31 - d * 2.2 + aG.z) * d * 0.09;
       p.z += cos(ph * 0.27 - d * 1.9 + aG.z * 1.7) * d * 0.09;
     } else {
-      float k = 1.0 - P * (1.0 - clamp(p.y * 2.0, 0.0, 1.0));
+      // the contraction runs down the bell: the margin lags the apex by ~70 degrees of the pulse
+      float lo = 1.0 - clamp(p.y * 2.0, 0.0, 1.0);
+      float pcB = 0.5 + 0.5 * sin(ph - 1.2 * lo);
+      float k = 1.0 - A * pcB * pcB * lo;
       p.xz *= k;
       p.y *= 1.0 + P * 0.3;
     }
