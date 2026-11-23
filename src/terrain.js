@@ -66,7 +66,7 @@ function floorMaterial() {
     key: 'floor',
     vertexHead: 'attribute vec4 aDetail; varying vec4 vDetail;',
     // values shared between the colour, normal and roughness stages of main()
-    fragmentHead: 'varying vec4 vDetail; float fRockH; float fRock; vec4 fN1; vec4 fN2; vec4 fLF; float fSandH;',
+    fragmentHead: 'varying vec4 vDetail; float fRockH; float fRock; vec4 fN1; vec4 fN2; vec4 fLF; float fSandH; vec4 fRip;',
     patch(sh) {
       sh.vertexShader = sh.vertexShader.replace('#include <uv_vertex>', '#include <uv_vertex>\nvDetail = aDetail;');
       sh.fragmentShader = sh.fragmentShader
@@ -122,6 +122,26 @@ function floorMaterial() {
             // sedimentary strata on cliffs and walls
             float strata = 0.84 + 0.16 * sin(vWPos.y * 2.6 + tri.g * 6.0) * smoothstep(0.45, 0.85, steep);
             diffuseColor.rgb *= mix(sandDet, rockDet * strata, fRock);
+            {
+              // ripple phases (used again by the normal stage). Troughs collect darker, heavier grains and
+              // detritus while crests wash pale, so ripples read in the albedo too, not only in the shading.
+              // All wave vectors are whole multiples of 2 pi / 1024 m (seamless floating-origin rebase).
+              vec2 q = vWPos.xz;
+              fRip = vec4(q.x * 0.90198 + q.y * 0.34974 + fN2.r * 7.0, 0.0, 0.0, 0.0);
+              float rh = sin(fRip.x) * 0.035 * vDetail.x;
+#if WQ >= 1
+              vec2 k1 = vec2(1050.0, 430.0) * 0.0061359232, k2 = vec2(700.0, 890.0) * 0.0061359232;
+              fRip.y = dot(q, k1) + fN2.g * 9.0;
+              fRip.z = dot(q, k2) + fN2.b * 9.0;
+              // fades out before the ~0.9 m ripples shrink to a few pixels: no shimmer in the distance
+              float fade = 1.0 - smoothstep(0.5, 1.4, max(fwidth(fRip.y), fwidth(fRip.z)));
+              fRip.w = vDetail.x * smoothstep(0.3, 0.6, fN1.g) * fade * (1.0 - fRock);
+              float mixAB = smoothstep(0.35, 0.65, fLF.b);
+              float hf = mix(sin(fRip.y) + 0.175 * sin(2.0 * fRip.y), sin(fRip.z) + 0.175 * sin(2.0 * fRip.z), mixAB);
+              rh += hf * 0.07 * fRip.w;
+#endif
+              diffuseColor.rgb *= 1.0 + rh * (1.0 - fRock);
+            }
             // large patches of darker silt and paler sand
             diffuseColor.rgb *= 0.86 + 0.28 * fLF.g;
             // encrusting life (coralline algae, turf, sponges; kelp-forest reds; bacterial mats at the vents)
@@ -145,18 +165,15 @@ function floorMaterial() {
           }`)
         .replace('#include <normal_fragment_maps>', `#include <normal_fragment_maps>
           {
-            vec2 q = vWPos.xz;
-            // megaripples (~6.5 m) and fine wave ripples (~0.9 m) whose orientation drifts between two sets;
-            // all wave vectors are whole multiples of 2 pi / 1024 m, so the floating-origin rebase is seamless
-            float ph = q.x * 0.90198 + q.y * 0.34974 + fN2.r * 7.0;
-            float c = cos(ph);
+            // megaripples (~6.5 m) and fine wave ripples (~0.9 m) whose orientation drifts between two sets
+            // (phases from the colour stage, fRip)
+            float c = cos(fRip.x);
             vec3 g = vec3(c * 0.902, 0.0, c * 0.35) * 0.16 * vDetail.x;
 #if WQ >= 1
             vec2 k1 = vec2(1050.0, 430.0) * 0.0061359232, k2 = vec2(700.0, 890.0) * 0.0061359232;
-            float pa = dot(q, k1) + fN2.g * 9.0, pb = dot(q, k2) + fN2.b * 9.0;
-            float fade = 1.0 - smoothstep(0.5, 1.4, max(fwidth(pa), fwidth(pb)));
+            float pa = fRip.y, pb = fRip.z;
             float mixAB = smoothstep(0.35, 0.65, fLF.b);
-            float amp = vDetail.x * smoothstep(0.3, 0.6, fN1.g) * fade * 0.022 * (1.0 - fRock);
+            float amp = fRip.w * 0.022;
             vec2 rg = k1 * (cos(pa) + 0.35 * cos(2.0 * pa)) * (1.0 - mixAB) + k2 * (cos(pb) + 0.35 * cos(2.0 * pb)) * mixAB;
             g.xz += rg * amp;
 #endif
@@ -170,7 +187,30 @@ function floorMaterial() {
             normal = normalize(abs(det) * normal - sign(det) * (dH.x * r1 + dH.y * r2));
           }`)
         .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
-          roughnessFactor = mix(0.95, 0.55 + 0.3 * fN1.b, fRock);  // slick wet rock catches the light, sand stays matte`);
+          roughnessFactor = mix(0.95, 0.55 + 0.3 * fN1.b, fRock);  // slick wet rock catches the light, sand stays matte`)
+        .replace('#include <emissivemap_fragment>', `#include <emissivemap_fragment>
+#if WQ >= 1
+          {
+            // sunlit sand within a few metres of the lens: a sparse glint from a shell fragment or quartz grain here
+            // and there, twinkling as the view moves (each grain's facet faces its own way). 4 cm cells, ids wrapped
+            // at 1024 m (floating origin); faded out before a grain cell shrinks under ~1.5 px, so it never shimmers.
+            float gd = length(vWPos - cameraPosition);
+            vec2 gp = vWPos.xz * 25.0;
+            float gk = (1.0 - smoothstep(2.0, 6.0, gd)) * (1.0 - fRock) * (1.0 - smoothstep(0.45, 0.8, length(fwidth(gp))));
+            if (gk > 0.0) {
+              vec2 gc = mod(floor(gp), 25600.0);
+              vec3 h3 = fract(vec3(gc.xyx) * vec3(0.1031, 0.103, 0.0973));
+              h3 += dot(h3, h3.yzx + 33.33);
+              h3 = fract((h3.xxy + h3.yzz) * h3.zyx);
+              vec3 vd = (vWPos - cameraPosition) / gd;
+              float tw = smoothstep(0.9, 1.0, sin(h3.y * 60.0 + dot(vd, vec3(41.0, 29.0, 37.0)) * (0.6 + h3.z)));
+              float dot_ = 1.0 - smoothstep(0.12, 0.3, length(fract(gp) - 0.3 - 0.4 * h3.zx));
+              float sp = step(0.9, h3.x) * tw * dot_ * gk;
+              float dB = max(0.0, uSurfaceY - vWPos.y);
+              totalEmissiveRadiance += vec3(0.55, 0.6, 0.58) * sp * uSunColor * uSunScatter * exp(-uLightSigma * dB) * skyVis(vWPos) * (1.0 - uNight);
+            }
+          }
+#endif`);
     },
   });
 }

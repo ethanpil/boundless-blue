@@ -137,6 +137,13 @@ function gridData(hgt, rows, x0, NX, isCeil, s0) {
         }
       }
       const v = 0.9 + 0.2 * nn;
+      if (!isCeil && rk < 0.95) {
+        // patches of a few to ~20 m on the sand, within the zone's own colours: pale, warmer shell hash, and darker
+        // damp sand under a thin olive film of diatoms
+        const pn = noise2(x / 17, r.s / 17, 9), sw = 1 - rk;
+        const sh = smoothstep(0.15, 0.5, pn) * sw, fl = smoothstep(0.15, 0.5, -pn) * sw;
+        cr *= 1 + 0.06 * sh - 0.1 * fl; cg *= 1 + 0.045 * sh - 0.06 * fl; cb *= 1 + 0.01 * sh - 0.13 * fl;
+      }
       col[k * 3] = cr * ao * v; col[k * 3 + 1] = cg * ao * v; col[k * 3 + 2] = cb * ao * v;
       if (isCeil) det[k] = ice;
       else {

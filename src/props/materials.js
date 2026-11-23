@@ -25,28 +25,46 @@ uniform float uTime;
 
 // all spatial frequencies are 2*pi*n/1024 so floating-origin rebases (1024 m) are seamless
 const SWAY = /* glsl */`
+uniform float uSurge;
+uniform float uSurfaceY;
+// One swell for the whole scene: water surges back and forth along x (the axis kelp fronds stream along, see
+// kelp.js), so kelp, fans, grass and tentacles all lean the same way and swing back together. The phase travels
+// (a ~57 m wave, ~11 s period, ~5 m/s), so the push visibly passes through a stand. A slow ~96 m gust envelope
+// makes some swells stronger. Weaker with depth (the orbital motion dies away), stronger in surge weather.
+vec2 pSurge(vec3 wq) {
+  float a = uTime * 0.57 - dot(wq.xz, vec2(0.0981748, 0.0490874));
+  float gust = 0.6 + 0.4 * sin(uTime * 0.13 - dot(wq.xz, vec2(0.0490874, 0.0429515)));
+  float k = gust * mix(1.0, 0.35, smoothstep(6.0, 60.0, uSurfaceY - wq.y)) * (1.0 + 0.8 * uSurge);
+  return vec2(0.95, 0.3) * (sin(a) + 0.22 * sin(2.0 * a + 0.8)) * k;   // quicker push, slower return
+}
 vec3 pSway(vec3 wq, vec2 fx) {
   float w = fx.x;
   if (w <= 0.0) return vec3(0.0);
   float t = uTime;
   float ph = dot(wq.xz, vec2(0.2454369, 0.1963495));
-  vec3 o;
-  if (fx.y < 0.5 || (fx.y > 3.5 && fx.y < 4.5) || fx.y > 5.5) {
-    o = vec3(sin(t * 0.8 + ph), 0.0, 0.6 * sin(t * 0.63 + ph * 1.3 + 1.0));
-  } else if (fx.y > 4.5) {
+  if (fx.y > 4.5 && fx.y < 5.5) {
     // tube worms / christmas-tree worms: whip back into their tubes as the camera passes close
     float c = 1.0 - smoothstep(2.6, 4.6, distance(wq, cameraPosition));
-    o = vec3(sin(t * 1.1 + ph) * 0.05, -c, cos(t * 0.9 + ph) * 0.05);
+    return vec3(sin(t * 1.1 + ph) * 0.05, -c, cos(t * 0.9 + ph) * 0.05) * w;
+  }
+  // the shared surge carries most of the motion; each plant keeps a smaller flutter of its own
+  vec2 S = pSurge(wq);
+  vec3 o;
+  if (fx.y < 0.5 || (fx.y > 3.5 && fx.y < 4.5) || fx.y > 5.5) {
+    o = vec3(sin(t * 0.8 + ph), 0.0, 0.6 * sin(t * 0.63 + ph * 1.3 + 1.0)) * 0.5;
+    o.xz += S * 0.75;
   } else if (fx.y < 1.5) {
-    float surge = sin(t * 0.31 + wq.z * 0.0490874);
-    o = vec3(0.65 * surge + 0.35 * sin(t * 0.83 + ph), 0.0, 0.55 * sin(t * 0.41 + ph * 0.7 + 2.0));
+    o = vec3(0.3 * sin(t * 0.83 + ph), 0.0, 0.45 * sin(t * 0.41 + ph * 0.7 + 2.0));
+    o.xz += S * 0.7;
   } else if (fx.y < 2.5) {
     float a = t * 1.25 - dot(wq.xz, vec2(0.2454369, 0.3436117));
     float s1 = sin(a), s2 = sin(a * 0.71 + 1.3 + ph * 0.3);
-    o = vec3(0.45 + 0.55 * s1, -0.3 * abs(s1) - 0.12, 0.4 * s2);
+    o = vec3(0.45 + 0.55 * s1, -0.3 * abs(s1) - 0.12, 0.4 * s2) * 0.7;
+    o.xz += S * 0.45;
   } else {
     float p2 = ph * 4.0 + wq.y * 3.0;
     o = vec3(sin(t * 1.9 + p2), 0.45 * sin(t * 1.47 + p2 * 1.3), cos(t * 1.71 + p2 * 0.9));
+    o.xz += S * 0.4;
   }
   return o * w;
 }
