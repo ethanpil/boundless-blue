@@ -587,7 +587,8 @@ export class Ambience {
     const calm = 1 - 0.3 * night * (1 - Math.min(1, surge));
     Z.act = this.mood * calm;
     // how much water moves around the head: surface wash, surge weather, kelp swell; never quite still
-    Z.slosh = Math.min(1.4, 0.3 + 0.1 * bright + 0.7 * Z.wash + 0.6 * surge + 0.3 * Z.kelp * Math.exp(-camD / 30));
+    // (a storm's surge and rain's busier surface reach down only so far: at 20 m a storm is a slow heave, not a roar)
+    Z.slosh = Math.min(1.4, 0.3 + 0.1 * bright + 0.7 * Z.wash + 0.75 * surge * Math.exp(-camD / 14) + 0.12 * rain * Math.exp(-camD / 8) + 0.3 * Z.kelp * Math.exp(-camD / 30));
     const m = this.mix;
     m.base = 0.34 * (0.35 + 0.65 * Math.exp(-D / 600)) * (0.9 + 0.1 * this.mood);
     m.slosh = 4 * Z.slosh * F.sl * (0.75 + 0.25 * Z.act);
@@ -624,8 +625,9 @@ export class Ambience {
     if (this._v0 >= 0 && dt > 0) this._acc += ((v - this._v0) / dt - this._acc) * 0.4;
     this._v0 = v;
     const u = Math.min(2.2, v / 3);
-    this.rushG.gain.setTargetAtTime(0.45 * u * Math.sqrt(u), now, 1.5);
-    this.rushLP.frequency.setTargetAtTime(270 + 60 * u, now, 1.5);
+    const sg = Math.min(1, this.surge) * Math.exp(-this.Z.camD / 25); // (heavier, darker water in a storm swell)
+    this.rushG.gain.setTargetAtTime(0.45 * u * Math.sqrt(u) * (1 + 0.4 * sg), now, 1.5);
+    this.rushLP.frequency.setTargetAtTime((270 + 60 * u) * (1 - 0.15 * sg), now, 1.5);
     if (!H || now < this._stirT || Math.abs(turn) / 0.03 + Math.abs(this._acc) / 0.2 < 1) return; // (bends: 1-3 deg/s)
     this._stirT = now + R(8, 16); this._count('stir');
     const side = Math.abs(turn) > 0.02 ? Math.sign(-turn) : Math.random() < 0.5 ? -1 : 1; // outside: right in a left turn
