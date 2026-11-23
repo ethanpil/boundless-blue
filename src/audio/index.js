@@ -392,7 +392,7 @@ export class Ambience {
     // long calls (songs, moans, trills) follow their animal and the view while they last: _far files the call's head
     // here when _trackE is set, and _steer re-aims its pan, rear lowpass and gain at 4 Hz
     this._trackE = null; this._trk = Array.from({ length: 4 }, () => ({ e: null, h: null })); // how far behind the view the voice being made is (0 ahead or beside, 1 straight behind)
-    this._next = 0; this._scan = 0; this._susT = 0; this._lifeFar = true; this._lastS = null; this.speed = 0; this.night = 0; this.eve = 1;
+    this._next = 0; this._scan = 0; this._susT = 0; this._lifeFar = true; this._lastS = null; this.speed = 0; this.night = 0; this.eve = 1; this.still = 0; this.sg = 0;
     this._dueE = { slap: 0, drip: 0, ice: 0, kelp: 0, life: 0, diver: 0, trail: 0, glug: 0 };
     this._curve = new Float32Array(16); // reused frequency contours (setValueCurveAtTime copies it)
     if (typeof document !== 'undefined') document.addEventListener('visibilitychange', () => (document.hidden ? this._suspend() : this._resume()));
@@ -584,11 +584,16 @@ export class Ambience {
     // calmer and busier spells of a minute or so; calm nights (unless a storm is up) quieten the water further
     if (now >= this._moodNext) { this._moodT = R(0.65, 1.35); this._moodNext = now + R(40, 90); }
     this.mood += (this._moodT - this.mood) * Math.min(1, dt / 15);
-    const calm = 1 - 0.3 * night * (1 - Math.min(1, surge));
+    // still, clear weather (crystal: cloud 0.1) is the calm exception: slower, smaller slosh and fewer slaps; the
+    // common clear weather (cloud 0.3) and everything cloudier keep the approved mix. sg: the storm where it reaches
+    const still = this.still = clamp01((0.3 - (C.cloud ?? 0.3)) / 0.2) * (1 - Math.min(1, surge + rain)), sg = this.sg = Math.min(1, surge) * Math.exp(-camD / 14);
+    const calm = (1 - 0.3 * night * (1 - Math.min(1, surge))) * (1 - 0.3 * still);
     Z.act = this.mood * calm;
+    Z.wash *= 1 - 0.4 * still;
     // how much water moves around the head: surface wash, surge weather, kelp swell; never quite still
     // (a storm's surge and rain's busier surface reach down only so far: at 20 m a storm is a slow heave, not a roar)
-    Z.slosh = Math.min(1.4, 0.3 + 0.1 * bright + 0.7 * Z.wash + 0.75 * surge * Math.exp(-camD / 14) + 0.12 * rain * Math.exp(-camD / 8) + 0.3 * Z.kelp * Math.exp(-camD / 30));
+    Z.slosh = Math.min(1.4, 0.3 + 0.1 * bright + 0.7 * Z.wash + 0.75 * sg + 0.12 * rain * Math.exp(-camD / 8) + 0.3 * Z.kelp * Math.exp(-camD / 30));
+    Z.slosh *= 1 - 0.3 * still;
     const m = this.mix;
     m.base = 0.34 * (0.35 + 0.65 * Math.exp(-D / 600)) * (0.9 + 0.1 * this.mood);
     m.slosh = 4 * Z.slosh * F.sl * (0.75 + 0.25 * Z.act);
@@ -597,7 +602,7 @@ export class Ambience {
     m.vent = 0.4 * Z.vent;
     m.bubbles = 0.3 * Z.bubbles;
     m.chorus = 0.3 * Z.chorus * clamp01((night - 0.2) / 0.5) * this.eve * Math.exp(-camD / 80);
-    m.rain = 0.18 * rain * Math.exp(-camD / 20) * open;
+    m.rain = 0.21 * rain * Math.exp(-camD / 20) * open;
     m.lap = 0.5 * F.lap * Math.exp(-camD / 5) * open * (0.7 + 0.3 * Z.act + 0.5 * surge);
     m.sand = 0.9 * F.swell * Math.exp(-camD / 40) * (0.6 + 0.4 * Z.act + 0.6 * surge);
     if (m.rain > 0.01) this._lazy('rain');
@@ -608,7 +613,7 @@ export class Ambience {
     const lp = 150 + 260 * bright;
     for (const n of this.baseLP) n.frequency.setTargetAtTime(lp, now, 1);
     for (let i = 0; i < this.basePan.length; i++) this.basePan[i].pan.setTargetAtTime((i ? 1 : -1) * (0.15 + 0.75 * F.width), now, 2);
-    this.rainLP.frequency.setTargetAtTime(350 + 500 * Math.exp(-camD / 15), now, 1);
+    this.rainLP.frequency.setTargetAtTime(250 + 330 * Math.exp(-camD / 15), now, 1); // (at 350-850 Hz its patter ran on above 1 kHz as a faint hiss)
     this.baseRev.gain.setTargetAtTime(0.5 * (Z.caveAmt + 0.6 * Z.iceAmt), now, 1);
     this.fxRev.gain.setTargetAtTime(0.25 + 0.6 * Math.max(Z.caveAmt, Z.iceAmt) + 0.3 * F.far + 0.3 * F.deep, now, 1);
     this.lifeRev.gain.setTargetAtTime(0.3 + 0.5 * Z.caveAmt, now, 1);
@@ -641,13 +646,15 @@ export class Ambience {
   // sets its band and pace (quick and light under a shallow surface, slow and heavy over a reef, long in open water);
   // over a swell the sand shifts with it, and in the shallows pebbles roll at the top
   _surge(v, t, amt, lead) {
-    const F = this.F, up = R(0.35, 1.1) * F.up, hold = R(0.1, 0.5) * Math.sqrt(F.up), down = R(1, 2.8) * F.up, pk = R(0.6, 1), top = t + up + hold;
-    const lo = F.slLo, hi = F.slHi, mid = Math.sqrt(lo * hi);
+    // (a storm, sg: each surge heavier, deeper in the trough and a little lower, the next one sooner)
+    const sg = this.sg || 0, sp = 1 - 0.3 * sg;
+    const F = this.F, up = R(0.35, 1.1) * F.up * sp, hold = R(0.1, 0.5) * Math.sqrt(F.up), down = R(1, 2.8) * F.up * sp, pk = R(0.6, 1) * (1 + 0.8 * sg), top = t + up + hold;
+    const lo = F.slLo * (1 - 0.2 * sg), hi = F.slHi * (1 - 0.2 * sg), mid = Math.sqrt(lo * hi);
     v.env.gain.cancelScheduledValues(t); v.bp.frequency.cancelScheduledValues(t); v.depth.gain.cancelScheduledValues(t);
-    v.env.gain.setTargetAtTime(pk, t, up / 3); v.env.gain.setTargetAtTime(R(0.06, 0.15), top, down / 3);
+    v.env.gain.setTargetAtTime(pk, t, up / 3); v.env.gain.setTargetAtTime(R(0.06, 0.15) * (1 - 0.5 * sg), top, down / 3);
     v.bp.frequency.setTargetAtTime(R(mid, hi), t, up / 2); v.bp.frequency.setTargetAtTime(R(lo, mid), top, down / 2);
     v.depth.gain.setTargetAtTime(R(500, 1000), t, 0.2); v.depth.gain.setTargetAtTime(R(150, 250), top, down / 2);
-    v.due = top + down * R(0.3, 0.9) + R(0.4, 3) * F.gap / (0.5 + amt * this.Z.act);
+    v.due = top + down * R(0.3, 0.9) + R(0.4, 3) * F.gap / (0.5 + amt * this.Z.act) / (1 + 1.5 * sg) * (1 + 0.6 * (this.still || 0));
     if (Math.random() < 0.25 * amt) this._bub(top - R(0, 0.3), true, 0.7 * amt);
     if (!lead) return;
     if (F.swell > 0.15 && this.buf._sand) { // the sand lifts with the surge and settles after it
@@ -772,7 +779,7 @@ export class Ambience {
     fire('kelp', Z.kelp, 4, 15, (t, a) => this._creak(t, a * 0.6, true));
     // the zone family's own water events
     const sh = Math.exp(-Z.camD / 6) * Z.open;
-    water('breaker', (0.5 * F.lap + 0.2 * F.swell + 0.8 * this.surge) * sh, 10, 28);
+    water('breaker', (0.5 * F.lap + 0.2 * F.swell + 0.8 * this.surge) * sh + 1.2 * this.surge * Math.exp(-Z.camD / 8), 10, 28); // (storm breakers: a few a minute at 5 m)
     water('knock', F.wood, 5, 16);
     water('hglug', F.hollow * Math.max(Z.caveAmt, 0.3), 5, 14);
     water('boomFar', F.far, 22, 55);
