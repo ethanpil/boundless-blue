@@ -450,6 +450,7 @@ if (crFin) {
   fc = mix(fc, cA, pk.x * smoothstep(0.72, 0.93, fw));
   fc = mix(fc, fc * 1.3 + 0.025, smoothstep(0.7, 1.0, fw) * 0.55 * (1.0 - pk.x)); // thin membrane edge
   crCol = mix(mix(crCol, cP, m1.x), fc, smoothstep(0.02, 0.3, fw));
+  crCol *= 0.8 + 0.2 * smoothstep(0.0, 0.2, fw); // the body shades the fin root: fins look set into it, not pasted on
   crSheen *= 0.35;
   crRough = max(crRough, 0.42);
 } else {
@@ -593,6 +594,20 @@ const FRAG_SHEEN = /* glsl */`
   env += uSunColor * uSunScatter * (0.6 * up * up * up + 0.45 * pow(max(dot(rd, uSunDir), 0.0), 8.0)) * exp(-uLightSigma * dB) * sk;
   vec3 irid = 0.88 + 0.12 * cos(6.2831853 * (nv * 1.4 + vec3(0.0, 0.33, 0.67)));
   reflectedLight.indirectSpecular += env * irid * crSheen * (0.3 + 0.7 * fr) * 1.5;
+  // the flash of a school: a silver flank is a vertical mirror. Seen side-on it reflects the dim blue water; a roll or
+  // turn of a few tens of degrees swings the reflection into Snell's window (rd.y above ~0.66) or onto the sun, and the
+  // flank blinks white for an instant. The roll and the spine bend already turn the normals, so this ripples through a
+  // school by itself. Squared sheen: strong on silvery fish (sheen ~1), all but absent on matte skin and fins. Flanks
+  // only: the mirror guanine is on the sides, and the back would otherwise catch the window all the time.
+  float crWin = (smoothstep(0.6, 0.78, rd.y) + 1.6 * pow(max(dot(rd, uSunDir), 0.0), 40.0)) * smoothstep(0.85, 0.55, abs(wN.y));
+  // (moonlight keeps a faint glint: the window is dim at night)
+  reflectedLight.indirectSpecular += uSunColor * (uSunScatter * crWin * crSheen * crSheen * 0.6 * (1.0 - 0.6 * uNight)) * exp(-uLightSigma * dB) * sk;
+  if (crPart == 4.0) {
+    // catchlight: the wet cornea mirrors a small bright point of Snell's window (or the lamps beside the lens), so a
+    // near eye reads as alive rather than a painted disc
+    float cl = smoothstep(0.7, 0.9, rd.y) * uSunScatter * sk * (1.0 - 0.6 * uNight);
+    reflectedLight.indirectSpecular += uSunColor * cl * 0.7 * exp(-uLightSigma * dB) + vec3(1.0, 0.94, 0.85) * (uLamp * pow(nv, 60.0) * exp(-uSigma * length(vViewPosition)) * 1.2);
+  }
   if (uLamp > 0.001) {
     // ROV lamps: white bellies and silver flanks (albedo ~0.85, several times the reef's) facing the lamps clipped to
     // glowing white blobs. Under the lamps an animal's direct light gets a soft knee on bright albedo only (darker and
@@ -629,7 +644,8 @@ function patchShader(shader, jelly) {
     .replace('#include <aomap_fragment>', FRAG_SHEEN);
   const finT = `if (crFin || crTip > 0.0) { // thin fins and octopus arm tips let light through
       vec3 vdir = normalize(vWPos - cameraPosition);
-      float bl = pow(max(dot(vdir, uSunDir), 0.0), 3.0);
+      // toward the sun, and (seen from below) against the bright surface: fins glow as the downwelling light comes through
+      float bl = pow(max(dot(vdir, uSunDir), 0.0), 3.0) + 0.35 * smoothstep(0.45, 0.9, vdir.y);
       float dB = max(0.0, uSurfaceY - vWPos.y);
       crGlow += diffuseColor.rgb * (uSunColor * uSunScatter * bl * 0.55 * exp(-uLightSigma * dB) * skyVis(vWPos) + 0.05 * uAmbientScale) * (crFin ? 1.0 : crTip * 0.6);
     }
