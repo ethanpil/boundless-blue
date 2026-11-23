@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { applyWater } from '../water.js';
 
 const VERT_HEAD = /* glsl */`
+uniform float uTime;
 attribute vec4 aG;
 attribute vec4 aCol;
 attribute vec4 aCol2;
@@ -93,8 +94,23 @@ void crDeform(inout vec3 p, inout vec3 n) {
     float s = sin(arg), c = cos(arg);
     p.x += A * env * s;
     n.z += A * (denv * s - env * K * c) * n.x;
-    if (isPaired) p.y += aG.w * 0.035 * sin(ph * 0.7 + 1.3);
+    if (isPaired) {
+      p.y += aG.w * 0.035 * sin(ph * 0.7 + 1.3);
+      // sculling: a hovering fish fans its pectorals (left and right out of phase, ~1.5 Hz), fading out with way on
+      float rest = 1.0 - smoothstep(0.45, 1.1, aAnim.y);
+      // (9.400234 = 6128 x 2 pi / 4096: whole cycles per uTime wrap, so the fins do not pop once an hour)
+      p.z += aG.w * 0.04 * rest * sin(uTime * 9.400234 + sign(p.x) * 1.7 + aVar.x * 23.0);
+    }
     if (isMedian) p.x += aG.w * 0.012 * sin(ph * 1.7 - aG.z * 6.0);
+    // always-on ripple along the edge of the dorsal and anal fins (3 Hz = whole cycles per uTime wrap), tiny
+    if (isMedian) p.x += aG.w * aG.w * 0.006 * sin(uTime * 18.849556 - aG.z * 14.0);
+    if (part < 0.5) {
+      // breathing: the gill covers swell and close just behind the eye, ~1 Hz (2 pi rad/s: whole cycles per uTime
+      // wrap), strongest at rest. Bony fish only (low byte of aCol2.w >= 8 marks no gill cover: sharks, eels, seals)
+      float gb = aCol2.w - floor(aCol2.w / 256.0) * 256.0;
+      float br = (1.0 - step(7.5, gb)) * (1.0 - smoothstep(0.45, 1.1, aAnim.y)) * smoothstep(0.1, 0.17, tt0) * (1.0 - smoothstep(0.2, 0.3, tt0));
+      p.x *= 1.0 + 0.08 * br * (0.5 + 0.5 * sin(uTime * 6.2831853 + aVar.x * 17.0));
+    }
     if (isFlipper) crRotZ(p, n, aG.z, 0.25 * sin(ph * 0.5) * sign(p.x) - 0.3 * clamp(bend, -1.0, 1.0));
   } else if (mode < 1.5) {
     // vertical wave (cetaceans, sirenians)
