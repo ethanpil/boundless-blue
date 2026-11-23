@@ -14,6 +14,8 @@ Small touches toward a lifelike picture, each costing a few shader instructions 
 - On faster devices marine snow lights up inside the sun shafts; rain shows as a restless speckle on the surface from below; a few small bubbles rise past the lens; anemones and sargassum move with the same surge as everything else; sand is paler in hollows; steep rock has faint seep streaks.
 - Jellies are soft and glow at the rim under the lamps instead of flashing; sharks and whales have subtle skin detail on faster devices; turtle shells show clean scutes.
 - A long call follows your view as you turn; orca calls are as loud as the other toothed whales; animals to the sides and behind call too.
+- Hovering fish fan their fins and pump their gills, and long fins ripple; under broken cloud, soft shadows sweep the shallow seabed; plankton drifts past in thicker and thinner patches; more scenery in the band beside the route in nine zones at no extra cost.
+- The reef's evening chorus swells after dusk and fades late at night; parrotfish fall quiet at night; at the whale fall, big and small sharks tear with different voices.
 
 ## [2026-11-16]
 
