@@ -111,9 +111,14 @@ export class Post {
             float sg = dot(uSigma, vec3(0.33));
             float L = 0.0;
             float ld = min(dist, 40.0);
-            for (int i = 0; i < 8; i++) {
-              float u = (float(i) + j) / 8.0;
-              float t = ld * u * u + 0.2, st = ld * 2.0 * u / 8.0 + 0.01;
+#if WQ == 0
+            const int LN = 4;   // low: 2 beams x 4 samples, the cost of the old single-cone march (jitter + history fill in)
+#else
+            const int LN = 8;
+#endif
+            for (int i = 0; i < LN; i++) {
+              float u = (float(i) + j) / float(LN);
+              float t = ld * u * u + 0.2, st = ld * 2.0 * u / float(LN) + 0.01;
               for (int k = 0; k < 2; k++) {
                 vec3 lp = vec3(k == 0 ? -0.8 : 0.8, -0.3, 0.0);
                 vec3 toS = dV * t - lp;
@@ -400,7 +405,10 @@ export class Post {
           col *= mix(uWbFar, uWbNear, Tv);
           // contrast around mid grey (luminance only, so hues are kept)
           float L = max(lum(col), 1e-6);
-          float Lc = 0.18 * pow(L / 0.18, uGrade.y);
+          // a low sun (dawn, dusk) lights from the side through a long, clearer slant: a touch more contrast than at
+          // noon (the refracted sun's height runs from 0.96 at noon to 0.66 at the horizon; none at night)
+          float lowSun = smoothstep(0.93, 0.7, uSunDir.y) * (1.0 - uNight);
+          float Lc = 0.18 * pow(L / 0.18, uGrade.y * (1.0 + 0.07 * lowSun));
           col *= Lc / L;
           // night: mesopic vision, dim parts lose colour and shift blue; lamp-lit subjects keep theirs
           col = mix(col, vec3(Lc) * vec3(0.7, 0.92, 1.28), uNight * (1.0 - smoothstep(0.012, 0.16, Lc)) * 0.65);

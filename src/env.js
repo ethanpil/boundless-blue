@@ -76,7 +76,8 @@ export class Surface {
           vec2 g = (g1 + g2 + g3 * 0.25) * rough;
           float dist = length(vWPos - cameraPosition);
           float distFade = exp(-dist * 0.012);
-          if (uRain > 0.01) g += rainGrad(q, t) * 0.9 * uRain * exp(-dist * 0.03);
+          vec2 gr = vec2(0.0);
+          if (uRain > 0.01) { gr = rainGrad(q, t) * 0.9 * uRain * exp(-dist * 0.03); g += gr; }
           vec3 N = normalize(vec3(g.x * 0.55 * distFade, -1.0, g.y * 0.55 * distFade));
           vec3 R = reflect(V, N);
           // total internal reflection mirrors the lit seabed in shallow water
@@ -100,7 +101,8 @@ export class Surface {
           // Snell's window: the sky squeezed into a 97 degree cone (critical angle 48.6 deg, cos 0.6614).
           // Its rim follows the smoothed waves (swell and half the chop) and fades over ~5 degrees, so the
           // ripples cannot cut it into hard-edged patches. Transmission is the Schlick term on the air side.
-          vec2 gw = (g1 + 0.5 * g2) * rough * 0.55 * distFade;
+          // rain rings make the rim jitter, and a storm's chop breaks it up further (both already computed above)
+          vec2 gw = (g1 + 0.5 * g2 + 0.5 * uSurge * g3) * rough * 0.55 * distFade + gr * 0.5;
           float ciW = -dot(V, normalize(vec3(gw.x, -1.0, gw.y)));
           float ctW = sqrt(max(0.0, 1.0 - 1.777 * (1.0 - ciW * ciW)));   // cos of the air-side angle, 0 at the rim
           float win = smoothstep(0.6614, 0.712 + 2.0 * fwidth(ciW), ciW) * (0.98 - 0.98 * pow(1.0 - ctW, 5.0));
@@ -213,7 +215,11 @@ export class MarineSnow {
     });
     const mat = new THREE.ShaderMaterial({
       uniforms: this.uniforms,
+      defines: { WQ: waterQuality() },
       vertexShader: /* glsl */`
+        uniform sampler2D uCaustics, uSkyMap;
+        uniform vec2 uSkyOrigin;
+        uniform float uSkySize, uSkyActive;
         attribute vec4 aRand;
         attribute float aNear;
         uniform float uBox, uDensity, uGlowAmt, uPx, uTime, uSpawn, uCamSpeed, uNight, uLamp, uSizeK;
@@ -258,6 +264,32 @@ export class MarineSnow {
             if (uLamp > 0.001) lit += vec3(1.0, 0.94, 0.85) * uLamp * (0.5 + 1.4 * lampBeams(mv.xyz)) / (1.0 + 0.2 * d * d);
             vCol = vec4(lit * exp(-uSigma * d), vis * 0.09);
             vShape = vec3(1.0, 0.0, -1.0);
+            if (aRand.w > 0.85) {
+              // Some are small air bubbles rising past the lens now and then (more often as the craft speeds up):
+              // 0.2-0.3 m/s with a quick zigzag, flattened, silvery (they mirror the light around them). They live in
+              // a 4 m box (divides 1024) just ahead of the lens, so the few there are can be seen.
+              p = position + surge + vec3(0.11, 0.0, 0.06) * uTime
+                + vec3(0.02 * sin(uTime * 9.0 + aRand.x * 40.0), uTime * (0.2 + 0.1 * aRand.x), 0.02 * cos(uTime * 8.0 + aRand.y * 40.0));
+              vec3 bc = uCamR - vec3(viewMatrix[0][2], viewMatrix[1][2], viewMatrix[2][2]) * 2.2;
+              r = mod(p - bc, 4.0) - 2.0;
+              p = r + bc;
+              mv = modelViewMatrix * vec4(p, 1.0);
+              d = -mv.z;
+              ar = abs(r);
+              float cyc = fract(uTime * 0.025 + aRand.z * 7.0), on = clamp(0.1 + 0.08 * uCamSpeed, 0.1, 0.6);
+              vis = smoothstep(0.0, 0.04, cyc) * smoothstep(on, on - 0.04, cyc) * smoothstep(1.95, 1.5, max(ar.x, max(ar.y, ar.z)))
+                * smoothstep(0.35, 0.8, d) * step(p.y, uSurfaceY - 0.3);
+              // none under a roof (cave, ice, overhang): the sky-visibility map is ~0 there; kelp canopy keeps some
+              if (uSkyActive > 0.5 && vis > 0.004) {
+                vec2 su = (p.xz - uSkyOrigin) / uSkySize;
+                if (su.x > 0.0 && su.y > 0.0 && su.x < 1.0 && su.y < 1.0) vis *= smoothstep(0.05, 0.2, textureLod(uSkyMap, su, 0.0).r);
+              }
+              gl_PointSize = clamp((0.016 + 0.012 * aRand.y) * uPx / max(d, 0.1), 2.0, 28.0);
+              gl_Position = vis > 0.004 ? projectionMatrix * mv : vec4(2.0, 2.0, 2.0, 1.0);
+              vCol = vec4((lit * 1.3 + uWaterUp * 0.4) * exp(-uSigma * d), vis * 0.5);
+              float wob = 0.15 * sin(uTime * 11.0 + aRand.z * 30.0);
+              vShape = vec3(cos(wob), sin(wob), -2.0);
+            }
             return;
           }
           bool spawn = aRand.w > 1.0 - 0.3 * uSpawn;     // coral-spawning bundles rise instead of sink
@@ -280,6 +312,16 @@ export class MarineSnow {
           vec3 T = exp(-uSigma * d);
           float dB = max(0.0, uSurfaceY - p.y);
           vec3 sunL = uSunColor * uSunScatter * exp(-uLightSigma * dB) * swellFocus(p.xz, dB);   // as the seabed
+#if WQ > 0
+          // medium and up: flakes inside a sun shaft catch its light and those in the shade between shafts dim,
+          // from the same focusing bands (caustics B, 16 m) and the same contrast fade as the god rays in post.js
+          {
+            vec2 qs = p.xz - uSunDir.xz / max(uSunDir.y, 0.35) * (p.y - uSurfaceY);
+            float b = textureLod(uCaustics, qs / 16.0, 1.5).b;
+            float kb = exp(-dB * 0.045) * clamp(1.2 - 0.95 * uCloud, 0.15, 1.0) * 0.6;
+            sunL *= max(1.0 + (b * b * b * 3.7 - 1.0) * kb, 0.35);   // flakes in the shade stay visible
+          }
+#endif
           // particles glow when backlit by the sun (strong forward scattering), like dust in a sunbeam
           vec3 vdir = normalize(p - cameraPosition);
           float fwd = pow(max(dot(vdir, uSunDir), 0.0), 6.0);
@@ -316,6 +358,16 @@ export class MarineSnow {
         void main() {
           vec2 c = gl_PointCoord - 0.5;
           c = vec2(c.x * vShape.x - c.y * vShape.y, c.x * vShape.y + c.y * vShape.x);   // tumbling flakes
+          if (vShape.z < -1.5) {
+            // bubble: flattened (wider than tall), a bright rim and a small highlight, nearly clear inside
+            c.y *= 1.35;
+            float rb = length(c);
+            float ab = smoothstep(0.5, 0.42, rb) * (0.2 + 0.8 * smoothstep(0.22, 0.4, rb))
+              + 0.8 * smoothstep(0.12, 0.0, length(c - vec2(-0.1, -0.12)));
+            if (vCol.a * ab < 0.004) discard;
+            gl_FragColor = vec4(vCol.rgb * ab * vCol.a, 1.0);
+            return;
+          }
           c.x *= abs(vShape.z);
           float rr = length(c);
           // flakes: a soft dot; out-of-focus discs: flat with a slightly brighter rim, like a lens bokeh
