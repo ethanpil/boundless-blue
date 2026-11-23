@@ -379,14 +379,16 @@ export class Ambience {
     this._seen = new WeakSet(); // encounter events already heard (strike, lunge, play...)
     this._sfx = new Map();      // encounter uid -> time its next splash / wake may sound
     this._wf = { bite: 0, chunk: 0, displace: 0, arrive: 0, sweep: 0, snap: 0 }; // whale-fall crowd events heard
-    this._ans = { kind: '', t: 0, d: 0, pan: 0, uid: 0 }; // a pending answer from a group mate
+    this._ans = { kind: '', t: 0, d: 0, pan: 0, rear: 0, uid: 0 }; // a pending answer from a group mate
     this._cents = 0; this._T = 1; this._lifeGap = 0; this._lastKind = ''; this._lastKindT = 0; this._warmK = ''; this._wakeT = 0; // pitch (cents) and tempo of the animal calling now; next call start
     this.Z = { ...Z0 };   // blended zone amounts
     this.mix = {};        // latest bus targets (debug)
-    this.cand = Array.from({ length: low ? 3 : 5 }, () => ({ kind: '', d: 1e9, pan: 0, uid: 0, vis: false, n: 1 })); // nearest callers
+    this.cand = Array.from({ length: low ? 3 : 5 }, () => ({ kind: '', d: 1e9, pan: 0, rear: 0, uid: 0, vis: false, n: 1 })); // nearest callers
     this.nCand = 0;
     this._due = new Map(); // encounter uid -> time of its next call
-    this.diverD = 1e9; this.diverPan = 0; this.closeN = 0;
+    this.diverD = 1e9; this.diverPan = 0; this.diverRear = 0; this.closeN = 0;
+    this._turn = 0; this._v0 = -1; this._acc = 0; this._stirT = 0; // the craft: yaw rate, speed, its change; next stir
+    this._rear = 0; this._rr = 0; // how far behind the view the voice being made is (0 ahead or beside, 1 straight behind)
     this._next = 0; this._scan = 0; this._susT = 0; this._lifeFar = true; this._lastS = null; this.speed = 0; this.night = 0;
     this._dueE = { slap: 0, drip: 0, ice: 0, kelp: 0, life: 0, diver: 0, trail: 0, glug: 0 };
     this._curve = new Float32Array(16); // reused frequency contours (setValueCurveAtTime copies it)
@@ -508,6 +510,8 @@ export class Ambience {
     this.fxRev = g(0.3, this.revIn); bus.fx.connect(this.fxRev);
     this.lifeRev = g(0, this.revIn); bus.chorus.connect(this.lifeRev);
     // lapping (lazy loop) and the sand under the swell (lazy loop through a gain the surges open and close)
+    // the rush of water past the ears, rising and falling with the craft's speed: the pink loop under ~400 Hz
+    this.rushG = g(0, bus.base); this.rushLP = f('lowpass', 330, 0.6, this.rushG); pinkS.connect(this.rushLP);
     this.lapIn = f('lowpass', 900, 0.5, bus.lap);
     this.sandEnv = g(0.15, f('lowpass', 600, 0.7, bus.sand));
   }
@@ -600,6 +604,26 @@ export class Ambience {
     this.fxRev.gain.setTargetAtTime(0.25 + 0.6 * Math.max(Z.caveAmt, Z.iceAmt) + 0.3 * F.far + 0.3 * F.deep, now, 1);
     this.lifeRev.gain.setTargetAtTime(0.3 + 0.5 * Z.caveAmt, now, 1);
     for (let i = 0; i < this.slosh.length; i++) { const v = this.slosh[i]; if (now >= v.due) this._surge(v, now + R(0, 0.2), Z.slosh, i === 0); }
+    this._craft(now, dt);
+  }
+
+  // The craft (camera.js): the water rushes past a little louder and brighter as it speeds up; a turn or a change of
+  // speed stirs it, an early slosh surge and a few bubbles sliding past on the outside of the turn (in the view's frame)
+  _craft(now, dt) {
+    const D = this.env.camDirector, cr = D && D.craft, H = D && D.heading;
+    const v = cr && cr.v > 0 ? cr.v : this.speed, turn = this._turn = cr && cr.H ? cr.H.v || 0 : 0; // m/s; rad/s, + = left
+    if (this._v0 >= 0 && dt > 0) this._acc += ((v - this._v0) / dt - this._acc) * 0.4;
+    this._v0 = v;
+    const u = Math.min(2.2, v / 3);
+    this.rushG.gain.setTargetAtTime(0.45 * u * Math.sqrt(u), now, 1.5);
+    this.rushLP.frequency.setTargetAtTime(270 + 60 * u, now, 1.5);
+    if (!H || now < this._stirT || Math.abs(turn) / 0.03 + Math.abs(this._acc) / 0.2 < 1) return; // (bends: 1-3 deg/s)
+    this._stirT = now + R(8, 16); this._count('stir');
+    const side = Math.abs(turn) > 0.02 ? Math.sign(-turn) : Math.random() < 0.5 ? -1 : 1; // outside: right in a left turn
+    const ox = -H.z * side * 3, oz = H.x * side * 3, p0 = this._dir(ox + 2 * H.x, 0, oz + 2 * H.z), p1 = this._dir(ox - 3 * H.x, 0, oz - 3 * H.z);
+    const sl = this.slosh[p0 + p1 > 0 ? 1 : 0];
+    if (sl) this._surge(sl, now + R(0, 0.3), Math.min(1, this.Z.slosh), false);
+    for (let k = Math.random() < 0.3 ? 2 : 1; k > 0; k--) this._bub(now + R(0.1, 0.9), false, R(0.4, 0.65), p0, p1);
   }
 
   // one slosh surge: the water swells past (gain up, band rises, gurgle deepens), then drains away. The zone family
@@ -628,14 +652,14 @@ export class Ambience {
   // dives and breaches at the surface. Reads encounter state and allocates nothing after the first sighting
   _look(now) {
     const O = window.__ocean || {}, cam = this.env.camera.position, Oz = -this.env.world.position.z;
-    const me = this.env.camera.matrixWorld.elements, rx = me[0], ry = me[1], rz = me[2]; // camera right
+    // (pan and rear come from the camera's own matrix: the view, which the viewer can turn, not the travel direction)
     const cand = this.cand, K = cand.length; let nc = 0, close = 0;
     const enc = O.creatures && O.creatures.enc;
     if (enc) for (const e of enc) {
       if (e.done || !(e.fade > 0.3)) continue;
       if (e.dist < 6 && e.visible) close++;
       const b = e.bounds;
-      if (e.dist < 60 && this._sfxDue(e, now)) this._behave(e, now, cam, Oz, rx, ry, rz);
+      if (e.dist < 60 && this._sfxDue(e, now)) { this._behave(e, now, cam, Oz); this._rear = 0; }
       const kind = e.sp && CALLS[e.sp.key];
       if (!kind || e.dist > VOICE[kind][0]) continue;
       if (kind === 'sweeper' && this.night < 0.25) continue; // sweepers call after dusk
@@ -649,7 +673,7 @@ export class Ambience {
       cand[i] = slot;
       const dx = b.x - cam.x, dy = b.y - cam.y, dz = e.anchorZ + b.z - Oz - cam.z;
       slot.kind = kind; slot.d = e.dist; slot.uid = e.uid; slot.vis = !!e.visible; slot.n = e.n || 1;
-      slot.pan = 0.8 * Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / (Math.hypot(dx, dy, dz) || 1)));
+      slot.pan = this._dir(dx, dy, dz); slot.rear = this._rr;
     }
     this.nCand = nc; this.closeN = close;
     for (let i = nc; i < K; i++) cand[i].d = 1e9;
@@ -661,8 +685,15 @@ export class Ambience {
     const a = O.surprises && O.surprises.active;
     if (a && !a.done && a.kind === 'divers' && a.divers) for (const d of a.divers) {
       const dx = d.x - cam.x, dy = d.y - cam.y, dz = d.z - Oz - cam.z, dd = Math.hypot(dx, dy, dz);
-      if (dd < this.diverD) { this.diverD = dd; this.diverPan = 0.8 * Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / (dd || 1))); }
+      if (dd < this.diverD) { this.diverD = dd; this.diverPan = this._dir(dx, dy, dz); this.diverRear = this._rr; }
     }
+  }
+  // stereo position of an offset from the camera (render space) in the VIEW's frame: pan from the camera's right axis;
+  // this._rr = how far behind the view it is (0 ahead or beside, 1 straight behind), for _out's rear dulling
+  _dir(dx, dy, dz) {
+    const me = this.env.camera.matrixWorld.elements, l = Math.hypot(dx, dy, dz) || 1;
+    this._rr = clamp01((dx * me[8] + dy * me[9] + dz * me[10]) / l); // (the camera looks down its -z axis)
+    return 0.8 * Math.max(-1, Math.min(1, (dx * me[0] + dy * me[1] + dz * me[2]) / l));
   }
   // may this animal make a water sound now? (a new event always may; splashes and wakes have a per-animal cooldown)
   _sfxDue(e, now) {
@@ -671,9 +702,9 @@ export class Ambience {
     return t === undefined || now >= t;
   }
   // the water sounds of what an animal is doing
-  _behave(e, now, cam, Oz, rx, ry, rz) {
+  _behave(e, now, cam, Oz) {
     const b = e.bounds, dx = b.x - cam.x, dy = b.y - cam.y, dz = e.anchorZ + b.z - Oz - cam.z, d = e.dist;
-    const pan = 0.8 * Math.max(-1, Math.min(1, (dx * rx + dy * ry + dz * rz) / (Math.hypot(dx, dy, dz) || 1)));
+    const pan = this._dir(dx, dy, dz); this._rear = this._rr;
     const key = e.sp && e.sp.key, r = b.r || 1, ev = e.event, t = now + R(0.05, 0.3);
     if (ev && !this._seen.has(ev)) {
       this._seen.add(ev);
@@ -728,7 +759,7 @@ export class Ambience {
     if (now >= due.glug) { this._bub(now + R(0.05, 0.3), true, R(0.6, 1)); due.glug = now + R(7, 20) / Math.max(0.3, (0.8 + 0.5 * Z.wash + 0.3 * Z.slosh) * Math.sqrt(F.bubD)); }
     if (now >= due.diver) {
       due.diver = now + R(4, 7);
-      if (this.diverD < 45 && !full()) this._exhale(now + 0.05, this.diverD, this.diverPan);
+      if (this.diverD < 45 && !full()) { this._rear = this.diverRear; this._exhale(now + 0.05, this.diverD, this.diverPan); this._rear = 0; }
     }
     this._crowd(now);
     // animals near: each of the nearest callers calls on its own timer (sooner while in view or in a bigger group)
@@ -739,16 +770,17 @@ export class Ambience {
       if (n.kind === this._lastKind && now < this._lastKindT) continue; // (and not the same voice twice running)
       if (full()) { this._due.set(n.uid, now + R(0.5, 2)); continue; }
       const v = VOICE[n.kind], member = n.n > 1 ? ri(Math.min(n.n, 8)) : 0;
-      this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan, n.uid * 16 + member); this._duckFor(now, v[3], n.d); calls++; this._lifeGap = now + R(0.35, 0.8); this._lastKind = n.kind; this._lastKindT = now + R(1.5, 3);
+      this._rear = n.rear; this._call(n.kind, now + R(0.05, 0.25), n.d, n.pan, n.uid * 16 + member); this._duckFor(now, v[3], n.d); calls++; this._lifeGap = now + R(0.35, 0.8); this._lastKind = n.kind; this._lastKindT = now + R(1.5, 3);
       this._due.set(n.uid, now + R(v[1], v[2]) * (n.vis ? 0.7 : 1) / Math.min(1.3, 1 + 0.1 * (n.n - 1)));
       // a group mate answers; a big group sometimes calls together
       if (n.n > 1 && ANSWER.has(n.kind) && Math.random() < (VOICE[n.kind][0] < 50 ? 0.25 : 0.45) && !this._ans.kind) {
-        const A = this._ans; A.kind = n.kind; A.t = now + v[3] * 0.7 + R(0.3, 1.2); A.d = n.d * R(0.85, 1.2); A.pan = Math.max(-0.8, Math.min(0.8, n.pan + R(-0.4, 0.4))); A.uid = n.uid * 16 + ((member + 1 + ri(3)) % 8);
+        const A = this._ans; A.kind = n.kind; A.t = now + v[3] * 0.7 + R(0.3, 1.2); A.d = n.d * R(0.85, 1.2); A.pan = Math.max(-0.8, Math.min(0.8, n.pan + R(-0.4, 0.4))); A.rear = n.rear; A.uid = n.uid * 16 + ((member + 1 + ri(3)) % 8);
       }
       if (n.n >= 6 && CHORUS.has(n.kind) && Math.random() < 0.3) for (let k = 1 + ri(2); k > 0 && !full(); k--) this._call(n.kind, now + R(0.2, 1), n.d * R(0.9, 1.3), Math.max(-0.8, Math.min(0.8, n.pan + R(-0.5, 0.5))), n.uid * 16 + 8 + k);
+      this._rear = 0;
     }
     const A = this._ans;
-    if (A.kind && now >= A.t) { if (!full()) this._call(A.kind, now + 0.05, A.d, A.pan, A.uid); A.kind = ''; }
+    if (A.kind && now >= A.t) { this._rear = A.rear; if (!full()) this._call(A.kind, now + 0.05, A.d, A.pan, A.uid); this._rear = 0; A.kind = ''; }
     if (this.nCand && this._lifeFar) this._lifeFar = false;
     if (!this.nCand && now >= due.life) { // far away, unseen: whale song in open water, seals under the ice
       const first = !this._lifeFar; this._lifeFar = true;
@@ -764,19 +796,20 @@ export class Ambience {
   _crowd(now) {
     const O = window.__ocean || {}, W = O.creatures && O.creatures.director && O.creatures.director.wfCrowd, last = this._wf;
     if (!W || !W.ev) return;
-    const cam = this.env.camera.position, Oz = -this.env.world.position.z, me = this.env.camera.matrixWorld.elements;
+    const cam = this.env.camera.position, Oz = -this.env.world.position.z;
     for (const k in last) {
       const n = W.ev[k] || 0, was = last[k]; last[k] = n;
       if (n <= was || !W.p || n - was > 3) continue; // (a jump of many: a reset or a first look, not events to play)
       const x = W.lx ?? cam.x, y = W.ly ?? cam.y, z = W.lz ?? (cam.z + Oz);
       const dx = x - cam.x, dy = y - cam.y, dz = z - Oz - cam.z, d = Math.hypot(dx, dy, dz);
       if (d > 70) continue;
-      const pan = 0.8 * Math.max(-1, Math.min(1, (dx * me[0] + dy * me[1] + dz * me[2]) / (d || 1))), t = now + R(0.02, 0.2);
+      const pan = this._dir(dx, dy, dz), t = now + R(0.02, 0.2); this._rear = this._rr;
       if (k === 'bite') this._water('tear', t, 0.8, pan, d);
       else if (k === 'chunk') { this._water('tear', t, 1.3, pan, d); this._water('scatter', t + 0.5, 1, pan, d); }
       else if (k === 'displace') this._water('thrash', t, 1, pan, d);
       else if (k === 'snap') this._water('snap', t, 0.8, pan, d);
       else this._water(k === 'sweep' ? 'scatter' : 'wake', t, 0.8, pan, d);
+      this._rear = 0;
     }
   }
 
@@ -791,8 +824,10 @@ export class Ambience {
   // ---------- one-shot helpers ----------
   // voice output: gain -> lowpass -> pan -> bus, plus a reverb send. Returns the input gain; its `chain` lists the
   // nodes after it, which _hold disconnects too (left wired to the bus, every voice ever played stayed in the graph).
+  // A voice behind the view (this._rear, set around the call) is a little duller and quieter, as the head shadows it.
   _out(pan, lp, gain, wet, bus) {
-    const c = this.ctx, g = c.createGain(), f = c.createBiquadFilter();
+    const c = this.ctx, g = c.createGain(), f = c.createBiquadFilter(), rr = this._rear;
+    if (rr > 0) { lp *= 1 - 0.55 * rr; gain *= 1 - 0.3 * rr; }
     g.gain.value = gain; f.type = 'lowpass'; f.frequency.value = lp; f.Q.value = 0.5;
     g.connect(f);
     g.chain = [f];
@@ -803,9 +838,10 @@ export class Ambience {
     if (wet > 0) { const w = c.createGain(); w.gain.value = wet; o.connect(w); w.connect(this.revIn); g.chain.push(w); }
     return g;
   }
-  // a call heard from d metres: quieter, darker and wetter with distance
+  // a call heard from d metres: quieter, darker and wetter with distance (unchanged within ~15 m; a far caller reaches
+  // the ear mostly through the water's reverberation, so past ~100 m it is mostly tail)
   _far(d, pan, level, lpMax = 9000) {
-    return this._out(pan, Math.min(lpMax, 500 + 9000 * Math.exp(-d / 60)), LIFE_GAIN * level / (1 + d / 45), Math.min(0.85, 0.12 + d / 160), this.bus.life);
+    return this._out(pan, Math.min(lpMax, 400 + 9000 * Math.exp(-d / 52)), LIFE_GAIN * level / (1 + d / 45), Math.min(1, 0.12 + d / 140), this.bus.life);
   }
   // count a voice until its last source ends, then drop its chain (bubble voices have their own count)
   _hold(src, head, bub) {
@@ -843,9 +879,10 @@ export class Ambience {
 
   // ---------- environment one-shots ----------
   // bubbles: a small trail rising past, or a big low glug
-  _bub(t, glug, a) {
+  _bub(t, glug, a, pan, pan1) { // (pan -> pan1: a trail sliding past)
     if (this.bVoices >= this.bCap) return;
-    const head = this._out(R(-0.75, 0.75), glug ? 1600 : R(2200, 3500), (glug ? 0.55 : 0.32) * a, 0.15, this.bus.bub);
+    const head = this._out(pan ?? R(-0.75, 0.75), glug ? 1600 : R(2200, 3500), (glug ? 0.55 : 0.32) * a, 0.15, this.bus.bub);
+    if (pan1 !== undefined && head.pan) { head.pan.pan.setValueAtTime(pan, t); head.pan.pan.linearRampToValueAtTime(pan1, t + 1); }
     const s = this._shot(pick(glug ? this.buf.glug : this.buf.trail), t, R(0.8, 1.25) * this.F.bubF, head); this._hold(s, head, true);
     this._count(glug ? 'glug' : 'trail');
   }
@@ -888,11 +925,13 @@ export class Ambience {
     const end = this._env(e.gain, t, 0.6, 1, dur - 1.4, 0.8);
     o.start(t); o.stop(end + 0.02); this._hold(o, head);
   }
+  // a far ice ping: a soft ringing tone (kept under 3 kHz with a slow onset: at up to 4.5 kHz with a 3 ms strike it
+  // stood out of the muffled bed as a sharp beep)
   _ping(t, a) {
-    const head = this._out(R(-0.8, 0.8), 8000, 0.08 * Math.min(1, a), 0.8, this.bus.fx);
-    const f0 = R(1500, 4500), e = this._gain(0, head), o = this._osc('sine', f0, e), dur = R(1, 2.5);
+    const head = this._out(R(-0.8, 0.8), 3200, 0.055 * Math.min(1, a), 0.8, this.bus.fx);
+    const f0 = R(1300, 2700), e = this._gain(0, head), o = this._osc('sine', f0, e), dur = R(1, 2.5);
     o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f0 * 0.97, t + dur);
-    const end = this._env(e.gain, t, 0.003, 1, 0, dur);
+    const end = this._env(e.gain, t, 0.04, 1, 0, dur);
     o.start(t); o.stop(end + 0.02); this._hold(o, head);
   }
   _exhale(t, d, pan) {
