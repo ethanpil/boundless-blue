@@ -82,8 +82,20 @@ export class Surface {
           vec3 R = reflect(V, N);
           // total internal reflection mirrors the lit seabed in shallow water
           float shallow = exp(-max(0.0, -cameraPosition.y) * 0.12) * smoothstep(45.0, 10.0, uFloorDist);
-          vec3 refl = mix(waterColor(R), uFloorCol, shallow * smoothstep(-0.05, -0.5, R.y) * 0.8);
-          refl *= 0.75 + 0.6 * (g.x + 0.5 * g.y);
+          // The seabed in a wavy mirror: streaks stretched along the view where the slopes tip the reflection (they
+          // drift with the swell), fogged by its own path down through the water, so it fades to the water colour
+          // toward the horizon instead of lying there as flat tan patches.
+          vec3 wR = waterColor(R);
+          float Lp = (max(0.0, uSurfaceY - cameraPosition.y) + uFloorDist) / max(-R.y, 0.2);
+          vec2 vd = normalize(V.xz + vec2(1e-4));
+          float streak = clamp(dot(1.4 * g2 + 0.5 * g3 * distFade, vd) * 2.5, -0.5, 0.5);
+          vec3 fl = uFloorCol * (1.0 + 0.9 * streak);
+#if WQ > 0
+          // medium and up: the seabed's own light and dark patches where the reflected ray lands (16 m: divides 1024)
+          fl *= 0.7 + 0.6 * texture2D(uNoiseTex, (vWPos.xz + R.xz * Lp) * 0.0625).r;
+#endif
+          vec3 refl = mix(wR, mix(wR, fl, exp(-uSigma * Lp)), shallow * smoothstep(-0.05, -0.5, R.y) * 0.8);
+          refl *= (0.75 + 0.6 * (g.x + 0.5 * g.y)) * (1.0 + 0.5 * streak);   // the mirror shimmers in streaks
           // Silver sheen: ripple faces tilted toward the bright water above (and the window) catch light, so the
           // mirror reads as a moving, rippled ceiling instead of flat blue. It fades with distance like the ripples.
           float sheen = smoothstep(0.1, 0.55, g.x * 0.8 + g.y * 0.6) * distFade;
